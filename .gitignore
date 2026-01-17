@@ -1,0 +1,19 @@
+# Build
+cmake-build-*/
+build/
+out/
+
+# CLion
+.idea/
+
+# Compiled
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+
+# OS
+.DS_Store
+Thumbs.db
