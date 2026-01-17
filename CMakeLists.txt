@@ -13,6 +13,7 @@ add_executable(Graphics_engine
         src/camera.cpp
         src/ui_text.cpp
         src/font_data.cpp
+        src/texture2d.cpp
 )
 
 find_package(glfw3 CONFIG REQUIRED)

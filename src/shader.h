@@ -13,6 +13,7 @@ public:
     
     void use() const;
     void setMat4(const char* name, const glm::mat4& mat) const;
+    void setInt(const char* name, int value) const;
     
 private:
     static GLuint compile(GLenum type, const char* source);
