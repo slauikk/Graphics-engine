@@ -65,7 +65,10 @@ int main() {
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "Graphics_engine", nullptr, nullptr);
+    // Повноекранний режим
+    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+    GLFWwindow* window = glfwCreateWindow(mode->width, mode->height, "Graphics_engine", monitor, nullptr);
     if (!window) {
         std::cerr << "Failed to create GLFW window\n";
         glfwTerminate();
@@ -94,10 +97,13 @@ int main() {
     // Enable depth testing
     glEnable(GL_DEPTH_TEST);
 
-    glViewport(0, 0, 1280, 720);
+    // Отримуємо розміри повноекранного вікна
+    int windowWidth, windowHeight;
+    glfwGetFramebufferSize(window, &windowWidth, &windowHeight);
+    glViewport(0, 0, windowWidth, windowHeight);
 
     // UI text
-    UIText::init(1280, 720);
+    UIText::init(windowWidth, windowHeight);
 
     // Camera
     Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
@@ -201,6 +207,11 @@ void main() {
     float fpsUpdateTime = 0.0f;
     int frameCount = 0;
     float currentFPS = 0.0f;
+    
+    // GPU info toggle
+    bool showGPUInfo = false;
+    bool f9Pressed = false;
+    const char* gpuRenderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
 
     while (!glfwWindowShouldClose(window)) {
         // Delta time
@@ -220,6 +231,15 @@ void main() {
         // ESC — exit
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
             glfwSetWindowShouldClose(window, true);
+        
+        // F9 — toggle GPU info
+        if (glfwGetKey(window, GLFW_KEY_F9) == GLFW_PRESS && !f9Pressed) {
+            showGPUInfo = !showGPUInfo;
+            f9Pressed = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_F9) == GLFW_RELEASE) {
+            f9Pressed = false;
+        }
 
         // Camera movement
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
@@ -260,8 +280,11 @@ void main() {
         oss << std::fixed << std::setprecision(1);
         oss << "FPS: " << currentFPS << "\n";
         oss << "FOV: " << camera.fov;
+        if (showGPUInfo) {
+            oss << "\nGPU: " << gpuRenderer;
+        }
         
-        UIText::renderText(oss.str(), 10.0f, 30.0f, 1.5f);
+        UIText::renderText(oss.str(), 10.0f, 10.0f, 1.5f);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
