@@ -35,7 +35,6 @@ void Camera::processMouse(float xoffset, float yoffset) {
     yaw += xoffset;
     pitch += yoffset;
     
-    // Обмеження pitch
     if (pitch > 89.0f)
         pitch = 89.0f;
     if (pitch < -89.0f)

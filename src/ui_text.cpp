@@ -145,7 +145,6 @@ void UIText::renderText(const std::string& text, float x, float y, float scale) 
     GLint colorLoc = glGetUniformLocation(shaderProgram, "textColor");
     glUniform3f(colorLoc, 0.0f, 0.0f, 0.0f);
     
-    // Оптимізована обводка - рендеримо тільки 4 напрямки замість 8
     for (size_t i = 0; i < text.length(); i++) {
         if (text[i] == '\n') {
             currentY += 14.0f * scale;
@@ -165,6 +164,67 @@ void UIText::renderText(const std::string& text, float x, float y, float scale) 
     currentX = x;
     currentY = y;
     glUniform3f(colorLoc, 1.0f, 1.0f, 1.0f);
+    
+    for (size_t i = 0; i < text.length(); i++) {
+        if (text[i] == '\n') {
+            currentY += 14.0f * scale;
+            currentX = x;
+            continue;
+        }
+        
+        renderChar(text[i], currentX, currentY, scale, false);
+        currentX += charWidth;
+    }
+    
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glDisable(GL_BLEND);
+    glEnable(GL_DEPTH_TEST);
+    glBindVertexArray(0);
+}
+
+void UIText::renderTextWithColor(const std::string& text, float x, float y, float scale, float r, float g, float b) {
+    if (!initialized) return;
+    
+    glUseProgram(shaderProgram);
+    
+    glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(windowWidth),
+                                     static_cast<float>(windowHeight), 0.0f);
+    GLint projLoc = glGetUniformLocation(shaderProgram, "projection");
+    glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+    
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    
+    float charWidth = 8.0f * scale;
+    float currentX = x;
+    float currentY = y;
+    
+    GLint colorLoc = glGetUniformLocation(shaderProgram, "textColor");
+    
+    glUniform3f(colorLoc, 0.0f, 0.0f, 0.0f);
+    float outlineOffset = 1.5f * scale;
+    
+    for (size_t i = 0; i < text.length(); i++) {
+        if (text[i] == '\n') {
+            currentY += 14.0f * scale;
+            currentX = x;
+            continue;
+        }
+        
+        renderChar(text[i], currentX - outlineOffset, currentY, scale, true);
+        renderChar(text[i], currentX + outlineOffset, currentY, scale, true);
+        renderChar(text[i], currentX, currentY - outlineOffset, scale, true);
+        renderChar(text[i], currentX, currentY + outlineOffset, scale, true);
+        
+        currentX += charWidth;
+    }
+    
+    currentX = x;
+    currentY = y;
+    glUniform3f(colorLoc, r, g, b);
     
     for (size_t i = 0; i < text.length(); i++) {
         if (text[i] == '\n') {

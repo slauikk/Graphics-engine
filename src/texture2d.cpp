@@ -5,6 +5,18 @@
 
 Texture2D::Texture2D(const std::string& path, bool flipY) 
     : id(0), width(0), height(0), channels(0) {
+    loadFromFile(path, flipY);
+}
+
+Texture2D::Texture2D() 
+    : id(0), width(0), height(0), channels(0) {
+}
+
+void Texture2D::loadFromFile(const std::string& path, bool flipY) {
+    if (id != 0) {
+        glDeleteTextures(1, &id);
+        id = 0;
+    }
     
     stbi_set_flip_vertically_on_load(flipY);
     
@@ -37,6 +49,15 @@ Texture2D::Texture2D(const std::string& path, bool flipY)
     stbi_image_free(data);
 }
 
+void Texture2D::loadGeneratedGrid() {
+    if (id != 0) {
+        glDeleteTextures(1, &id);
+        id = 0;
+    }
+    
+    createGridTexture();
+}
+
 Texture2D::~Texture2D() {
     if (id != 0) {
         glDeleteTextures(1, &id);
@@ -49,6 +70,10 @@ void Texture2D::bind(uint32_t slot) const {
 }
 
 void Texture2D::createMagentaFallback() {
+    createGridTexture();
+}
+
+void Texture2D::createGridTexture() {
     width = 8;
     height = 8;
     channels = 3;

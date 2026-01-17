@@ -21,7 +21,6 @@ void GL_EnableDebugOutput() {
         glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
         glDebugMessageCallback(debugCallback, nullptr);
         
-        // Вимкнути нотифікації
         glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, 
                              GL_DEBUG_SEVERITY_NOTIFICATION, 
                              0, nullptr, GL_FALSE);

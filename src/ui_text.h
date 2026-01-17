@@ -6,8 +6,9 @@
 
 class UIText {
 public:
-    static void init(int windowWidth, int windowHeight);
+    static void init(int windowWidth, int height);
     static void renderText(const std::string& text, float x, float y, float scale = 1.0f);
+    static void renderTextWithColor(const std::string& text, float x, float y, float scale, float r, float g, float b);
     static void cleanup();
     static void updateWindowSize(int width, int height);
     

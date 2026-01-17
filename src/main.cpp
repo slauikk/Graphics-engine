@@ -11,6 +11,7 @@
 #include "camera.h"
 #include "ui_text.h"
 #include "texture2d.h"
+#include "texture_menu.h"
 
 Camera* g_camera = nullptr;
 bool g_firstMouse = true;
@@ -66,7 +67,6 @@ int main() {
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 
-    // Повноекранний режим
     GLFWmonitor* monitor = glfwGetPrimaryMonitor();
     const GLFWvidmode* mode = glfwGetVideoMode(monitor);
     GLFWwindow* window = glfwCreateWindow(mode->width, mode->height, "Graphics_engine", monitor, nullptr);
@@ -98,7 +98,6 @@ int main() {
     // Enable depth testing
     glEnable(GL_DEPTH_TEST);
 
-    // Отримуємо розміри повноекранного вікна
     int windowWidth, windowHeight;
     glfwGetFramebufferSize(window, &windowWidth, &windowHeight);
     glViewport(0, 0, windowWidth, windowHeight);
@@ -201,8 +200,8 @@ void main() {
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
 
-    // Load texture
-    Texture2D texture("../assets/textures/jager.png");
+    Texture2D texture;
+    texture.loadGeneratedGrid();
     
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
@@ -227,7 +226,14 @@ void main() {
     // GPU info toggle
     bool showGPUInfo = false;
     bool f9Pressed = false;
+    bool f8Pressed = false;
+    bool upPressed = false;
+    bool downPressed = false;
+    bool enterPressed = false;
     const char* gpuRenderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+    
+    // Texture menu
+    TextureMenu::init();
 
     while (!glfwWindowShouldClose(window)) {
         // Delta time
@@ -235,7 +241,7 @@ void main() {
         float deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-        // FPS обчислення
+        // FPS
         frameCount++;
         fpsUpdateTime += deltaTime;
         if (fpsUpdateTime >= 0.5f) {
@@ -255,6 +261,47 @@ void main() {
         }
         if (glfwGetKey(window, GLFW_KEY_F9) == GLFW_RELEASE) {
             f9Pressed = false;
+        }
+        
+        // F8 — toggle texture menu
+        if (glfwGetKey(window, GLFW_KEY_F8) == GLFW_PRESS && !f8Pressed) {
+            TextureMenu::toggle();
+            f8Pressed = true;
+            if (TextureMenu::isOpen()) {
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            } else {
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            }
+        }
+        if (glfwGetKey(window, GLFW_KEY_F8) == GLFW_RELEASE) {
+            f8Pressed = false;
+        }
+        
+        if (TextureMenu::isOpen()) {
+            if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS && !upPressed) {
+                TextureMenu::processKey(265); // GLFW_KEY_UP
+                upPressed = true;
+            }
+            if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_RELEASE) {
+                upPressed = false;
+            }
+            if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS && !downPressed) {
+                TextureMenu::processKey(264); // GLFW_KEY_DOWN
+                downPressed = true;
+            }
+            if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_RELEASE) {
+                downPressed = false;
+            }
+            if (glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS && !enterPressed) {
+                TextureMenu::processKey(257); // GLFW_KEY_ENTER
+                enterPressed = true;
+                if (!TextureMenu::isOpen()) {
+                    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                }
+            }
+            if (glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_RELEASE) {
+                enterPressed = false;
+            }
         }
 
         // Camera movement
@@ -292,6 +339,16 @@ void main() {
         float aspect = static_cast<float>(width) / static_cast<float>(height);
         glm::mat4 projection = glm::perspective(glm::radians(camera.fov), aspect, 0.1f, 100.0f);
         
+        if (TextureMenu::needsReload()) {
+            std::string selectedPath = TextureMenu::getSelectedTexturePath();
+            if (selectedPath == "GENERATED_GRID") {
+                texture.loadGeneratedGrid();
+            } else {
+                texture.loadFromFile(selectedPath);
+            }
+            TextureMenu::markReloaded();
+        }
+        
         glm::mat4 mvp = projection * view * model;
 
         shader.use();
@@ -300,6 +357,9 @@ void main() {
         shader.setMat4("u_MVP", mvp);
         glBindVertexArray(VAO);
         glDrawArrays(GL_TRIANGLES, 0, 36);
+        
+        TextureMenu::update();
+        TextureMenu::render();
 
         // Render UI
         std::ostringstream oss;
@@ -307,7 +367,6 @@ void main() {
         oss << "FPS: " << currentFPS << "\n";
         oss << "FOV: " << camera.fov;
         if (showGPUInfo) {
-            // Обмежуємо довжину GPU рядка для оптимізації
             std::string gpuStr = std::string(gpuRenderer);
             if (gpuStr.length() > 40) {
                 gpuStr = gpuStr.substr(0, 37) + "...";
