@@ -48,8 +48,8 @@ void Camera::processScroll(float yoffset) {
     fov -= yoffset;
     if (fov < 1.0f)
         fov = 1.0f;
-    if (fov > 45.0f)
-        fov = 45.0f;
+    if (fov > 90.0f)
+        fov = 90.0f;
 }
 
 void Camera::updateCameraVectors() {
