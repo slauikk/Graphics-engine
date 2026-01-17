@@ -265,6 +265,14 @@ void main() {
         glm::mat4 view = camera.getViewMatrix();
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
+        
+        // Захист від нульового розміру вікна (коли вікно мінімізовано або перемикається)
+        if (width <= 0 || height <= 0) {
+            glfwSwapBuffers(window);
+            glfwPollEvents();
+            continue;
+        }
+        
         float aspect = static_cast<float>(width) / static_cast<float>(height);
         glm::mat4 projection = glm::perspective(glm::radians(camera.fov), aspect, 0.1f, 100.0f);
         
