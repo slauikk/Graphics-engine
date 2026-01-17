@@ -281,7 +281,12 @@ void main() {
         oss << "FPS: " << currentFPS << "\n";
         oss << "FOV: " << camera.fov;
         if (showGPUInfo) {
-            oss << "\nGPU: " << gpuRenderer;
+            // Обмежуємо довжину GPU рядка для оптимізації
+            std::string gpuStr = std::string(gpuRenderer);
+            if (gpuStr.length() > 40) {
+                gpuStr = gpuStr.substr(0, 37) + "...";
+            }
+            oss << "\nGPU: " << gpuStr;
         }
         
         UIText::renderText(oss.str(), 10.0f, 10.0f, 1.5f);

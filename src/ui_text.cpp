@@ -115,7 +115,6 @@ void UIText::renderChar(char c, float x, float y, float scale, bool isOutline) {
                 
                 glBindBuffer(GL_ARRAY_BUFFER, VBO);
                 glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
-                glBindBuffer(GL_ARRAY_BUFFER, 0);
                 
                 glDrawArrays(GL_TRIANGLES, 0, 6);
             }
@@ -134,6 +133,7 @@ void UIText::renderText(const std::string& text, float x, float y, float scale) 
     glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
     
     glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -145,6 +145,7 @@ void UIText::renderText(const std::string& text, float x, float y, float scale) 
     GLint colorLoc = glGetUniformLocation(shaderProgram, "textColor");
     glUniform3f(colorLoc, 0.0f, 0.0f, 0.0f);
     
+    // Оптимізована обводка - рендеримо тільки 4 напрямки замість 8
     for (size_t i = 0; i < text.length(); i++) {
         if (text[i] == '\n') {
             currentY += 14.0f * scale;
@@ -157,10 +158,6 @@ void UIText::renderText(const std::string& text, float x, float y, float scale) 
         renderChar(text[i], currentX + outlineOffset, currentY, scale, true);
         renderChar(text[i], currentX, currentY - outlineOffset, scale, true);
         renderChar(text[i], currentX, currentY + outlineOffset, scale, true);
-        renderChar(text[i], currentX - outlineOffset, currentY - outlineOffset, scale, true);
-        renderChar(text[i], currentX + outlineOffset, currentY - outlineOffset, scale, true);
-        renderChar(text[i], currentX - outlineOffset, currentY + outlineOffset, scale, true);
-        renderChar(text[i], currentX + outlineOffset, currentY + outlineOffset, scale, true);
         
         currentX += charWidth;
     }
@@ -180,6 +177,7 @@ void UIText::renderText(const std::string& text, float x, float y, float scale) 
         currentX += charWidth;
     }
     
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
     glDisable(GL_BLEND);
     glEnable(GL_DEPTH_TEST);
     glBindVertexArray(0);
