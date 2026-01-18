@@ -14,7 +14,7 @@ add_executable(Graphics_engine
         src/ui_text.cpp
         src/font_data.cpp
         src/texture2d.cpp
-        src/texture_menu.cpp
+        src/menu.cpp
 )
 
 find_package(glfw3 CONFIG REQUIRED)

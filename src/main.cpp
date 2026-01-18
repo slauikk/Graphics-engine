@@ -11,7 +11,7 @@
 #include "camera.h"
 #include "ui_text.h"
 #include "texture2d.h"
-#include "texture_menu.h"
+#include "menu.h"
 
 Camera* g_camera = nullptr;
 bool g_firstMouse = true;
@@ -230,10 +230,11 @@ void main() {
     bool upPressed = false;
     bool downPressed = false;
     bool enterPressed = false;
+    bool escPressed = false;
     const char* gpuRenderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
     
     // Texture menu
-    TextureMenu::init();
+    Menu::init();
 
     while (!glfwWindowShouldClose(window)) {
         // Delta time
@@ -250,10 +251,6 @@ void main() {
             fpsUpdateTime = 0.0f;
         }
 
-        // ESC — exit
-        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-            glfwSetWindowShouldClose(window, true);
-        
         // F9 — toggle GPU info
         if (glfwGetKey(window, GLFW_KEY_F9) == GLFW_PRESS && !f9Pressed) {
             showGPUInfo = !showGPUInfo;
@@ -265,42 +262,50 @@ void main() {
         
         // F8 — toggle texture menu
         if (glfwGetKey(window, GLFW_KEY_F8) == GLFW_PRESS && !f8Pressed) {
-            TextureMenu::toggle();
+            Menu::toggle();
             f8Pressed = true;
-            if (TextureMenu::isOpen()) {
-                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-            } else {
-                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-            }
         }
         if (glfwGetKey(window, GLFW_KEY_F8) == GLFW_RELEASE) {
             f8Pressed = false;
         }
         
-        if (TextureMenu::isOpen()) {
+        if (Menu::isOpen()) {
             if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS && !upPressed) {
-                TextureMenu::processKey(265); // GLFW_KEY_UP
+                Menu::processKey(265); // GLFW_KEY_UP
                 upPressed = true;
             }
             if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_RELEASE) {
                 upPressed = false;
             }
             if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS && !downPressed) {
-                TextureMenu::processKey(264); // GLFW_KEY_DOWN
+                Menu::processKey(264); // GLFW_KEY_DOWN
                 downPressed = true;
             }
             if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_RELEASE) {
                 downPressed = false;
             }
             if (glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS && !enterPressed) {
-                TextureMenu::processKey(257); // GLFW_KEY_ENTER
+                Menu::processKey(257); // GLFW_KEY_ENTER
                 enterPressed = true;
-                if (!TextureMenu::isOpen()) {
-                    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-                }
             }
             if (glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_RELEASE) {
                 enterPressed = false;
+            }
+            if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS && !escPressed) {
+                Menu::processKey(256); // GLFW_KEY_ESC
+                escPressed = true;
+            }
+            if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_RELEASE) {
+                escPressed = false;
+            }
+        } else {
+            // ESC — exit (only if menu is closed)
+            if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS && !escPressed) {
+                glfwSetWindowShouldClose(window, true);
+                escPressed = true;
+            }
+            if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_RELEASE) {
+                escPressed = false;
             }
         }
 
@@ -324,7 +329,37 @@ void main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         // MVP matrix
+        static float rotationX = 0.0f;
+        static float rotationY = 0.0f;
+        static float rotationZ = 0.0f;
+        static bool isSpinning = false;
+        
+        if (Menu::needsMovementUpdate()) {
+            Menu::MovementState state = Menu::getMovementState();
+            if (state == Menu::MOVEMENT_RESET) {
+                rotationX = 0.0f;
+                rotationY = 0.0f;
+                rotationZ = 0.0f;
+                isSpinning = false;
+            } else if (state == Menu::MOVEMENT_SPINNING) {
+                isSpinning = true;
+            } else if (state == Menu::MOVEMENT_STOPPED) {
+                isSpinning = false;
+            }
+            Menu::markMovementUpdated();
+        }
+        
+        if (isSpinning) {
+            rotationX += deltaTime * 50.0f;
+            rotationY += deltaTime * 50.0f;
+            rotationZ += deltaTime * 50.0f;
+        }
+        
         glm::mat4 model = glm::mat4(1.0f);
+        model = glm::rotate(model, glm::radians(rotationX), glm::vec3(1.0f, 0.0f, 0.0f));
+        model = glm::rotate(model, glm::radians(rotationY), glm::vec3(0.0f, 1.0f, 0.0f));
+        model = glm::rotate(model, glm::radians(rotationZ), glm::vec3(0.0f, 0.0f, 1.0f));
+        
         glm::mat4 view = camera.getViewMatrix();
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
@@ -339,14 +374,14 @@ void main() {
         float aspect = static_cast<float>(width) / static_cast<float>(height);
         glm::mat4 projection = glm::perspective(glm::radians(camera.fov), aspect, 0.1f, 100.0f);
         
-        if (TextureMenu::needsReload()) {
-            std::string selectedPath = TextureMenu::getSelectedTexturePath();
+        if (Menu::needsReload()) {
+            std::string selectedPath = Menu::getSelectedTexturePath();
             if (selectedPath == "GENERATED_GRID") {
                 texture.loadGeneratedGrid();
             } else {
                 texture.loadFromFile(selectedPath);
             }
-            TextureMenu::markReloaded();
+            Menu::markReloaded();
         }
         
         glm::mat4 mvp = projection * view * model;
@@ -358,8 +393,8 @@ void main() {
         glBindVertexArray(VAO);
         glDrawArrays(GL_TRIANGLES, 0, 36);
         
-        TextureMenu::update();
-        TextureMenu::render();
+        Menu::update();
+        Menu::render();
 
         // Render UI
         std::ostringstream oss;
