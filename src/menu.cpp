@@ -1,5 +1,6 @@
 #include "menu.h"
 #include "ui_text.h"
+#include <GLFW/glfw3.h>
 #include <filesystem>
 #include <algorithm>
 
@@ -180,7 +181,7 @@ void Menu::toggle() {
 void Menu::processKey(int key) {
     if (!m_isOpen) return;
     
-    if (key == 265) { // GLFW_KEY_UP
+    if (key == GLFW_KEY_UP) {
         int maxItems = 0;
         if (m_currentState == MAIN_MENU) {
             maxItems = 2;
@@ -194,7 +195,7 @@ void Menu::processKey(int key) {
         if (m_selectedIndex < 0) {
             m_selectedIndex = maxItems - 1;
         }
-    } else if (key == 264) { // GLFW_KEY_DOWN
+    } else if (key == GLFW_KEY_DOWN) {
         int maxItems = 0;
         if (m_currentState == MAIN_MENU) {
             maxItems = 2;
@@ -208,7 +209,7 @@ void Menu::processKey(int key) {
         if (m_selectedIndex >= maxItems) {
             m_selectedIndex = 0;
         }
-    } else if (key == 257) { // GLFW_KEY_ENTER
+    } else if (key == GLFW_KEY_ENTER) {
         if (m_currentState == MAIN_MENU) {
             if (m_selectedIndex == 0) {
                 m_currentState = TEXTURES;
@@ -234,7 +235,7 @@ void Menu::processKey(int key) {
                 m_needsMovementUpdate = true;
             }
         }
-    } else if (key == 256) { // GLFW_KEY_ESC
+    } else if (key == GLFW_KEY_ESCAPE) {
         if (m_currentState == MAIN_MENU) {
             m_isOpen = false;
         } else {

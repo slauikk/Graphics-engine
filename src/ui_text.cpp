@@ -1,21 +1,27 @@
 #include "ui_text.h"
 #include "font_data.h"
+#include "shader.h"
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <iostream>
 #include <vector>
 #include <sstream>
 #include <iomanip>
 
 GLuint UIText::VAO = 0;
 GLuint UIText::VBO = 0;
-GLuint UIText::shaderProgram = 0;
+Shader* UIText::shader = nullptr;
 bool UIText::initialized = false;
 int UIText::windowWidth = 1280;
 int UIText::windowHeight = 720;
 
-GLuint UIText::createTextShader() {
+bool UIText::createTextShader() {
+    if (shader != nullptr) {
+        delete shader;
+    }
+    
     const char* vertexSource = R"(
 #version 330 core
 layout(location = 0) in vec2 aPos;
@@ -37,24 +43,14 @@ void main() {
     FragColor = vec4(textColor, 1.0);
 }
 )";
-
-    GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertexShader, 1, &vertexSource, nullptr);
-    glCompileShader(vertexShader);
     
-    GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragmentShader, 1, &fragmentSource, nullptr);
-    glCompileShader(fragmentShader);
-    
-    GLuint program = glCreateProgram();
-    glAttachShader(program, vertexShader);
-    glAttachShader(program, fragmentShader);
-    glLinkProgram(program);
-    
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);
-    
-    return program;
+    shader = new Shader("assets/shaders/ui_text.vert", "assets/shaders/ui_text.frag");
+    if (shader->m_id == 0) {
+        std::cerr << "[UIText] Shader files not found, using inline fallback\n";
+        delete shader;
+        shader = new Shader(vertexSource, fragmentSource);
+    }
+    return shader->m_id != 0;
 }
 
 void UIText::init(int windowWidth, int windowHeight) {
@@ -63,7 +59,10 @@ void UIText::init(int windowWidth, int windowHeight) {
     UIText::windowWidth = windowWidth;
     UIText::windowHeight = windowHeight;
     
-    shaderProgram = createTextShader();
+    if (!createTextShader()) {
+        std::cerr << "[UIText] Failed to create shader\n";
+        return;
+    }
     initFontData();
     
     glGenVertexArrays(1, &VAO);
@@ -123,14 +122,13 @@ void UIText::renderChar(char c, float x, float y, float scale, bool isOutline) {
 }
 
 void UIText::renderText(const std::string& text, float x, float y, float scale) {
-    if (!initialized) return;
+    if (!initialized || shader == nullptr) return;
     
-    glUseProgram(shaderProgram);
+    shader->use();
     
     glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(windowWidth),
                                      static_cast<float>(windowHeight), 0.0f);
-    GLint projLoc = glGetUniformLocation(shaderProgram, "projection");
-    glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+    shader->setMat4("projection", projection);
     
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
@@ -142,8 +140,7 @@ void UIText::renderText(const std::string& text, float x, float y, float scale) 
     float currentX = x;
     float currentY = y;
     
-    GLint colorLoc = glGetUniformLocation(shaderProgram, "textColor");
-    glUniform3f(colorLoc, 0.0f, 0.0f, 0.0f);
+    shader->setVec3("textColor", 0.0f, 0.0f, 0.0f);
     
     for (size_t i = 0; i < text.length(); i++) {
         if (text[i] == '\n') {
@@ -163,7 +160,7 @@ void UIText::renderText(const std::string& text, float x, float y, float scale) 
     
     currentX = x;
     currentY = y;
-    glUniform3f(colorLoc, 1.0f, 1.0f, 1.0f);
+    shader->setVec3("textColor", 1.0f, 1.0f, 1.0f);
     
     for (size_t i = 0; i < text.length(); i++) {
         if (text[i] == '\n') {
@@ -183,14 +180,13 @@ void UIText::renderText(const std::string& text, float x, float y, float scale) 
 }
 
 void UIText::renderTextWithColor(const std::string& text, float x, float y, float scale, float r, float g, float b) {
-    if (!initialized) return;
+    if (!initialized || shader == nullptr) return;
     
-    glUseProgram(shaderProgram);
+    shader->use();
     
     glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(windowWidth),
                                      static_cast<float>(windowHeight), 0.0f);
-    GLint projLoc = glGetUniformLocation(shaderProgram, "projection");
-    glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+    shader->setMat4("projection", projection);
     
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
@@ -202,9 +198,7 @@ void UIText::renderTextWithColor(const std::string& text, float x, float y, floa
     float currentX = x;
     float currentY = y;
     
-    GLint colorLoc = glGetUniformLocation(shaderProgram, "textColor");
-    
-    glUniform3f(colorLoc, 0.0f, 0.0f, 0.0f);
+    shader->setVec3("textColor", 0.0f, 0.0f, 0.0f);
     float outlineOffset = 1.5f * scale;
     
     for (size_t i = 0; i < text.length(); i++) {
@@ -224,7 +218,7 @@ void UIText::renderTextWithColor(const std::string& text, float x, float y, floa
     
     currentX = x;
     currentY = y;
-    glUniform3f(colorLoc, r, g, b);
+    shader->setVec3("textColor", r, g, b);
     
     for (size_t i = 0; i < text.length(); i++) {
         if (text[i] == '\n') {
@@ -252,9 +246,14 @@ void UIText::cleanup() {
         glDeleteBuffers(1, &VBO);
         VBO = 0;
     }
-    if (shaderProgram != 0) {
-        glDeleteProgram(shaderProgram);
-        shaderProgram = 0;
+    if (shader != nullptr) {
+        delete shader;
+        shader = nullptr;
     }
     initialized = false;
+}
+
+bool UIText::reloadShaders() {
+    if (!initialized) return false;
+    return createTextShader();
 }

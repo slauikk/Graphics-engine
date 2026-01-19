@@ -31,3 +31,11 @@ target_link_libraries(Graphics_engine
 )
 
 target_compile_definitions(Graphics_engine PRIVATE GLFW_INCLUDE_NONE)
+
+# Copy assets to build directory
+add_custom_command(TARGET Graphics_engine POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/assets
+    $<TARGET_FILE_DIR:Graphics_engine>/assets
+    COMMENT "Copying assets to build directory"
+)

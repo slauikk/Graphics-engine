@@ -5,6 +5,7 @@
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <string>
+#include <sstream>
 
 class Camera;
 class Shader;
@@ -54,10 +55,15 @@ private:
     // Key debounce flags
     bool m_f9Pressed = false;
     bool m_f8Pressed = false;
+    bool m_f5Pressed = false;
     bool m_upPressed = false;
     bool m_downPressed = false;
     bool m_enterPressed = false;
     bool m_escPressed = false;
+    
+    // Shader reload message
+    float m_reloadMessageTime = 0.0f;
+    std::string m_reloadMessage;
     
     // Mouse state
     bool m_firstMouse = true;

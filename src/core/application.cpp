@@ -77,7 +77,7 @@ void Application::init() {
     glfwSetScrollCallback(m_window, scrollCallback);
     glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
-    // Shaders
+    // Shaders - try from files first, fallback to inline
     const char* vertexShaderSource = R"(
 #version 330 core
 layout(location = 0) in vec3 aPos;
@@ -105,10 +105,15 @@ void main() {
 }
 )";
 
-    m_shader = new Shader(vertexShaderSource, fragmentShaderSource);
+    m_shader = new Shader("assets/shaders/textured.vert", "assets/shaders/textured.frag");
     if (m_shader->m_id == 0) {
-        std::cerr << "Failed to create shader program\n";
-        return;
+        std::cerr << "[Application] Shader files not found, using inline fallback\n";
+        delete m_shader;
+        m_shader = new Shader(vertexShaderSource, fragmentShaderSource);
+        if (m_shader->m_id == 0) {
+            std::cerr << "Failed to create shader program\n";
+            return;
+        }
     }
 
     // Cube with UV coordinates (position.xyz + texcoord.xy)
@@ -256,6 +261,29 @@ void Application::processInput(float dt) {
         m_f9Pressed = false;
     }
     
+    // F5 — reload shaders
+    if (glfwGetKey(m_window, GLFW_KEY_F5) == GLFW_PRESS && !m_f5Pressed) {
+        bool mainReload = false;
+        bool uiReload = false;
+        
+        if (m_shader != nullptr) {
+            mainReload = m_shader->reload();
+        }
+        uiReload = UIText::reloadShaders();
+        
+        if (mainReload && uiReload) {
+            m_reloadMessage = "Shaders reloaded";
+            m_reloadMessageTime = 2.0f;
+        } else {
+            m_reloadMessage = "Reload failed";
+            m_reloadMessageTime = 2.0f;
+        }
+        m_f5Pressed = true;
+    }
+    if (glfwGetKey(m_window, GLFW_KEY_F5) == GLFW_RELEASE) {
+        m_f5Pressed = false;
+    }
+    
     // F8 — toggle texture menu
     if (glfwGetKey(m_window, GLFW_KEY_F8) == GLFW_PRESS && !m_f8Pressed) {
         Menu::toggle();
@@ -267,28 +295,28 @@ void Application::processInput(float dt) {
     
     if (Menu::isOpen()) {
         if (glfwGetKey(m_window, GLFW_KEY_UP) == GLFW_PRESS && !m_upPressed) {
-            Menu::processKey(265); // GLFW_KEY_UP
+            Menu::processKey(GLFW_KEY_UP);
             m_upPressed = true;
         }
         if (glfwGetKey(m_window, GLFW_KEY_UP) == GLFW_RELEASE) {
             m_upPressed = false;
         }
         if (glfwGetKey(m_window, GLFW_KEY_DOWN) == GLFW_PRESS && !m_downPressed) {
-            Menu::processKey(264); // GLFW_KEY_DOWN
+            Menu::processKey(GLFW_KEY_DOWN);
             m_downPressed = true;
         }
         if (glfwGetKey(m_window, GLFW_KEY_DOWN) == GLFW_RELEASE) {
             m_downPressed = false;
         }
         if (glfwGetKey(m_window, GLFW_KEY_ENTER) == GLFW_PRESS && !m_enterPressed) {
-            Menu::processKey(257); // GLFW_KEY_ENTER
+            Menu::processKey(GLFW_KEY_ENTER);
             m_enterPressed = true;
         }
         if (glfwGetKey(m_window, GLFW_KEY_ENTER) == GLFW_RELEASE) {
             m_enterPressed = false;
         }
         if (glfwGetKey(m_window, GLFW_KEY_ESCAPE) == GLFW_PRESS && !m_escPressed) {
-            Menu::processKey(256); // GLFW_KEY_ESC
+            Menu::processKey(GLFW_KEY_ESCAPE);
             m_escPressed = true;
         }
         if (glfwGetKey(m_window, GLFW_KEY_ESCAPE) == GLFW_RELEASE) {
@@ -323,6 +351,10 @@ void Application::processInput(float dt) {
 }
 
 void Application::update(float dt) {
+    if (m_reloadMessageTime > 0.0f) {
+        m_reloadMessageTime -= dt;
+    }
+    
     if (Menu::needsMovementUpdate()) {
         Menu::MovementState state = Menu::getMovementState();
         if (state == Menu::MOVEMENT_RESET) {
@@ -365,18 +397,20 @@ void Application::render() {
     
     m_renderer->beginFrame(0.10f, 0.12f, 0.16f, 1.0f);
     
-    // MVP matrix
-    glm::mat4 model = glm::mat4(1.0f);
-    model = glm::rotate(model, glm::radians(m_rotationX), glm::vec3(1.0f, 0.0f, 0.0f));
-    model = glm::rotate(model, glm::radians(m_rotationY), glm::vec3(0.0f, 1.0f, 0.0f));
-    model = glm::rotate(model, glm::radians(m_rotationZ), glm::vec3(0.0f, 0.0f, 1.0f));
-    
-    glm::mat4 view = m_camera->getViewMatrix();
-    float aspect = static_cast<float>(width) / static_cast<float>(height);
-    glm::mat4 projection = glm::perspective(glm::radians(m_camera->fov), aspect, 0.1f, 100.0f);
-    glm::mat4 mvp = projection * view * model;
+    if (m_shader != nullptr && m_shader->m_id != 0 && m_camera != nullptr && m_texture != nullptr) {
+        // MVP matrix
+        glm::mat4 model = glm::mat4(1.0f);
+        model = glm::rotate(model, glm::radians(m_rotationX), glm::vec3(1.0f, 0.0f, 0.0f));
+        model = glm::rotate(model, glm::radians(m_rotationY), glm::vec3(0.0f, 1.0f, 0.0f));
+        model = glm::rotate(model, glm::radians(m_rotationZ), glm::vec3(0.0f, 0.0f, 1.0f));
+        
+        glm::mat4 view = m_camera->getViewMatrix();
+        float aspect = static_cast<float>(width) / static_cast<float>(height);
+        glm::mat4 projection = glm::perspective(glm::radians(m_camera->fov), aspect, 0.1f, 100.0f);
+        glm::mat4 mvp = projection * view * model;
 
-    m_renderer->drawTexturedCube(*m_shader, m_VAO, *m_texture, mvp);
+        m_renderer->drawTexturedCube(*m_shader, m_VAO, *m_texture, mvp);
+    }
     
     Menu::update();
     Menu::render();
@@ -385,7 +419,7 @@ void Application::render() {
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(1);
     oss << "FPS: " << m_currentFPS << "\n";
-    oss << "FOV: " << m_camera->fov;
+    oss << "FOV: " << (m_camera ? m_camera->fov : 45.0f);
     if (m_showGPUInfo) {
         std::string gpuStr = std::string(m_gpuRenderer);
         if (gpuStr.length() > 40) {
@@ -395,6 +429,16 @@ void Application::render() {
     }
     
     UIText::renderText(oss.str(), 10.0f, 10.0f, 1.5f);
+    
+    // Show shader reload status
+    if (m_reloadMessageTime > 0.0f) {
+        UIText::renderTextWithColor(m_reloadMessage, 10.0f, 200.0f, 1.5f, 0.0f, 1.0f, 0.0f);
+    }
+    
+    // Show shader source indicator (if loaded from files)
+    if (m_shader != nullptr && m_shader->m_id != 0) {
+        UIText::renderTextWithColor("Shaders: Files", 10.0f, 250.0f, 1.2f, 0.0f, 1.0f, 0.0f);
+    }
 }
 
 void Application::framebufferSizeCallback(GLFWwindow* window, int width, int height) {
