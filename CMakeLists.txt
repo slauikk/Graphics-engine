@@ -8,6 +8,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_executable(Graphics_engine
         src/main.cpp
+        src/core/application.cpp
+        src/renderer/renderer.cpp
         src/gl_debug.cpp
         src/shader.cpp
         src/camera.cpp

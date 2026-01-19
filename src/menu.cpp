@@ -37,7 +37,7 @@ void Menu::scanTextures() {
                     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg") {
                         TextureOption option;
                         option.name = entry.path().filename().string();
-                        option.path = entry.path().string();
+                        option.path = texturesDir + option.name;
                         option.isGenerated = false;
                         m_textures.push_back(option);
                     }
