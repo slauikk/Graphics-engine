@@ -6,12 +6,21 @@
 #include <glm/glm.hpp>
 #include <string>
 #include <sstream>
+#include <vector>
 
 class Camera;
 class Shader;
 class Texture2D;
 class Renderer;
 class Material;
+
+struct RenderObject {
+    glm::vec3 position;
+    glm::vec3 rotationDeg;   // Euler degrees
+    glm::vec3 scale;
+    Material* material;      // Does not own
+    bool spinning;           // Auto-rotation flag
+};
 
 class Application {
 public:
@@ -74,20 +83,19 @@ private:
     // Camera
     Camera* m_camera = nullptr;
     
-    // Cube rotation state
-    float m_rotationX = 0.0f;
-    float m_rotationY = 0.0f;
-    float m_rotationZ = 0.0f;
-    bool m_isSpinning = false;
-    glm::vec3 m_cubePos = glm::vec3(0.0f);
+    // Objects
+    std::vector<RenderObject> m_objects;
+    int m_selectedObject = 0;
     
     // Rendering resources
     GLuint m_VAO = 0;
     GLuint m_VBO = 0;
     Shader* m_shader = nullptr;
-    Texture2D* m_texture = nullptr;
     Renderer* m_renderer = nullptr;
-    Material* m_material = nullptr;
+    
+    // Materials (owned by Application, referenced by RenderObject)
+    std::vector<Material*> m_materials;
+    std::vector<Texture2D*> m_textures;  // Owned textures for materials
     
     // Lighting
     glm::vec3 m_lightPos = glm::vec3(2.0f, 2.0f, 2.0f);

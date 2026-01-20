@@ -14,6 +14,7 @@
 #include <iomanip>
 #include <vector>
 #include <cmath>
+#include <algorithm>
 
 Application::Application() {
     init();
@@ -197,10 +198,37 @@ void main() {
     glGenVertexArrays(1, &m_VAO);
     glGenBuffers(1, &m_VBO);
 
-    m_texture = new Texture2D();
-    m_texture->loadGeneratedGrid();
+    // Create materials
+    Texture2D* texJager = new Texture2D();
+    texJager->loadFromFile("assets/textures/jager.png");
+    m_textures.push_back(texJager);
+    Material* matJager = new Material(m_shader, texJager);
+    matJager->shininess = 32.0f;
+    m_materials.push_back(matJager);
     
-    m_material = new Material(m_shader, m_texture);
+    Texture2D* texZelya = new Texture2D();
+    texZelya->loadFromFile("assets/textures/zelya.png");
+    m_textures.push_back(texZelya);
+    Material* matZelya = new Material(m_shader, texZelya);
+    matZelya->shininess = 8.0f;
+    m_materials.push_back(matZelya);
+    
+    Texture2D* texGrid = new Texture2D();
+    texGrid->loadGeneratedGrid();
+    m_textures.push_back(texGrid);
+    Material* matGrid = new Material(m_shader, texGrid);
+    matGrid->shininess = 128.0f;
+    m_materials.push_back(matGrid);
+    
+    // Create objects (5 cubes in a row)
+    m_objects.resize(5);
+    m_objects[0] = { glm::vec3(-4.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), m_materials[0], false };
+    m_objects[1] = { glm::vec3(-2.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), m_materials[1], false };
+    m_objects[2] = { glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), m_materials[2], false };
+    m_objects[3] = { glm::vec3(2.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), m_materials[0], false };
+    m_objects[4] = { glm::vec3(4.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), m_materials[1], false };
+    
+    m_selectedObject = 0;
     
     glBindVertexArray(m_VAO);
     glBindBuffer(GL_ARRAY_BUFFER, m_VBO);
@@ -323,7 +351,12 @@ void main() {
     
     // Sync initial light position with menu
     Menu::setLightPosition(m_lightPos.x, m_lightPos.y, m_lightPos.z);
-    Menu::setCubePosition(m_cubePos.x, m_cubePos.y, m_cubePos.z);
+    if (!m_objects.empty()) {
+        Menu::setSelectedCubeIndex(m_selectedObject);
+        Menu::setCubePosition(m_objects[m_selectedObject].position.x, 
+                             m_objects[m_selectedObject].position.y, 
+                             m_objects[m_selectedObject].position.z);
+    }
 }
 
 void Application::shutdown() {
@@ -336,17 +369,21 @@ void Application::shutdown() {
     if (m_shader) {
         delete m_shader;
     }
-    if (m_texture) {
-        delete m_texture;
+    // Cleanup materials
+    for (Material* mat : m_materials) {
+        delete mat;
     }
+    m_materials.clear();
+    // Cleanup textures
+    for (Texture2D* tex : m_textures) {
+        delete tex;
+    }
+    m_textures.clear();
     if (m_camera) {
         delete m_camera;
     }
     if (m_renderer) {
         delete m_renderer;
-    }
-    if (m_material) {
-        delete m_material;
     }
     if (m_lightShader) {
         delete m_lightShader;
@@ -524,58 +561,77 @@ void Application::update(float dt) {
         m_reloadMessageTime -= dt;
     }
     
-    if (Menu::needsMovementUpdate()) {
-        Menu::MovementState state = Menu::getMovementState();
-        if (state == Menu::MOVEMENT_RESET) {
-            m_rotationX = 0.0f;
-            m_rotationY = 0.0f;
-            m_rotationZ = 0.0f;
-            m_isSpinning = false;
-        } else if (state == Menu::MOVEMENT_SPINNING) {
-            m_isSpinning = true;
-        } else if (state == Menu::MOVEMENT_STOPPED) {
-            m_isSpinning = false;
-        }
-        Menu::markMovementUpdated();
-    }
-
     if (Menu::needsCubeUpdate()) {
         Menu::CubeControlAction action = Menu::getCubeControlAction();
         const float step = 0.5f;
-
-        switch (action) {
-            case Menu::CUBE_RESET:
-                m_rotationX = 0.0f;
-                m_rotationY = 0.0f;
-                m_rotationZ = 0.0f;
-                m_isSpinning = false;
-                m_cubePos = glm::vec3(0.0f);
-                break;
-            case Menu::CUBE_SPIN:
-                m_isSpinning = true;
-                break;
-            case Menu::CUBE_STOP:
-                m_isSpinning = false;
-                break;
-            case Menu::CUBE_X_INC: m_cubePos.x += step; break;
-            case Menu::CUBE_X_DEC: m_cubePos.x -= step; break;
-            case Menu::CUBE_Y_INC: m_cubePos.y += step; break;
-            case Menu::CUBE_Y_DEC: m_cubePos.y -= step; break;
-            case Menu::CUBE_Z_INC: m_cubePos.z += step; break;
-            case Menu::CUBE_Z_DEC: m_cubePos.z -= step; break;
-            case Menu::CUBE_NONE: break;
+        
+        // Sync selected object index with menu
+        m_selectedObject = Menu::getSelectedCubeIndex();
+        if (m_selectedObject < 0) m_selectedObject = 0;
+        if (m_selectedObject >= static_cast<int>(m_objects.size())) {
+            m_selectedObject = static_cast<int>(m_objects.size()) - 1;
         }
-
-        Menu::setCubePosition(m_cubePos.x, m_cubePos.y, m_cubePos.z);
+        
+        if (m_selectedObject >= 0 && m_selectedObject < static_cast<int>(m_objects.size())) {
+            RenderObject& obj = m_objects[m_selectedObject];
+            
+            switch (action) {
+                case Menu::CUBE_PREV:
+                    m_selectedObject--;
+                    if (m_selectedObject < 0) m_selectedObject = static_cast<int>(m_objects.size()) - 1;
+                    Menu::setSelectedCubeIndex(m_selectedObject);
+                    break;
+                case Menu::CUBE_NEXT:
+                    m_selectedObject++;
+                    if (m_selectedObject >= static_cast<int>(m_objects.size())) m_selectedObject = 0;
+                    Menu::setSelectedCubeIndex(m_selectedObject);
+                    break;
+                case Menu::CUBE_RESET:
+                    obj.rotationDeg = glm::vec3(0.0f);
+                    obj.spinning = false;
+                    obj.position = glm::vec3(0.0f);
+                    obj.scale = glm::vec3(1.0f);
+                    break;
+                case Menu::CUBE_SPIN:
+                    obj.spinning = true;
+                    break;
+                case Menu::CUBE_STOP:
+                    obj.spinning = false;
+                    break;
+                case Menu::CUBE_X_INC: obj.position.x += step; break;
+                case Menu::CUBE_X_DEC: obj.position.x -= step; break;
+                case Menu::CUBE_Y_INC: obj.position.y += step; break;
+                case Menu::CUBE_Y_DEC: obj.position.y -= step; break;
+                case Menu::CUBE_Z_INC: obj.position.z += step; break;
+                case Menu::CUBE_Z_DEC: obj.position.z -= step; break;
+                case Menu::CUBE_NONE: break;
+            }
+            
+            Menu::setCubePosition(obj.position.x, obj.position.y, obj.position.z);
+        }
         Menu::markCubeUpdated();
     } else {
-        Menu::setCubePosition(m_cubePos.x, m_cubePos.y, m_cubePos.z);
+        // Sync selected object index with menu
+        m_selectedObject = Menu::getSelectedCubeIndex();
+        if (m_selectedObject < 0) m_selectedObject = 0;
+        if (m_selectedObject >= static_cast<int>(m_objects.size())) {
+            m_selectedObject = static_cast<int>(m_objects.size()) - 1;
+        }
+        Menu::setSelectedCubeIndex(m_selectedObject);
+        
+        if (m_selectedObject >= 0 && m_selectedObject < static_cast<int>(m_objects.size())) {
+            const RenderObject& obj = m_objects[m_selectedObject];
+            Menu::setCubePosition(obj.position.x, obj.position.y, obj.position.z);
+        }
     }
     
-    if (m_isSpinning) {
-        m_rotationX += dt * 50.0f;
-        m_rotationY += dt * 50.0f;
-        m_rotationZ += dt * 50.0f;
+    // Update spinning for all objects
+    for (RenderObject& obj : m_objects) {
+        if (obj.spinning) {
+            obj.rotationDeg.x += dt * 50.0f;
+            obj.rotationDeg.y += dt * 50.0f;
+            obj.rotationDeg.z += dt * 50.0f;
+        }
     }
 
     if (m_lightSpinning) {
@@ -587,11 +643,32 @@ void Application::update(float dt) {
     
     if (Menu::needsReload()) {
         std::string selectedPath = Menu::getSelectedTexturePath();
-        if (selectedPath == "GENERATED_GRID") {
-            m_texture->loadGeneratedGrid();
-        } else {
-            m_texture->loadFromFile(selectedPath);
+        
+        // Update material for selected cube
+        if (m_selectedObject >= 0 && m_selectedObject < static_cast<int>(m_objects.size())) {
+            RenderObject& obj = m_objects[m_selectedObject];
+            
+            Material* newMaterial = nullptr;
+            
+            if (selectedPath == "GENERATED_GRID") {
+                // Grid material is at index 2
+                newMaterial = m_materials[2];
+            } else {
+                // Match texture by filename
+                std::string texPath = selectedPath;
+                std::replace(texPath.begin(), texPath.end(), '\\', '/');
+                if (texPath.find("jager") != std::string::npos) {
+                    newMaterial = m_materials[0];
+                } else if (texPath.find("zelya") != std::string::npos) {
+                    newMaterial = m_materials[1];
+                }
+            }
+            
+            if (newMaterial) {
+                obj.material = newMaterial;
+            }
         }
+        
         Menu::markReloaded();
     }
     
@@ -690,22 +767,26 @@ void Application::render() {
     
     m_renderer->beginFrame(0.10f, 0.12f, 0.16f, 1.0f);
     
-    if (m_shader != nullptr && m_shader->m_id != 0 && m_camera != nullptr && m_texture != nullptr) {
-        // MVP matrix
-        glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, m_cubePos);
-        model = glm::rotate(model, glm::radians(m_rotationX), glm::vec3(1.0f, 0.0f, 0.0f));
-        model = glm::rotate(model, glm::radians(m_rotationY), glm::vec3(0.0f, 1.0f, 0.0f));
-        model = glm::rotate(model, glm::radians(m_rotationZ), glm::vec3(0.0f, 0.0f, 1.0f));
-        
+    if (m_shader != nullptr && m_shader->m_id != 0 && m_camera != nullptr) {
         glm::mat4 view = m_camera->getViewMatrix();
         float aspect = static_cast<float>(width) / static_cast<float>(height);
         glm::mat4 projection = glm::perspective(glm::radians(m_camera->fov), aspect, 0.1f, 100.0f);
         
         glm::vec3 lightColor = m_lightEnabled ? m_lightColor : glm::vec3(0.0f);
-        m_material->shininess = m_shininess;
         
-        m_renderer->drawTexturedCube(*m_material, m_VAO, model, view, projection, m_camera->position, m_lightPos, lightColor);
+        // Render all objects
+        for (const RenderObject& obj : m_objects) {
+            if (!obj.material) continue;
+            
+            glm::mat4 model = glm::mat4(1.0f);
+            model = glm::translate(model, obj.position);
+            model = glm::rotate(model, glm::radians(obj.rotationDeg.x), glm::vec3(1.0f, 0.0f, 0.0f));
+            model = glm::rotate(model, glm::radians(obj.rotationDeg.y), glm::vec3(0.0f, 1.0f, 0.0f));
+            model = glm::rotate(model, glm::radians(obj.rotationDeg.z), glm::vec3(0.0f, 0.0f, 1.0f));
+            model = glm::scale(model, obj.scale);
+            
+            m_renderer->drawCube(*obj.material, m_VAO, model, view, projection, m_camera->position, m_lightPos, lightColor, m_lightEnabled);
+        }
         
         // Render light sphere
         if (m_lightEnabled && m_lightShader != nullptr && m_lightShader->m_id != 0) {
@@ -758,6 +839,11 @@ void Application::render() {
     lightOss << "Shininess: " << m_shininess << "\n";
     lightOss << "Light: " << (m_lightEnabled ? "ON" : "OFF");
     UIText::renderText(lightOss.str(), 10.0f, 290.0f, 1.2f);
+    
+    // Selected Cube UI
+    std::ostringstream cubeOss;
+    cubeOss << "Selected Cube: " << m_selectedObject;
+    UIText::renderText(cubeOss.str(), 10.0f, 350.0f, 1.2f);
 }
 
 void Application::framebufferSizeCallback(GLFWwindow* window, int width, int height) {

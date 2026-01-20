@@ -14,7 +14,7 @@ class Renderer {
 public:
     void init();
     void beginFrame(float r, float g, float b, float a);
-    void drawTexturedCube(const Material& material, GLuint vao, const glm::mat4& model, const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos, const glm::vec3& lightPos, const glm::vec3& lightColor);
+    void drawCube(const Material& material, GLuint vao, const glm::mat4& model, const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos, const glm::vec3& lightPos, const glm::vec3& lightColor, bool lightEnabled);
     void endFrame();
 };
 

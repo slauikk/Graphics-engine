@@ -56,7 +56,9 @@ public:
         CUBE_Y_INC,
         CUBE_Y_DEC,
         CUBE_Z_INC,
-        CUBE_Z_DEC
+        CUBE_Z_DEC,
+        CUBE_PREV,
+        CUBE_NEXT
     };
     
     struct TextureOption {
@@ -83,6 +85,8 @@ public:
     static void markCubeUpdated();
     static void setCubePosition(float x, float y, float z);
     static void getCubePosition(float& x, float& y, float& z);
+    static void setSelectedCubeIndex(int index);
+    static int getSelectedCubeIndex();
 
     static LightControlAction getLightControlAction();
     static bool needsLightUpdate();
@@ -103,6 +107,7 @@ private:
     static CubeControlAction m_cubeControlAction;
     static bool m_needsCubeUpdate;
     static float m_cubePosX, m_cubePosY, m_cubePosZ;
+    static int m_selectedCubeIndex;
 
     static LightControlAction m_lightControlAction;
     static bool m_needsLightUpdate;

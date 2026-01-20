@@ -13,15 +13,17 @@ void Renderer::beginFrame(float r, float g, float b, float a) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
-void Renderer::drawTexturedCube(const Material& material, GLuint vao, const glm::mat4& model, const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos, const glm::vec3& lightPos, const glm::vec3& lightColor) {
+void Renderer::drawCube(const Material& material, GLuint vao, const glm::mat4& model, const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos, const glm::vec3& lightPos, const glm::vec3& lightColor, bool lightEnabled) {
     material.bind();
     
     material.shader->setMat4("u_Model", model);
     material.shader->setMat4("u_View", view);
     material.shader->setMat4("u_Projection", projection);
     material.shader->setVec3("u_CameraPos", cameraPos);
+    
+    glm::vec3 finalLightColor = lightEnabled ? lightColor : glm::vec3(0.0f);
     material.shader->setVec3("u_LightPos", lightPos);
-    material.shader->setVec3("u_LightColor", lightColor);
+    material.shader->setVec3("u_LightColor", finalLightColor);
     
     glBindVertexArray(vao);
     glDrawArrays(GL_TRIANGLES, 0, 36);

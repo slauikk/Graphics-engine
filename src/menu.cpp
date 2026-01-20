@@ -19,6 +19,7 @@ bool Menu::m_needsCubeUpdate = false;
 float Menu::m_cubePosX = 0.0f;
 float Menu::m_cubePosY = 0.0f;
 float Menu::m_cubePosZ = 0.0f;
+int Menu::m_selectedCubeIndex = 0;
 Menu::LightControlAction Menu::m_lightControlAction = LIGHT_NONE;
 bool Menu::m_needsLightUpdate = false;
 float Menu::m_lightPosX = 2.0f;
@@ -193,6 +194,9 @@ void Menu::renderCubeMenu() {
     y += lineHeight * 2;
     
     std::vector<std::string> items = {
+        "Prev Cube",
+        "Next Cube",
+        "---",
         "Reset",
         "Spin",
         "Stop",
@@ -204,6 +208,11 @@ void Menu::renderCubeMenu() {
         "Move Z+",
         "Move Z-"
     };
+    
+    std::ostringstream cubeInfo;
+    cubeInfo << "Selected Cube: " << m_selectedCubeIndex;
+    UIText::renderText(cubeInfo.str(), x, y, 1.5f);
+    y += lineHeight * 2;
     
     for (size_t i = 0; i < items.size(); i++) {
         std::string itemText;
@@ -364,30 +373,36 @@ void Menu::processKey(int key) {
             }
         } else if (m_currentState == MOVEMENT_CUBE) {
             if (m_selectedIndex == 0) {
-                m_cubeControlAction = CUBE_RESET;
+                m_cubeControlAction = CUBE_PREV;
                 m_needsCubeUpdate = true;
             } else if (m_selectedIndex == 1) {
-                m_cubeControlAction = CUBE_SPIN;
+                m_cubeControlAction = CUBE_NEXT;
                 m_needsCubeUpdate = true;
-            } else if (m_selectedIndex == 2) {
-                m_cubeControlAction = CUBE_STOP;
+            } else if (m_selectedIndex == 3) {
+                m_cubeControlAction = CUBE_RESET;
                 m_needsCubeUpdate = true;
             } else if (m_selectedIndex == 4) {
-                m_cubeControlAction = CUBE_X_INC;
+                m_cubeControlAction = CUBE_SPIN;
                 m_needsCubeUpdate = true;
             } else if (m_selectedIndex == 5) {
-                m_cubeControlAction = CUBE_X_DEC;
-                m_needsCubeUpdate = true;
-            } else if (m_selectedIndex == 6) {
-                m_cubeControlAction = CUBE_Y_INC;
+                m_cubeControlAction = CUBE_STOP;
                 m_needsCubeUpdate = true;
             } else if (m_selectedIndex == 7) {
-                m_cubeControlAction = CUBE_Y_DEC;
+                m_cubeControlAction = CUBE_X_INC;
                 m_needsCubeUpdate = true;
             } else if (m_selectedIndex == 8) {
-                m_cubeControlAction = CUBE_Z_INC;
+                m_cubeControlAction = CUBE_X_DEC;
                 m_needsCubeUpdate = true;
             } else if (m_selectedIndex == 9) {
+                m_cubeControlAction = CUBE_Y_INC;
+                m_needsCubeUpdate = true;
+            } else if (m_selectedIndex == 10) {
+                m_cubeControlAction = CUBE_Y_DEC;
+                m_needsCubeUpdate = true;
+            } else if (m_selectedIndex == 11) {
+                m_cubeControlAction = CUBE_Z_INC;
+                m_needsCubeUpdate = true;
+            } else if (m_selectedIndex == 12) {
                 m_cubeControlAction = CUBE_Z_DEC;
                 m_needsCubeUpdate = true;
             }
@@ -542,4 +557,12 @@ void Menu::getCubePosition(float& x, float& y, float& z) {
     x = m_cubePosX;
     y = m_cubePosY;
     z = m_cubePosZ;
+}
+
+void Menu::setSelectedCubeIndex(int index) {
+    m_selectedCubeIndex = index;
+}
+
+int Menu::getSelectedCubeIndex() {
+    return m_selectedCubeIndex;
 }
