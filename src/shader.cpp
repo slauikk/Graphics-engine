@@ -181,6 +181,20 @@ void Shader::setVec3(const char* name, float x, float y, float z) const {
     }
 }
 
+void Shader::setVec3(const char* name, const glm::vec3& vec) const {
+    GLint location = getUniformLocation(name);
+    if (location != -1) {
+        glUniform3f(location, vec.x, vec.y, vec.z);
+    }
+}
+
+void Shader::setFloat(const char* name, float value) const {
+    GLint location = getUniformLocation(name);
+    if (location != -1) {
+        glUniform1f(location, value);
+    }
+}
+
 std::string Shader::readTextFile(const std::string& path) {
     std::vector<std::string> altPaths;
     

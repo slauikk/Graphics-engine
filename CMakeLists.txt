@@ -10,6 +10,7 @@ add_executable(Graphics_engine
         src/main.cpp
         src/core/application.cpp
         src/renderer/renderer.cpp
+        src/renderer/material.cpp
         src/gl_debug.cpp
         src/shader.cpp
         src/camera.cpp
