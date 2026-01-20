@@ -11,6 +11,7 @@ class Camera;
 class Shader;
 class Texture2D;
 class Renderer;
+class Material;
 
 class Application {
 public:
@@ -78,6 +79,7 @@ private:
     float m_rotationY = 0.0f;
     float m_rotationZ = 0.0f;
     bool m_isSpinning = false;
+    glm::vec3 m_cubePos = glm::vec3(0.0f);
     
     // Rendering resources
     GLuint m_VAO = 0;
@@ -85,6 +87,27 @@ private:
     Shader* m_shader = nullptr;
     Texture2D* m_texture = nullptr;
     Renderer* m_renderer = nullptr;
+    Material* m_material = nullptr;
+    
+    // Lighting
+    glm::vec3 m_lightPos = glm::vec3(2.0f, 2.0f, 2.0f);
+    glm::vec3 m_lightColor = glm::vec3(1.0f, 1.0f, 1.0f);
+    bool m_lightEnabled = true;
+    float m_shininess = 32.0f;
+    bool m_lightSpinning = false;
+    float m_lightSpinAngle = 0.0f;
+    
+    // Light sphere visualization
+    GLuint m_lightVAO = 0;
+    GLuint m_lightVBO = 0;
+    GLuint m_lightEBO = 0;
+    int m_lightIndexCount = 0;
+    Shader* m_lightShader = nullptr;
+    
+    // Key debounce for lighting controls
+    bool m_lPressed = false;
+    bool m_jPressed = false;
+    bool m_kPressed = false;
 };
 
 #endif // APPLICATION_H

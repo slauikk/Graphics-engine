@@ -3,6 +3,8 @@
 #include <GLFW/glfw3.h>
 #include <filesystem>
 #include <algorithm>
+#include <sstream>
+#include <iomanip>
 
 bool Menu::m_isOpen = false;
 Menu::MenuState Menu::m_currentState = MAIN_MENU;
@@ -12,6 +14,16 @@ bool Menu::m_needsReload = false;
 std::string Menu::m_lastSelectedPath = "";
 Menu::MovementState Menu::m_movementState = MOVEMENT_STOPPED;
 bool Menu::m_needsMovementUpdate = false;
+Menu::CubeControlAction Menu::m_cubeControlAction = CUBE_NONE;
+bool Menu::m_needsCubeUpdate = false;
+float Menu::m_cubePosX = 0.0f;
+float Menu::m_cubePosY = 0.0f;
+float Menu::m_cubePosZ = 0.0f;
+Menu::LightControlAction Menu::m_lightControlAction = LIGHT_NONE;
+bool Menu::m_needsLightUpdate = false;
+float Menu::m_lightPosX = 2.0f;
+float Menu::m_lightPosY = 2.0f;
+float Menu::m_lightPosZ = 2.0f;
 
 void Menu::init() {
     scanTextures();
@@ -77,8 +89,14 @@ void Menu::render() {
         case TEXTURES:
             renderTexturesMenu();
             break;
-        case MOVEMENT:
-            renderMovementMenu();
+        case MOVEMENT_ROOT:
+            renderMovementRootMenu();
+            break;
+        case MOVEMENT_CUBE:
+            renderCubeMenu();
+            break;
+        case MOVEMENT_LIGHT:
+            renderLightMenu();
             break;
     }
 }
@@ -137,30 +155,135 @@ void Menu::renderTexturesMenu() {
     UIText::renderText(instructions, x, y, 1.5f);
 }
 
-void Menu::renderMovementMenu() {
+void Menu::renderMovementRootMenu() {
     float x = 200.0f;
     float y = 200.0f;
     float lineHeight = 14.0f * 1.5f;
     
-    std::string header = "Movement Control:\n\n";
+    std::string header = "Movement:\n\n";
     UIText::renderText(header, x, y, 1.5f);
     y += lineHeight * 2;
     
-    std::vector<std::string> movementItems = {"Reset", "Spin", "Stop"};
+    std::vector<std::string> items = {"Cube", "Light"};
     
-    for (size_t i = 0; i < movementItems.size(); i++) {
+    for (size_t i = 0; i < items.size(); i++) {
         std::string itemText;
         if (static_cast<int>(i) == m_selectedIndex) {
-            itemText = "> " + movementItems[i];
+            itemText = "> " + items[i];
             UIText::renderTextWithColor(itemText, x, y, 1.5f, 1.0f, 1.0f, 0.0f);
         } else {
-            itemText = "  " + movementItems[i];
+            itemText = "  " + items[i];
             UIText::renderText(itemText, x, y, 1.5f);
         }
         y += lineHeight;
     }
     
     y += lineHeight;
+    std::string instructions = "\nArrow Keys: Navigate\nEnter: Select\nESC: Back\nF8: Close";
+    UIText::renderText(instructions, x, y, 1.5f);
+}
+
+void Menu::renderCubeMenu() {
+    float x = 200.0f;
+    float y = 200.0f;
+    float lineHeight = 14.0f * 1.5f;
+    
+    std::string header = "Cube Control:\n\n";
+    UIText::renderText(header, x, y, 1.5f);
+    y += lineHeight * 2;
+    
+    std::vector<std::string> items = {
+        "Reset",
+        "Spin",
+        "Stop",
+        "---",
+        "Move X+",
+        "Move X-",
+        "Move Y+",
+        "Move Y-",
+        "Move Z+",
+        "Move Z-"
+    };
+    
+    for (size_t i = 0; i < items.size(); i++) {
+        std::string itemText;
+        if (static_cast<int>(i) == m_selectedIndex) {
+            itemText = "> " + items[i];
+            UIText::renderTextWithColor(itemText, x, y, 1.5f, 1.0f, 1.0f, 0.0f);
+        } else {
+            itemText = "  " + items[i];
+            UIText::renderText(itemText, x, y, 1.5f);
+        }
+        y += lineHeight;
+    }
+    
+    y += lineHeight;
+    std::ostringstream posStr;
+    posStr << std::fixed << std::setprecision(1);
+    posStr << "\nCube Pos: (" << m_cubePosX << ", " << m_cubePosY << ", " << m_cubePosZ << ")";
+    UIText::renderText(posStr.str(), x, y, 1.5f);
+    y += lineHeight * 2;
+    
+    std::string instructions = "\nArrow Keys: Navigate\nEnter: Select\nESC: Back\nF8: Close";
+    UIText::renderText(instructions, x, y, 1.5f);
+}
+
+void Menu::renderLightMenu() {
+    float x = 200.0f;
+    float y = 200.0f;
+    float lineHeight = 14.0f * 1.5f;
+    
+    std::string header = "Light Control:\n\n";
+    UIText::renderText(header, x, y, 1.5f);
+    y += lineHeight * 2;
+    
+    std::vector<std::string> items = {
+        "Reset",
+        "Spin",
+        "Stop",
+        "---",
+        "Move X+",
+        "Move X-",
+        "Move Y+",
+        "Move Y-",
+        "Move Z+",
+        "Move Z-",
+        "---",
+        "XY Plane: Up",
+        "XY Plane: Down",
+        "XY Plane: Left",
+        "XY Plane: Right",
+        "---",
+        "XZ Plane: Forward",
+        "XZ Plane: Back",
+        "XZ Plane: Left",
+        "XZ Plane: Right",
+        "---",
+        "YZ Plane: Up",
+        "YZ Plane: Down",
+        "YZ Plane: Forward",
+        "YZ Plane: Back"
+    };
+    
+    for (size_t i = 0; i < items.size(); i++) {
+        std::string itemText;
+        if (static_cast<int>(i) == m_selectedIndex) {
+            itemText = "> " + items[i];
+            UIText::renderTextWithColor(itemText, x, y, 1.5f, 1.0f, 1.0f, 0.0f);
+        } else {
+            itemText = "  " + items[i];
+            UIText::renderText(itemText, x, y, 1.5f);
+        }
+        y += lineHeight;
+    }
+    
+    y += lineHeight;
+    std::ostringstream lightPosStr;
+    lightPosStr << std::fixed << std::setprecision(1);
+    lightPosStr << "\nLight Pos: (" << m_lightPosX << ", " << m_lightPosY << ", " << m_lightPosZ << ")";
+    UIText::renderText(lightPosStr.str(), x, y, 1.5f);
+    y += lineHeight * 2;
+    
     std::string instructions = "\nArrow Keys: Navigate\nEnter: Select\nESC: Back\nF8: Close";
     UIText::renderText(instructions, x, y, 1.5f);
 }
@@ -187,8 +310,12 @@ void Menu::processKey(int key) {
             maxItems = 2;
         } else if (m_currentState == TEXTURES) {
             maxItems = static_cast<int>(m_textures.size());
-        } else if (m_currentState == MOVEMENT) {
-            maxItems = 3;
+        } else if (m_currentState == MOVEMENT_ROOT) {
+            maxItems = 2;
+        } else if (m_currentState == MOVEMENT_CUBE) {
+            maxItems = 10;
+        } else if (m_currentState == MOVEMENT_LIGHT) {
+            maxItems = 25;
         }
         
         m_selectedIndex--;
@@ -201,8 +328,12 @@ void Menu::processKey(int key) {
             maxItems = 2;
         } else if (m_currentState == TEXTURES) {
             maxItems = static_cast<int>(m_textures.size());
-        } else if (m_currentState == MOVEMENT) {
-            maxItems = 3;
+        } else if (m_currentState == MOVEMENT_ROOT) {
+            maxItems = 2;
+        } else if (m_currentState == MOVEMENT_CUBE) {
+            maxItems = 10;
+        } else if (m_currentState == MOVEMENT_LIGHT) {
+            maxItems = 25;
         }
         
         m_selectedIndex++;
@@ -215,7 +346,7 @@ void Menu::processKey(int key) {
                 m_currentState = TEXTURES;
                 m_selectedIndex = 0;
             } else if (m_selectedIndex == 1) {
-                m_currentState = MOVEMENT;
+                m_currentState = MOVEMENT_ROOT;
                 m_selectedIndex = 0;
             }
         } else if (m_currentState == TEXTURES) {
@@ -223,23 +354,117 @@ void Menu::processKey(int key) {
                 m_lastSelectedPath = m_textures[m_selectedIndex].path;
                 m_needsReload = true;
             }
-        } else if (m_currentState == MOVEMENT) {
+        } else if (m_currentState == MOVEMENT_ROOT) {
             if (m_selectedIndex == 0) {
-                m_movementState = MOVEMENT_RESET;
-                m_needsMovementUpdate = true;
+                m_currentState = MOVEMENT_CUBE;
+                m_selectedIndex = 0;
             } else if (m_selectedIndex == 1) {
-                m_movementState = MOVEMENT_SPINNING;
-                m_needsMovementUpdate = true;
+                m_currentState = MOVEMENT_LIGHT;
+                m_selectedIndex = 0;
+            }
+        } else if (m_currentState == MOVEMENT_CUBE) {
+            if (m_selectedIndex == 0) {
+                m_cubeControlAction = CUBE_RESET;
+                m_needsCubeUpdate = true;
+            } else if (m_selectedIndex == 1) {
+                m_cubeControlAction = CUBE_SPIN;
+                m_needsCubeUpdate = true;
             } else if (m_selectedIndex == 2) {
-                m_movementState = MOVEMENT_STOPPED;
-                m_needsMovementUpdate = true;
+                m_cubeControlAction = CUBE_STOP;
+                m_needsCubeUpdate = true;
+            } else if (m_selectedIndex == 4) {
+                m_cubeControlAction = CUBE_X_INC;
+                m_needsCubeUpdate = true;
+            } else if (m_selectedIndex == 5) {
+                m_cubeControlAction = CUBE_X_DEC;
+                m_needsCubeUpdate = true;
+            } else if (m_selectedIndex == 6) {
+                m_cubeControlAction = CUBE_Y_INC;
+                m_needsCubeUpdate = true;
+            } else if (m_selectedIndex == 7) {
+                m_cubeControlAction = CUBE_Y_DEC;
+                m_needsCubeUpdate = true;
+            } else if (m_selectedIndex == 8) {
+                m_cubeControlAction = CUBE_Z_INC;
+                m_needsCubeUpdate = true;
+            } else if (m_selectedIndex == 9) {
+                m_cubeControlAction = CUBE_Z_DEC;
+                m_needsCubeUpdate = true;
+            }
+        } else if (m_currentState == MOVEMENT_LIGHT) {
+            if (m_selectedIndex == 0) {
+                m_lightControlAction = LIGHT_RESET;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 1) {
+                m_lightControlAction = LIGHT_SPIN;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 2) {
+                m_lightControlAction = LIGHT_STOP;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 4) {
+                m_lightControlAction = LIGHT_X_INC;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 5) {
+                m_lightControlAction = LIGHT_X_DEC;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 6) {
+                m_lightControlAction = LIGHT_Y_INC;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 7) {
+                m_lightControlAction = LIGHT_Y_DEC;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 8) {
+                m_lightControlAction = LIGHT_Z_INC;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 9) {
+                m_lightControlAction = LIGHT_Z_DEC;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 11) {
+                m_lightControlAction = LIGHT_XY_UP;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 12) {
+                m_lightControlAction = LIGHT_XY_DOWN;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 13) {
+                m_lightControlAction = LIGHT_XY_LEFT;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 14) {
+                m_lightControlAction = LIGHT_XY_RIGHT;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 16) {
+                m_lightControlAction = LIGHT_XZ_FORWARD;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 17) {
+                m_lightControlAction = LIGHT_XZ_BACK;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 18) {
+                m_lightControlAction = LIGHT_XZ_LEFT;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 19) {
+                m_lightControlAction = LIGHT_XZ_RIGHT;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 21) {
+                m_lightControlAction = LIGHT_YZ_UP;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 22) {
+                m_lightControlAction = LIGHT_YZ_DOWN;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 23) {
+                m_lightControlAction = LIGHT_YZ_FORWARD;
+                m_needsLightUpdate = true;
+            } else if (m_selectedIndex == 24) {
+                m_lightControlAction = LIGHT_YZ_BACK;
+                m_needsLightUpdate = true;
             }
         }
     } else if (key == GLFW_KEY_ESCAPE) {
         if (m_currentState == MAIN_MENU) {
             m_isOpen = false;
-        } else {
+        } else if (m_currentState == TEXTURES || m_currentState == MOVEMENT_ROOT) {
             m_currentState = MAIN_MENU;
+            m_selectedIndex = 0;
+        } else if (m_currentState == MOVEMENT_CUBE || m_currentState == MOVEMENT_LIGHT) {
+            m_currentState = MOVEMENT_ROOT;
             m_selectedIndex = 0;
         }
     }
@@ -267,4 +492,54 @@ bool Menu::needsMovementUpdate() {
 
 void Menu::markMovementUpdated() {
     m_needsMovementUpdate = false;
+}
+
+Menu::CubeControlAction Menu::getCubeControlAction() {
+    return m_cubeControlAction;
+}
+
+bool Menu::needsCubeUpdate() {
+    return m_needsCubeUpdate;
+}
+
+void Menu::markCubeUpdated() {
+    m_needsCubeUpdate = false;
+    m_cubeControlAction = CUBE_NONE;
+}
+
+Menu::LightControlAction Menu::getLightControlAction() {
+    return m_lightControlAction;
+}
+
+bool Menu::needsLightUpdate() {
+    return m_needsLightUpdate;
+}
+
+void Menu::markLightUpdated() {
+    m_needsLightUpdate = false;
+    m_lightControlAction = LIGHT_NONE;
+}
+
+void Menu::setLightPosition(float x, float y, float z) {
+    m_lightPosX = x;
+    m_lightPosY = y;
+    m_lightPosZ = z;
+}
+
+void Menu::getLightPosition(float& x, float& y, float& z) {
+    x = m_lightPosX;
+    y = m_lightPosY;
+    z = m_lightPosZ;
+}
+
+void Menu::setCubePosition(float x, float y, float z) {
+    m_cubePosX = x;
+    m_cubePosY = y;
+    m_cubePosZ = z;
+}
+
+void Menu::getCubePosition(float& x, float& y, float& z) {
+    x = m_cubePosX;
+    y = m_cubePosY;
+    z = m_cubePosZ;
 }
