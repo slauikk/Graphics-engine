@@ -7,6 +7,7 @@
 #include "../gl_debug.h"
 #include "../renderer/renderer.h"
 #include "../renderer/material.h"
+#include "../renderer/mesh/mesh_factory.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
@@ -149,54 +150,8 @@ void main() {
         }
     }
 
-    // Cube with normals: pos(3), normal(3), uv(2) = stride 8 floats
-    float vertices[] = {
-        // Back face (normal: 0, 0, -1)
-        -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f, 0.0f,
-         0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f, 0.0f,
-         0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f, 1.0f,
-         0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f, 1.0f,
-        -0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f, 1.0f,
-        -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f, 0.0f,
-        // Front face (normal: 0, 0, 1)
-        -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f, 0.0f,
-         0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f, 0.0f,
-         0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f, 1.0f,
-         0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f, 1.0f,
-        -0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f, 1.0f,
-        -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f, 0.0f,
-        // Left face (normal: -1, 0, 0)
-        -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f, 0.0f,
-        -0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  1.0f, 1.0f,
-        -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f, 1.0f,
-        -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f, 1.0f,
-        -0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  0.0f, 0.0f,
-        -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f, 0.0f,
-        // Right face (normal: 1, 0, 0)
-         0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f, 0.0f,
-         0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  1.0f, 1.0f,
-         0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  0.0f, 1.0f,
-         0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  0.0f, 1.0f,
-         0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  0.0f, 0.0f,
-         0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f, 0.0f,
-        // Bottom face (normal: 0, -1, 0)
-        -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f, 1.0f,
-         0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  1.0f, 1.0f,
-         0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f, 0.0f,
-         0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f, 0.0f,
-        -0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  0.0f, 0.0f,
-        -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f, 1.0f,
-        // Top face (normal: 0, 1, 0)
-        -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f, 1.0f,
-         0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  1.0f, 1.0f,
-         0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f, 0.0f,
-         0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f, 0.0f,
-        -0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.0f, 0.0f,
-        -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f, 1.0f
-    };
-
-    glGenVertexArrays(1, &m_VAO);
-    glGenBuffers(1, &m_VBO);
+    // Create cube mesh
+    m_cubeMesh = MeshFactory::CreateCube();
 
     // Create materials
     Texture2D* texJager = new Texture2D();
@@ -229,25 +184,6 @@ void main() {
     m_objects[4] = { glm::vec3(4.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), m_materials[1], false };
     
     m_selectedObject = 0;
-    
-    glBindVertexArray(m_VAO);
-    glBindBuffer(GL_ARRAY_BUFFER, m_VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-    // Position attribute (location 0)
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    
-    // Normal attribute (location 1)
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-    
-    // Texture coordinate attribute (location 2)
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
-    glEnableVertexAttribArray(2);
-
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
     
     // Generate sphere for light visualization
     const int segments = 32;
@@ -360,12 +296,7 @@ void main() {
 }
 
 void Application::shutdown() {
-    if (m_VAO != 0) {
-        glDeleteVertexArrays(1, &m_VAO);
-    }
-    if (m_VBO != 0) {
-        glDeleteBuffers(1, &m_VBO);
-    }
+    m_cubeMesh = nullptr;
     if (m_shader) {
         delete m_shader;
     }
@@ -775,17 +706,19 @@ void Application::render() {
         glm::vec3 lightColor = m_lightEnabled ? m_lightColor : glm::vec3(0.0f);
         
         // Render all objects
-        for (const RenderObject& obj : m_objects) {
-            if (!obj.material) continue;
-            
-            glm::mat4 model = glm::mat4(1.0f);
-            model = glm::translate(model, obj.position);
-            model = glm::rotate(model, glm::radians(obj.rotationDeg.x), glm::vec3(1.0f, 0.0f, 0.0f));
-            model = glm::rotate(model, glm::radians(obj.rotationDeg.y), glm::vec3(0.0f, 1.0f, 0.0f));
-            model = glm::rotate(model, glm::radians(obj.rotationDeg.z), glm::vec3(0.0f, 0.0f, 1.0f));
-            model = glm::scale(model, obj.scale);
-            
-            m_renderer->drawCube(*obj.material, m_VAO, model, view, projection, m_camera->position, m_lightPos, lightColor, m_lightEnabled);
+        if (m_cubeMesh) {
+            for (const RenderObject& obj : m_objects) {
+                if (!obj.material) continue;
+                
+                glm::mat4 model = glm::mat4(1.0f);
+                model = glm::translate(model, obj.position);
+                model = glm::rotate(model, glm::radians(obj.rotationDeg.x), glm::vec3(1.0f, 0.0f, 0.0f));
+                model = glm::rotate(model, glm::radians(obj.rotationDeg.y), glm::vec3(0.0f, 1.0f, 0.0f));
+                model = glm::rotate(model, glm::radians(obj.rotationDeg.z), glm::vec3(0.0f, 0.0f, 1.0f));
+                model = glm::scale(model, obj.scale);
+                
+                m_renderer->drawMesh(*m_cubeMesh, *obj.material, model, view, projection, m_camera->position, m_lightPos, lightColor, m_lightEnabled);
+            }
         }
         
         // Render light sphere

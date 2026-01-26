@@ -7,12 +7,14 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <memory>
 
 class Camera;
 class Shader;
 class Texture2D;
 class Renderer;
 class Material;
+class Mesh;
 
 struct RenderObject {
     glm::vec3 position;
@@ -88,8 +90,7 @@ private:
     int m_selectedObject = 0;
     
     // Rendering resources
-    GLuint m_VAO = 0;
-    GLuint m_VBO = 0;
+    std::shared_ptr<Mesh> m_cubeMesh = nullptr;
     Shader* m_shader = nullptr;
     Renderer* m_renderer = nullptr;
     

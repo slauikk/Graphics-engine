@@ -11,6 +11,11 @@ add_executable(Graphics_engine
         src/core/application.cpp
         src/renderer/renderer.cpp
         src/renderer/material.cpp
+        src/renderer/mesh/vertex_buffer.cpp
+        src/renderer/mesh/index_buffer.cpp
+        src/renderer/mesh/vertex_array.cpp
+        src/renderer/mesh/mesh.cpp
+        src/renderer/mesh/mesh_factory.cpp
         src/gl_debug.cpp
         src/shader.cpp
         src/camera.cpp
