@@ -11,7 +11,8 @@ public:
         TEXTURES,
         MOVEMENT_ROOT,
         MOVEMENT_CUBE,
-        MOVEMENT_LIGHT
+        MOVEMENT_LIGHT,
+        LIGHTING
     };
     
     enum MovementState {
@@ -44,6 +45,16 @@ public:
         LIGHT_YZ_DOWN,    // Decrease Y in YZ plane
         LIGHT_YZ_FORWARD, // Increase Z in YZ plane
         LIGHT_YZ_BACK     // Decrease Z in YZ plane
+    };
+    
+    enum DirLightControlAction {
+        DIRLIGHT_NONE,
+        DIRLIGHT_TOGGLE,
+        DIRLIGHT_ROTATE_LEFT,
+        DIRLIGHT_ROTATE_RIGHT,
+        DIRLIGHT_TILT_UP,
+        DIRLIGHT_TILT_DOWN,
+        POINTLIGHT_TOGGLE
     };
 
     enum CubeControlAction {
@@ -94,6 +105,10 @@ public:
     static void setLightPosition(float x, float y, float z);
     static void getLightPosition(float& x, float& y, float& z);
     
+    static DirLightControlAction getDirLightControlAction();
+    static bool needsDirLightUpdate();
+    static void markDirLightUpdated();
+    
 private:
     static bool m_isOpen;
     static MenuState m_currentState;
@@ -113,12 +128,16 @@ private:
     static bool m_needsLightUpdate;
     static float m_lightPosX, m_lightPosY, m_lightPosZ;
     
+    static DirLightControlAction m_dirLightControlAction;
+    static bool m_needsDirLightUpdate;
+    
     static void scanTextures();
     static void renderMainMenu();
     static void renderTexturesMenu();
     static void renderMovementRootMenu();
     static void renderCubeMenu();
     static void renderLightMenu();
+    static void renderLightingMenu();
 };
 
 #endif // MENU_H

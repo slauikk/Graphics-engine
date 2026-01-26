@@ -8,8 +8,10 @@
 #include "../renderer/renderer.h"
 #include "../renderer/material.h"
 #include "../renderer/mesh/mesh_factory.h"
+#include "../renderer/light.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/constants.hpp>
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -286,7 +288,7 @@ void main() {
     Menu::init();
     
     // Sync initial light position with menu
-    Menu::setLightPosition(m_lightPos.x, m_lightPos.y, m_lightPos.z);
+    Menu::setLightPosition(m_pointLight.position.x, m_pointLight.position.y, m_pointLight.position.z);
     if (!m_objects.empty()) {
         Menu::setSelectedCubeIndex(m_selectedObject);
         Menu::setCubePosition(m_objects[m_selectedObject].position.x, 
@@ -443,13 +445,22 @@ void Application::processInput(float dt) {
         }
     }
     
-    // L — toggle light on/off
+    // L — toggle point light on/off
     if (glfwGetKey(m_window, GLFW_KEY_L) == GLFW_PRESS && !m_lPressed) {
-        m_lightEnabled = !m_lightEnabled;
+        m_pointLight.enabled = !m_pointLight.enabled;
         m_lPressed = true;
     }
     if (glfwGetKey(m_window, GLFW_KEY_L) == GLFW_RELEASE) {
         m_lPressed = false;
+    }
+    
+    // O — toggle directional light on/off
+    if (glfwGetKey(m_window, GLFW_KEY_O) == GLFW_PRESS && !m_oPressed) {
+        m_dirLight.enabled = !m_dirLight.enabled;
+        m_oPressed = true;
+    }
+    if (glfwGetKey(m_window, GLFW_KEY_O) == GLFW_RELEASE) {
+        m_oPressed = false;
     }
     
     // J — decrease shininess
@@ -565,11 +576,11 @@ void Application::update(float dt) {
         }
     }
 
-    if (m_lightSpinning) {
-        m_lightSpinAngle += dt;
+    if (m_pointLightSpinning) {
+        m_pointLightSpinAngle += dt;
         const float radius = 3.0f;
-        m_lightPos.x = std::cos(m_lightSpinAngle) * radius;
-        m_lightPos.z = std::sin(m_lightSpinAngle) * radius;
+        m_pointLight.position.x = std::cos(m_pointLightSpinAngle) * radius;
+        m_pointLight.position.z = std::sin(m_pointLightSpinAngle) * radius;
     }
     
     if (Menu::needsReload()) {
@@ -609,82 +620,147 @@ void Application::update(float dt) {
         
         switch (action) {
             case Menu::LIGHT_X_INC:
-                m_lightPos.x += step;
+                m_pointLight.position.x += step;
                 break;
             case Menu::LIGHT_X_DEC:
-                m_lightPos.x -= step;
+                m_pointLight.position.x -= step;
                 break;
             case Menu::LIGHT_Y_INC:
-                m_lightPos.y += step;
+                m_pointLight.position.y += step;
                 break;
             case Menu::LIGHT_Y_DEC:
-                m_lightPos.y -= step;
+                m_pointLight.position.y -= step;
                 break;
             case Menu::LIGHT_Z_INC:
-                m_lightPos.z += step;
+                m_pointLight.position.z += step;
                 break;
             case Menu::LIGHT_Z_DEC:
-                m_lightPos.z -= step;
+                m_pointLight.position.z -= step;
                 break;
             case Menu::LIGHT_RESET:
-                m_lightSpinning = false;
-                m_lightSpinAngle = 0.0f;
-                m_lightPos = glm::vec3(2.0f, 2.0f, 2.0f);
+                m_pointLightSpinning = false;
+                m_pointLightSpinAngle = 0.0f;
+                m_pointLight.position = glm::vec3(2.0f, 2.0f, 2.0f);
                 break;
             case Menu::LIGHT_SPIN:
-                m_lightSpinning = true;
+                m_pointLightSpinning = true;
                 break;
             case Menu::LIGHT_STOP:
-                m_lightSpinning = false;
+                m_pointLightSpinning = false;
                 break;
             // XY Plane movements
             case Menu::LIGHT_XY_UP:
-                m_lightPos.y += step;
+                m_pointLight.position.y += step;
                 break;
             case Menu::LIGHT_XY_DOWN:
-                m_lightPos.y -= step;
+                m_pointLight.position.y -= step;
                 break;
             case Menu::LIGHT_XY_LEFT:
-                m_lightPos.x -= step;
+                m_pointLight.position.x -= step;
                 break;
             case Menu::LIGHT_XY_RIGHT:
-                m_lightPos.x += step;
+                m_pointLight.position.x += step;
                 break;
             // XZ Plane movements
             case Menu::LIGHT_XZ_FORWARD:
-                m_lightPos.z += step;
+                m_pointLight.position.z += step;
                 break;
             case Menu::LIGHT_XZ_BACK:
-                m_lightPos.z -= step;
+                m_pointLight.position.z -= step;
                 break;
             case Menu::LIGHT_XZ_LEFT:
-                m_lightPos.x -= step;
+                m_pointLight.position.x -= step;
                 break;
             case Menu::LIGHT_XZ_RIGHT:
-                m_lightPos.x += step;
+                m_pointLight.position.x += step;
                 break;
             // YZ Plane movements
             case Menu::LIGHT_YZ_UP:
-                m_lightPos.y += step;
+                m_pointLight.position.y += step;
                 break;
             case Menu::LIGHT_YZ_DOWN:
-                m_lightPos.y -= step;
+                m_pointLight.position.y -= step;
                 break;
             case Menu::LIGHT_YZ_FORWARD:
-                m_lightPos.z += step;
+                m_pointLight.position.z += step;
                 break;
             case Menu::LIGHT_YZ_BACK:
-                m_lightPos.z -= step;
+                m_pointLight.position.z -= step;
                 break;
             case Menu::LIGHT_NONE:
                 break;
         }
         
-        Menu::setLightPosition(m_lightPos.x, m_lightPos.y, m_lightPos.z);
+        Menu::setLightPosition(m_pointLight.position.x, m_pointLight.position.y, m_pointLight.position.z);
         Menu::markLightUpdated();
     } else {
         // Update menu display with current light position
-        Menu::setLightPosition(m_lightPos.x, m_lightPos.y, m_lightPos.z);
+        Menu::setLightPosition(m_pointLight.position.x, m_pointLight.position.y, m_pointLight.position.z);
+    }
+    
+    // Handle directional light updates from menu
+    if (Menu::needsDirLightUpdate()) {
+        Menu::DirLightControlAction action = Menu::getDirLightControlAction();
+        const float angleStep = 0.1f;
+        
+        switch (action) {
+            case Menu::DIRLIGHT_TOGGLE:
+                m_dirLight.enabled = !m_dirLight.enabled;
+                break;
+            case Menu::DIRLIGHT_ROTATE_LEFT:
+                // Rotate around Y axis (yaw)
+                {
+                    float yaw = std::atan2(m_dirLight.direction.x, m_dirLight.direction.z);
+                    yaw -= angleStep;
+                    float pitch = std::asin(-m_dirLight.direction.y);
+                    m_dirLight.direction.x = std::sin(yaw) * std::cos(pitch);
+                    m_dirLight.direction.z = std::cos(yaw) * std::cos(pitch);
+                    m_dirLight.direction = glm::normalize(m_dirLight.direction);
+                }
+                break;
+            case Menu::DIRLIGHT_ROTATE_RIGHT:
+                // Rotate around Y axis (yaw)
+                {
+                    float yaw = std::atan2(m_dirLight.direction.x, m_dirLight.direction.z);
+                    yaw += angleStep;
+                    float pitch = std::asin(-m_dirLight.direction.y);
+                    m_dirLight.direction.x = std::sin(yaw) * std::cos(pitch);
+                    m_dirLight.direction.z = std::cos(yaw) * std::cos(pitch);
+                    m_dirLight.direction = glm::normalize(m_dirLight.direction);
+                }
+                break;
+            case Menu::DIRLIGHT_TILT_UP:
+                // Change pitch
+                {
+                    float yaw = std::atan2(m_dirLight.direction.x, m_dirLight.direction.z);
+                    float pitch = std::asin(-m_dirLight.direction.y);
+                    pitch = glm::clamp(pitch - angleStep, -glm::pi<float>() / 2.0f + 0.1f, glm::pi<float>() / 2.0f - 0.1f);
+                    m_dirLight.direction.x = std::sin(yaw) * std::cos(pitch);
+                    m_dirLight.direction.y = -std::sin(pitch);
+                    m_dirLight.direction.z = std::cos(yaw) * std::cos(pitch);
+                    m_dirLight.direction = glm::normalize(m_dirLight.direction);
+                }
+                break;
+            case Menu::DIRLIGHT_TILT_DOWN:
+                // Change pitch
+                {
+                    float yaw = std::atan2(m_dirLight.direction.x, m_dirLight.direction.z);
+                    float pitch = std::asin(-m_dirLight.direction.y);
+                    pitch = glm::clamp(pitch + angleStep, -glm::pi<float>() / 2.0f + 0.1f, glm::pi<float>() / 2.0f - 0.1f);
+                    m_dirLight.direction.x = std::sin(yaw) * std::cos(pitch);
+                    m_dirLight.direction.y = -std::sin(pitch);
+                    m_dirLight.direction.z = std::cos(yaw) * std::cos(pitch);
+                    m_dirLight.direction = glm::normalize(m_dirLight.direction);
+                }
+                break;
+            case Menu::POINTLIGHT_TOGGLE:
+                m_pointLight.enabled = !m_pointLight.enabled;
+                break;
+            case Menu::DIRLIGHT_NONE:
+                break;
+        }
+        
+        Menu::markDirLightUpdated();
     }
 }
 
@@ -703,8 +779,6 @@ void Application::render() {
         float aspect = static_cast<float>(width) / static_cast<float>(height);
         glm::mat4 projection = glm::perspective(glm::radians(m_camera->fov), aspect, 0.1f, 100.0f);
         
-        glm::vec3 lightColor = m_lightEnabled ? m_lightColor : glm::vec3(0.0f);
-        
         // Render all objects
         if (m_cubeMesh) {
             for (const RenderObject& obj : m_objects) {
@@ -717,21 +791,21 @@ void Application::render() {
                 model = glm::rotate(model, glm::radians(obj.rotationDeg.z), glm::vec3(0.0f, 0.0f, 1.0f));
                 model = glm::scale(model, obj.scale);
                 
-                m_renderer->drawMesh(*m_cubeMesh, *obj.material, model, view, projection, m_camera->position, m_lightPos, lightColor, m_lightEnabled);
+                m_renderer->drawMesh(*m_cubeMesh, *obj.material, model, view, projection, m_camera->position, m_dirLight, m_pointLight);
             }
         }
         
-        // Render light sphere
-        if (m_lightEnabled && m_lightShader != nullptr && m_lightShader->m_id != 0) {
+        // Render point light sphere
+        if (m_pointLight.enabled && m_lightShader != nullptr && m_lightShader->m_id != 0) {
             glm::mat4 lightModel = glm::mat4(1.0f);
-            lightModel = glm::translate(lightModel, m_lightPos);
+            lightModel = glm::translate(lightModel, m_pointLight.position);
             lightModel = glm::scale(lightModel, glm::vec3(0.1f)); // Small sphere
             
             m_lightShader->use();
             m_lightShader->setMat4("u_Model", lightModel);
             m_lightShader->setMat4("u_View", view);
             m_lightShader->setMat4("u_Projection", projection);
-            m_lightShader->setVec3("u_LightColor", m_lightColor);
+            m_lightShader->setVec3("u_LightColor", m_pointLight.color);
             
             glBindVertexArray(m_lightVAO);
             glDrawElements(GL_TRIANGLES, m_lightIndexCount, GL_UNSIGNED_INT, 0);
@@ -770,7 +844,8 @@ void Application::render() {
     std::ostringstream lightOss;
     lightOss << std::fixed << std::setprecision(0);
     lightOss << "Shininess: " << m_shininess << "\n";
-    lightOss << "Light: " << (m_lightEnabled ? "ON" : "OFF");
+    lightOss << "DirLight: " << (m_dirLight.enabled ? "ON" : "OFF") << "\n";
+    lightOss << "PointLight: " << (m_pointLight.enabled ? "ON" : "OFF");
     UIText::renderText(lightOss.str(), 10.0f, 290.0f, 1.2f);
     
     // Selected Cube UI

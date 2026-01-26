@@ -38,6 +38,8 @@ target_link_libraries(Graphics_engine
 
 target_compile_definitions(Graphics_engine PRIVATE GLFW_INCLUDE_NONE)
 
+target_include_directories(Graphics_engine PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 # Copy assets to build directory
 add_custom_command(TARGET Graphics_engine POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory

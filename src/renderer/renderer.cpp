@@ -3,6 +3,7 @@
 #include "../texture2d.h"
 #include "material.h"
 #include "mesh/mesh.h"
+#include "light.h"
 #include <glad/glad.h>
 
 void Renderer::init() {
@@ -14,7 +15,7 @@ void Renderer::beginFrame(float r, float g, float b, float a) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
-void Renderer::drawMesh(const Mesh& mesh, const Material& material, const glm::mat4& model, const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos, const glm::vec3& lightPos, const glm::vec3& lightColor, bool lightEnabled) {
+void Renderer::drawMesh(const Mesh& mesh, const Material& material, const glm::mat4& model, const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos, const DirectionalLight& dirLight, const PointLight& pointLight) {
     material.bind();
     
     material.shader->setMat4("u_Model", model);
@@ -22,9 +23,18 @@ void Renderer::drawMesh(const Mesh& mesh, const Material& material, const glm::m
     material.shader->setMat4("u_Projection", projection);
     material.shader->setVec3("u_CameraPos", cameraPos);
     
-    glm::vec3 finalLightColor = lightEnabled ? lightColor : glm::vec3(0.0f);
-    material.shader->setVec3("u_LightPos", lightPos);
-    material.shader->setVec3("u_LightColor", finalLightColor);
+    // Directional Light uniforms
+    material.shader->setVec3("u_DirLight.direction", dirLight.direction);
+    material.shader->setVec3("u_DirLight.color", dirLight.color);
+    material.shader->setInt("u_DirLight.enabled", dirLight.enabled ? 1 : 0);
+    
+    // Point Light uniforms
+    material.shader->setVec3("u_PointLight.position", pointLight.position);
+    material.shader->setVec3("u_PointLight.color", pointLight.color);
+    material.shader->setFloat("u_PointLight.constant", pointLight.constant);
+    material.shader->setFloat("u_PointLight.linear", pointLight.linear);
+    material.shader->setFloat("u_PointLight.quadratic", pointLight.quadratic);
+    material.shader->setInt("u_PointLight.enabled", pointLight.enabled ? 1 : 0);
     
     mesh.draw();
 }

@@ -8,6 +8,7 @@
 #include <sstream>
 #include <vector>
 #include <memory>
+#include "renderer/light.h"
 
 class Camera;
 class Shader;
@@ -99,12 +100,11 @@ private:
     std::vector<Texture2D*> m_textures;  // Owned textures for materials
     
     // Lighting
-    glm::vec3 m_lightPos = glm::vec3(2.0f, 2.0f, 2.0f);
-    glm::vec3 m_lightColor = glm::vec3(1.0f, 1.0f, 1.0f);
-    bool m_lightEnabled = true;
+    DirectionalLight m_dirLight;
+    PointLight m_pointLight;
     float m_shininess = 32.0f;
-    bool m_lightSpinning = false;
-    float m_lightSpinAngle = 0.0f;
+    bool m_pointLightSpinning = false;
+    float m_pointLightSpinAngle = 0.0f;
     
     // Light sphere visualization
     GLuint m_lightVAO = 0;
@@ -115,6 +115,7 @@ private:
     
     // Key debounce for lighting controls
     bool m_lPressed = false;
+    bool m_oPressed = false;
     bool m_jPressed = false;
     bool m_kPressed = false;
 };

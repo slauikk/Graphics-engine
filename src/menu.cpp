@@ -25,6 +25,8 @@ bool Menu::m_needsLightUpdate = false;
 float Menu::m_lightPosX = 2.0f;
 float Menu::m_lightPosY = 2.0f;
 float Menu::m_lightPosZ = 2.0f;
+Menu::DirLightControlAction Menu::m_dirLightControlAction = DIRLIGHT_NONE;
+bool Menu::m_needsDirLightUpdate = false;
 
 void Menu::init() {
     scanTextures();
@@ -99,6 +101,9 @@ void Menu::render() {
         case MOVEMENT_LIGHT:
             renderLightMenu();
             break;
+        case LIGHTING:
+            renderLightingMenu();
+            break;
     }
 }
 
@@ -111,7 +116,7 @@ void Menu::renderMainMenu() {
     UIText::renderText(header, x, y, 1.5f);
     y += lineHeight * 2;
     
-    std::vector<std::string> mainMenuItems = {"Textures", "Movement"};
+    std::vector<std::string> mainMenuItems = {"Textures", "Movement", "Lighting"};
     
     for (size_t i = 0; i < mainMenuItems.size(); i++) {
         std::string itemText;
@@ -325,6 +330,8 @@ void Menu::processKey(int key) {
             maxItems = 10;
         } else if (m_currentState == MOVEMENT_LIGHT) {
             maxItems = 25;
+        } else if (m_currentState == LIGHTING) {
+            maxItems = 6;
         }
         
         m_selectedIndex--;
@@ -334,7 +341,7 @@ void Menu::processKey(int key) {
     } else if (key == GLFW_KEY_DOWN) {
         int maxItems = 0;
         if (m_currentState == MAIN_MENU) {
-            maxItems = 2;
+            maxItems = 3;
         } else if (m_currentState == TEXTURES) {
             maxItems = static_cast<int>(m_textures.size());
         } else if (m_currentState == MOVEMENT_ROOT) {
@@ -343,6 +350,8 @@ void Menu::processKey(int key) {
             maxItems = 10;
         } else if (m_currentState == MOVEMENT_LIGHT) {
             maxItems = 25;
+        } else if (m_currentState == LIGHTING) {
+            maxItems = 6;
         }
         
         m_selectedIndex++;
@@ -356,6 +365,9 @@ void Menu::processKey(int key) {
                 m_selectedIndex = 0;
             } else if (m_selectedIndex == 1) {
                 m_currentState = MOVEMENT_ROOT;
+                m_selectedIndex = 0;
+            } else if (m_selectedIndex == 2) {
+                m_currentState = LIGHTING;
                 m_selectedIndex = 0;
             }
         } else if (m_currentState == TEXTURES) {
@@ -471,6 +483,27 @@ void Menu::processKey(int key) {
                 m_lightControlAction = LIGHT_YZ_BACK;
                 m_needsLightUpdate = true;
             }
+        } else if (m_currentState == LIGHTING) {
+            if (m_selectedIndex == 0) {
+                m_dirLightControlAction = DIRLIGHT_TOGGLE;
+                m_needsDirLightUpdate = true;
+            } else if (m_selectedIndex == 1) {
+                m_dirLightControlAction = DIRLIGHT_ROTATE_LEFT;
+                m_needsDirLightUpdate = true;
+            } else if (m_selectedIndex == 2) {
+                m_dirLightControlAction = DIRLIGHT_ROTATE_RIGHT;
+                m_needsDirLightUpdate = true;
+            } else if (m_selectedIndex == 3) {
+                m_dirLightControlAction = DIRLIGHT_TILT_UP;
+                m_needsDirLightUpdate = true;
+            } else if (m_selectedIndex == 4) {
+                m_dirLightControlAction = DIRLIGHT_TILT_DOWN;
+                m_needsDirLightUpdate = true;
+            } else if (m_selectedIndex == 5) {
+                // Toggle Point Light
+                m_dirLightControlAction = POINTLIGHT_TOGGLE;
+                m_needsDirLightUpdate = true;
+            }
         }
     } else if (key == GLFW_KEY_ESCAPE) {
         if (m_currentState == MAIN_MENU) {
@@ -480,6 +513,9 @@ void Menu::processKey(int key) {
             m_selectedIndex = 0;
         } else if (m_currentState == MOVEMENT_CUBE || m_currentState == MOVEMENT_LIGHT) {
             m_currentState = MOVEMENT_ROOT;
+            m_selectedIndex = 0;
+        } else if (m_currentState == LIGHTING) {
+            m_currentState = MAIN_MENU;
             m_selectedIndex = 0;
         }
     }
@@ -545,6 +581,54 @@ void Menu::getLightPosition(float& x, float& y, float& z) {
     x = m_lightPosX;
     y = m_lightPosY;
     z = m_lightPosZ;
+}
+
+void Menu::renderLightingMenu() {
+    float x = 200.0f;
+    float y = 200.0f;
+    float lineHeight = 14.0f * 1.5f;
+    
+    std::string header = "Lighting Control:\n\n";
+    UIText::renderText(header, x, y, 1.5f);
+    y += lineHeight * 2;
+    
+    std::vector<std::string> items = {
+        "Toggle Directional",
+        "DirLight Rotate Left",
+        "DirLight Rotate Right",
+        "DirLight Tilt Up",
+        "DirLight Tilt Down",
+        "Toggle Point"
+    };
+    
+    for (size_t i = 0; i < items.size(); i++) {
+        std::string itemText;
+        if (static_cast<int>(i) == m_selectedIndex) {
+            itemText = "> " + items[i];
+            UIText::renderTextWithColor(itemText, x, y, 1.5f, 1.0f, 1.0f, 0.0f);
+        } else {
+            itemText = "  " + items[i];
+            UIText::renderText(itemText, x, y, 1.5f);
+        }
+        y += lineHeight;
+    }
+    
+    y += lineHeight;
+    std::string instructions = "\nArrow Keys: Navigate\nEnter: Select\nESC: Back\nF8: Close";
+    UIText::renderText(instructions, x, y, 1.5f);
+}
+
+Menu::DirLightControlAction Menu::getDirLightControlAction() {
+    return m_dirLightControlAction;
+}
+
+bool Menu::needsDirLightUpdate() {
+    return m_needsDirLightUpdate;
+}
+
+void Menu::markDirLightUpdated() {
+    m_needsDirLightUpdate = false;
+    m_dirLightControlAction = DIRLIGHT_NONE;
 }
 
 void Menu::setCubePosition(float x, float y, float z) {
