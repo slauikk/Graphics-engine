@@ -369,7 +369,18 @@ int Application::run() {
         render();
         
         m_renderer->endFrame();
+
+        const double presentStart = glfwGetTime();
         glfwSwapBuffers(m_window);
+        const float presentSampleMs = static_cast<float>((glfwGetTime() - presentStart) * 1000.0);
+        if (m_hasPresentTime) {
+            constexpr float smoothingFactor = 0.1f;
+            m_presentTimeMs += (presentSampleMs - m_presentTimeMs) * smoothingFactor;
+        } else {
+            m_presentTimeMs = presentSampleMs;
+            m_hasPresentTime = true;
+        }
+
         glfwPollEvents();
     }
 
@@ -819,6 +830,8 @@ void Application::render() {
     }
     
     Menu::update();
+    m_renderer->beginUiPass();
+    UIText::beginFrame();
     Menu::render();
 
     // Render UI
@@ -827,10 +840,17 @@ void Application::render() {
     oss << "FPS: " << m_currentFPS << "\n";
     oss << std::setprecision(2);
     oss << "CPU frame: " << m_cpuFrameTimeMs << " ms\n";
-    if (m_renderer->hasGpuFrameTime()) {
-        oss << "GPU render: " << m_renderer->gpuFrameTimeMs() << " ms\n";
+    if (m_hasPresentTime) {
+        oss << "Present: " << m_presentTimeMs << " ms\n";
     } else {
-        oss << "GPU render: warming up\n";
+        oss << "Present: warming up\n";
+    }
+    if (m_renderer->hasGpuFrameTime()) {
+        oss << "GPU total: " << m_renderer->gpuFrameTimeMs() << " ms\n";
+        oss << "  Scene: " << m_renderer->gpuSceneTimeMs() << " ms\n";
+        oss << "  UI: " << m_renderer->gpuUiTimeMs() << " ms\n";
+    } else {
+        oss << "GPU timings: warming up\n";
     }
     oss << std::setprecision(1);
     oss << "FOV: " << (m_camera ? m_camera->fov : 45.0f);
@@ -870,6 +890,7 @@ void Application::render() {
     std::ostringstream cubeOss;
     cubeOss << "Selected Cube: " << m_selectedObject;
     UIText::renderText(cubeOss.str(), 10.0f, 350.0f, 1.2f);
+    UIText::flush();
 }
 
 void Application::framebufferSizeCallback(GLFWwindow* window, int width, int height) {

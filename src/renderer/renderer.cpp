@@ -7,11 +7,6 @@
 #include <glad/glad.h>
 
 Renderer::~Renderer() {
-    if (m_gpuQueryActive) {
-        glEndQuery(GL_TIME_ELAPSED);
-        m_gpuQueryActive = false;
-    }
-
     if (m_gpuQueries.front() != 0) {
         glDeleteQueries(static_cast<GLsizei>(m_gpuQueries.size()), m_gpuQueries.data());
         m_gpuQueries.fill(0);
@@ -29,16 +24,26 @@ void Renderer::init() {
 void Renderer::beginFrame(float r, float g, float b, float a) {
     collectGpuFrameTimes();
 
-    if (!m_gpuQueryActive && m_pendingGpuQueries < m_gpuQueries.size()) {
-        const GLuint query = m_gpuQueries[m_gpuQueryWriteIndex];
+    if (!m_gpuTimestampFrameActive && m_pendingGpuQueries < kGpuQueryCount) {
+        const GLuint query = gpuQuery(m_gpuQueryWriteIndex, kFrameStartTimestamp);
         if (query != 0) {
-            glBeginQuery(GL_TIME_ELAPSED, query);
-            m_gpuQueryActive = true;
+            glQueryCounter(query, GL_TIMESTAMP);
+            m_gpuTimestampFrameActive = true;
+            m_gpuUiTimestampIssued = false;
         }
     }
 
     glClearColor(r, g, b, a);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+}
+
+void Renderer::beginUiPass() {
+    if (!m_gpuTimestampFrameActive || m_gpuUiTimestampIssued) {
+        return;
+    }
+
+    glQueryCounter(gpuQuery(m_gpuQueryWriteIndex, kUiStartTimestamp), GL_TIMESTAMP);
+    m_gpuUiTimestampIssued = true;
 }
 
 void Renderer::drawMesh(const Mesh& mesh, const Material& material, const glm::mat4& model,
@@ -74,38 +79,63 @@ void Renderer::drawMesh(const Mesh& mesh, const Material& material, const glm::m
 }
 
 void Renderer::endFrame() {
-    if (!m_gpuQueryActive) {
+    if (!m_gpuTimestampFrameActive) {
         return;
     }
 
-    glEndQuery(GL_TIME_ELAPSED);
-    m_gpuQueryActive = false;
-    m_gpuQueryWriteIndex = (m_gpuQueryWriteIndex + 1) % m_gpuQueries.size();
+    if (!m_gpuUiTimestampIssued) {
+        beginUiPass();
+    }
+    glQueryCounter(gpuQuery(m_gpuQueryWriteIndex, kFrameEndTimestamp), GL_TIMESTAMP);
+
+    m_gpuTimestampFrameActive = false;
+    m_gpuUiTimestampIssued = false;
+    m_gpuQueryWriteIndex = (m_gpuQueryWriteIndex + 1) % kGpuQueryCount;
     ++m_pendingGpuQueries;
 }
 
 void Renderer::collectGpuFrameTimes() {
     while (m_pendingGpuQueries > 0) {
-        const GLuint query = m_gpuQueries[m_gpuQueryReadIndex];
+        const GLuint endQuery = gpuQuery(m_gpuQueryReadIndex, kFrameEndTimestamp);
         GLuint available = GL_FALSE;
-        glGetQueryObjectuiv(query, GL_QUERY_RESULT_AVAILABLE, &available);
+        glGetQueryObjectuiv(endQuery, GL_QUERY_RESULT_AVAILABLE, &available);
         if (available == GL_FALSE) {
             break;
         }
 
-        GLuint64 elapsedNanoseconds = 0;
-        glGetQueryObjectui64v(query, GL_QUERY_RESULT, &elapsedNanoseconds);
-        const float sampleMs = static_cast<float>(elapsedNanoseconds) / 1'000'000.0f;
+        GLuint64 frameStart = 0;
+        GLuint64 uiStart = 0;
+        GLuint64 frameEnd = 0;
+        glGetQueryObjectui64v(gpuQuery(m_gpuQueryReadIndex, kFrameStartTimestamp),
+                              GL_QUERY_RESULT, &frameStart);
+        glGetQueryObjectui64v(gpuQuery(m_gpuQueryReadIndex, kUiStartTimestamp),
+                              GL_QUERY_RESULT, &uiStart);
+        glGetQueryObjectui64v(endQuery, GL_QUERY_RESULT, &frameEnd);
 
-        if (m_hasGpuFrameTime) {
-            constexpr float smoothingFactor = 0.1f;
-            m_gpuFrameTimeMs += (sampleMs - m_gpuFrameTimeMs) * smoothingFactor;
-        } else {
-            m_gpuFrameTimeMs = sampleMs;
-            m_hasGpuFrameTime = true;
+        if (frameStart <= uiStart && uiStart <= frameEnd) {
+            constexpr float nanosecondsToMilliseconds = 1.0f / 1'000'000.0f;
+            const float frameSample = static_cast<float>(frameEnd - frameStart) * nanosecondsToMilliseconds;
+            const float sceneSample = static_cast<float>(uiStart - frameStart) * nanosecondsToMilliseconds;
+            const float uiSample = static_cast<float>(frameEnd - uiStart) * nanosecondsToMilliseconds;
+
+            if (m_hasGpuFrameTime) {
+                constexpr float smoothingFactor = 0.1f;
+                m_gpuFrameTimeMs += (frameSample - m_gpuFrameTimeMs) * smoothingFactor;
+                m_gpuSceneTimeMs += (sceneSample - m_gpuSceneTimeMs) * smoothingFactor;
+                m_gpuUiTimeMs += (uiSample - m_gpuUiTimeMs) * smoothingFactor;
+            } else {
+                m_gpuFrameTimeMs = frameSample;
+                m_gpuSceneTimeMs = sceneSample;
+                m_gpuUiTimeMs = uiSample;
+                m_hasGpuFrameTime = true;
+            }
         }
 
-        m_gpuQueryReadIndex = (m_gpuQueryReadIndex + 1) % m_gpuQueries.size();
+        m_gpuQueryReadIndex = (m_gpuQueryReadIndex + 1) % kGpuQueryCount;
         --m_pendingGpuQueries;
     }
+}
+
+GLuint Renderer::gpuQuery(std::size_t frameIndex, std::size_t timestampIndex) const {
+    return m_gpuQueries[frameIndex * kTimestampsPerFrame + timestampIndex];
 }
