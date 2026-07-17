@@ -7,6 +7,7 @@
 #include "../menu.h"
 #include "../gl_debug.h"
 #include "../renderer/renderer.h"
+#include "../renderer/framebuffer.h"
 #include "../renderer/material.h"
 #include "../renderer/mesh/mesh_factory.h"
 #include "../renderer/light.h"
@@ -29,6 +30,10 @@ constexpr int kBenchmarkRows = 18;
 constexpr int kBenchmarkLayers = 4;
 constexpr int kBenchmarkShaderIterations = 48;
 constexpr float kBenchmarkFov = 45.0f;
+constexpr GLsizei kBenchmarkWidth = 1600;
+constexpr GLsizei kBenchmarkHeight = 900;
+constexpr double kBenchmarkWarmupSeconds = 2.0;
+constexpr std::size_t kBenchmarkCaptureSamples = 300;
 
 const char* shaderViewModeName(int mode) {
     switch (mode) {
@@ -253,6 +258,12 @@ void main() {
     // Renderer
     m_renderer = new Renderer();
     m_renderer->init();
+
+    m_benchmarkFramebuffer = std::make_unique<Framebuffer>();
+    if (!m_benchmarkFramebuffer->init(kBenchmarkWidth, kBenchmarkHeight)) {
+        std::cerr << "Failed to create benchmark framebuffer\n";
+        return false;
+    }
     
     // Texture menu
     Menu::init();
@@ -369,6 +380,66 @@ void Application::resetFrameStatistics() {
     }
 }
 
+void Application::restartBenchmarkCapture() {
+    if (!m_benchmarkEnabled || m_renderer == nullptr) {
+        m_benchmarkCaptureState = BenchmarkCaptureState::Idle;
+        return;
+    }
+
+    m_renderer->cancelGpuBenchmarkCapture();
+    m_benchmarkCaptureState = BenchmarkCaptureState::WarmingUp;
+    m_benchmarkWarmupStart = glfwGetTime();
+    m_benchmarkMedianGpuMs = 0.0f;
+    m_benchmarkP95GpuMs = 0.0f;
+}
+
+void Application::updateBenchmarkCapture() {
+    if (!m_benchmarkEnabled || m_renderer == nullptr) {
+        return;
+    }
+
+    if (m_benchmarkCaptureState == BenchmarkCaptureState::WarmingUp) {
+        if (glfwGetTime() - m_benchmarkWarmupStart >= kBenchmarkWarmupSeconds) {
+            m_renderer->beginGpuBenchmarkCapture(kBenchmarkCaptureSamples);
+            m_benchmarkCaptureState = BenchmarkCaptureState::Capturing;
+        }
+        return;
+    }
+
+    if (m_benchmarkCaptureState != BenchmarkCaptureState::Capturing ||
+        m_renderer->gpuBenchmarkCaptureActive()) {
+        return;
+    }
+
+    const auto& samples = m_renderer->gpuBenchmarkCaptureSamples();
+    if (samples.size() < kBenchmarkCaptureSamples) {
+        return;
+    }
+
+    std::vector<float> sortedSamples(samples.begin(), samples.end());
+    std::sort(sortedSamples.begin(), sortedSamples.end());
+
+    const std::size_t sampleCount = sortedSamples.size();
+    const std::size_t middle = sampleCount / 2;
+    m_benchmarkMedianGpuMs = sampleCount % 2 == 0
+        ? (sortedSamples[middle - 1] + sortedSamples[middle]) * 0.5f
+        : sortedSamples[middle];
+
+    const std::size_t p95Index = static_cast<std::size_t>(
+        std::ceil(static_cast<double>(sampleCount) * 0.95)) - 1;
+    m_benchmarkP95GpuMs = sortedSamples[p95Index];
+    m_benchmarkCaptureState = BenchmarkCaptureState::Complete;
+
+    std::ostringstream result;
+    result << std::fixed << std::setprecision(2)
+           << "GPU benchmark result | GPU: " << m_gpuRenderer
+           << " | Target: " << kBenchmarkWidth << "x" << kBenchmarkHeight
+           << " | Samples: " << sampleCount
+           << " | Draw median: " << m_benchmarkMedianGpuMs << " ms"
+           << " | p95: " << m_benchmarkP95GpuMs << " ms";
+    std::cout << result.str() << "\n";
+}
+
 void Application::toggleBenchmark() {
     m_benchmarkEnabled = !m_benchmarkEnabled;
     if (m_benchmarkEnabled && Menu::isOpen()) {
@@ -376,6 +447,11 @@ void Application::toggleBenchmark() {
     }
     m_firstMouse = true;
     resetFrameStatistics();
+    if (m_benchmarkEnabled) {
+        restartBenchmarkCapture();
+    } else {
+        m_benchmarkCaptureState = BenchmarkCaptureState::Idle;
+    }
 
     std::cout << "GPU benchmark " << (m_benchmarkEnabled ? "enabled" : "disabled") << "\n";
 }
@@ -387,6 +463,7 @@ void Application::shutdown() {
         glfwMakeContextCurrent(m_window);
     }
 
+    m_benchmarkFramebuffer.reset();
     m_benchmarkInstanceCount = 0;
     m_benchmarkMaterial.reset();
 
@@ -903,23 +980,38 @@ void Application::render() {
     }
     
     m_renderer->beginFrame(0.10f, 0.12f, 0.16f, 1.0f);
+    updateBenchmarkCapture();
     
     if (m_shader != nullptr && m_shader->m_id != 0 && m_camera != nullptr) {
-        const float aspect = static_cast<float>(width) / static_cast<float>(height);
+        if (m_benchmarkEnabled && m_cubeMesh && m_benchmarkMaterial != nullptr &&
+            m_benchmarkFramebuffer && m_benchmarkFramebuffer->isValid()) {
+            m_benchmarkFramebuffer->bind();
+            glViewport(0, 0, m_benchmarkFramebuffer->width(), m_benchmarkFramebuffer->height());
+            glClearColor(0.10f, 0.12f, 0.16f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        if (m_benchmarkEnabled && m_cubeMesh && m_benchmarkMaterial != nullptr) {
             const glm::vec3 cameraPos(0.0f, 0.0f, 28.0f);
             const glm::mat4 view = glm::lookAt(cameraPos, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-            const glm::mat4 projection = glm::perspective(glm::radians(kBenchmarkFov), aspect, 0.1f, 100.0f);
+            const float benchmarkAspect = static_cast<float>(m_benchmarkFramebuffer->width()) /
+                                          static_cast<float>(m_benchmarkFramebuffer->height());
+            const glm::mat4 projection = glm::perspective(
+                glm::radians(kBenchmarkFov), benchmarkAspect, 0.1f, 100.0f);
             DirectionalLight benchmarkDirLight;
             PointLight benchmarkPointLight;
             benchmarkPointLight.enabled = false;
 
+            m_renderer->beginBenchmarkPass();
             m_renderer->drawMeshInstanced(*m_cubeMesh, *m_benchmarkMaterial,
                                           m_benchmarkInstanceCount, view, projection,
                                           cameraPos, benchmarkDirLight, benchmarkPointLight,
                                           kBenchmarkShaderIterations);
+            m_renderer->endBenchmarkPass();
+
+            Framebuffer::bindDefault();
+            glViewport(0, 0, width, height);
+            m_benchmarkFramebuffer->blitColorToDefault(width, height);
         } else {
+            const float aspect = static_cast<float>(width) / static_cast<float>(height);
             const glm::mat4 view = m_camera->getViewMatrix();
             const glm::mat4 projection = glm::perspective(glm::radians(m_camera->fov), aspect, 0.1f, 100.0f);
 
@@ -981,6 +1073,9 @@ void Application::render() {
     if (m_renderer->hasGpuFrameTime()) {
         oss << "GPU total: " << m_renderer->gpuFrameTimeMs() << " ms\n";
         oss << "  Scene: " << m_renderer->gpuSceneTimeMs() << " ms\n";
+        if (m_benchmarkEnabled && m_renderer->hasGpuBenchmarkTime()) {
+            oss << "  Draw: " << m_renderer->gpuBenchmarkTimeMs() << " ms\n";
+        }
         oss << "  UI: " << m_renderer->gpuUiTimeMs() << " ms\n";
     } else {
         oss << "GPU timings: warming up\n";
@@ -992,10 +1087,11 @@ void Application::render() {
     }
     oss << "\nBenchmark: " << (m_benchmarkEnabled ? "ON" : "OFF") << " [F7]";
     if (m_benchmarkEnabled) {
-        oss << "\nResolution: " << width << "x" << height;
+        oss << "\nTarget: " << kBenchmarkWidth << "x" << kBenchmarkHeight;
+        oss << "\nDisplay: " << width << "x" << height;
         oss << "\nInstances: " << m_benchmarkInstanceCount;
         oss << "\nShader loops: " << kBenchmarkShaderIterations;
-        oss << "\nCompare GPUs by Scene time";
+        oss << "\nCompare GPUs by Draw median";
     }
     if (m_showGPUInfo || m_benchmarkEnabled) {
         std::string gpuStr = m_gpuRenderer;
@@ -1003,6 +1099,22 @@ void Application::render() {
             gpuStr = gpuStr.substr(0, 37) + "...";
         }
         oss << "\nGPU: " << gpuStr;
+    }
+    if (m_benchmarkEnabled && m_renderer != nullptr) {
+        if (m_benchmarkCaptureState == BenchmarkCaptureState::WarmingUp) {
+            const double elapsed = std::clamp(glfwGetTime() - m_benchmarkWarmupStart,
+                                              0.0, kBenchmarkWarmupSeconds);
+            oss << "\nWarm-up: " << std::setprecision(1) << elapsed
+                << "/" << kBenchmarkWarmupSeconds << " s";
+        } else if (m_benchmarkCaptureState == BenchmarkCaptureState::Capturing) {
+            oss << "\nCapture: " << m_renderer->gpuBenchmarkCaptureSamples().size()
+                << "/" << m_renderer->gpuBenchmarkCaptureTarget() << " samples";
+        } else if (m_benchmarkCaptureState == BenchmarkCaptureState::Complete) {
+            oss << std::setprecision(2);
+            oss << "\nDraw median: " << m_benchmarkMedianGpuMs << " ms";
+            oss << "\nDraw p95: " << m_benchmarkP95GpuMs << " ms";
+            oss << "\nCapture complete [F10 rerun]";
+        }
     }
     
     UIText::renderText(oss.str(), 10.0f, 10.0f, 1.5f);
@@ -1075,6 +1187,10 @@ void Application::onFramebufferResize(int width, int height) {
 void Application::onKey(int key, int action) {
     if (key == GLFW_KEY_F7 && action == GLFW_PRESS) {
         toggleBenchmark();
+    } else if (key == GLFW_KEY_F10 && action == GLFW_PRESS && m_benchmarkEnabled) {
+        resetFrameStatistics();
+        restartBenchmarkCapture();
+        std::cout << "GPU benchmark capture restarted\n";
     }
 }
 

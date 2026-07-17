@@ -65,6 +65,8 @@ void Renderer::beginFrame(float r, float g, float b, float a) {
             glQueryCounter(query, GL_TIMESTAMP);
             m_gpuTimestampFrameActive = true;
             m_gpuUiTimestampIssued = false;
+            m_gpuBenchmarkStartIssued = false;
+            m_gpuBenchmarkEndIssued = false;
             m_gpuActiveFrameEpoch = m_gpuTimingEpoch;
         }
     }
@@ -73,11 +75,30 @@ void Renderer::beginFrame(float r, float g, float b, float a) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
+void Renderer::beginBenchmarkPass() {
+    if (!m_gpuTimestampFrameActive || m_gpuBenchmarkStartIssued) {
+        return;
+    }
+
+    glQueryCounter(gpuQuery(m_gpuQueryWriteIndex, kBenchmarkStartTimestamp), GL_TIMESTAMP);
+    m_gpuBenchmarkStartIssued = true;
+}
+
+void Renderer::endBenchmarkPass() {
+    if (!m_gpuTimestampFrameActive || !m_gpuBenchmarkStartIssued || m_gpuBenchmarkEndIssued) {
+        return;
+    }
+
+    glQueryCounter(gpuQuery(m_gpuQueryWriteIndex, kBenchmarkEndTimestamp), GL_TIMESTAMP);
+    m_gpuBenchmarkEndIssued = true;
+}
+
 void Renderer::beginUiPass() {
     if (!m_gpuTimestampFrameActive || m_gpuUiTimestampIssued) {
         return;
     }
 
+    endBenchmarkPass();
     glQueryCounter(gpuQuery(m_gpuQueryWriteIndex, kUiStartTimestamp), GL_TIMESTAMP);
     m_gpuUiTimestampIssued = true;
 }
@@ -115,19 +136,39 @@ void Renderer::endFrame() {
     }
     glQueryCounter(gpuQuery(m_gpuQueryWriteIndex, kFrameEndTimestamp), GL_TIMESTAMP);
     m_gpuQueryEpochs[m_gpuQueryWriteIndex] = m_gpuActiveFrameEpoch;
+    m_gpuBenchmarkTimestampsComplete[m_gpuQueryWriteIndex] =
+        m_gpuBenchmarkStartIssued && m_gpuBenchmarkEndIssued;
 
     m_gpuTimestampFrameActive = false;
     m_gpuUiTimestampIssued = false;
+    m_gpuBenchmarkStartIssued = false;
+    m_gpuBenchmarkEndIssued = false;
     m_gpuQueryWriteIndex = (m_gpuQueryWriteIndex + 1) % kGpuQueryCount;
     ++m_pendingGpuQueries;
 }
 
 void Renderer::resetGpuFrameTimes() {
     ++m_gpuTimingEpoch;
+    cancelGpuBenchmarkCapture();
     m_hasGpuFrameTime = false;
     m_gpuFrameTimeMs = 0.0f;
     m_gpuSceneTimeMs = 0.0f;
     m_gpuUiTimeMs = 0.0f;
+    m_hasGpuBenchmarkTime = false;
+    m_gpuBenchmarkTimeMs = 0.0f;
+}
+
+void Renderer::beginGpuBenchmarkCapture(std::size_t sampleCount) {
+    m_gpuBenchmarkCaptureSamples.clear();
+    m_gpuBenchmarkCaptureTarget = sampleCount;
+    m_gpuBenchmarkCaptureSamples.reserve(sampleCount);
+    m_gpuBenchmarkCaptureActive = sampleCount > 0;
+}
+
+void Renderer::cancelGpuBenchmarkCapture() {
+    m_gpuBenchmarkCaptureActive = false;
+    m_gpuBenchmarkCaptureTarget = 0;
+    m_gpuBenchmarkCaptureSamples.clear();
 }
 
 void Renderer::collectGpuFrameTimes() {
@@ -155,6 +196,37 @@ void Renderer::collectGpuFrameTimes() {
             const float sceneSample = static_cast<float>(uiStart - frameStart) * nanosecondsToMilliseconds;
             const float uiSample = static_cast<float>(frameEnd - uiStart) * nanosecondsToMilliseconds;
 
+            if (m_gpuBenchmarkTimestampsComplete[m_gpuQueryReadIndex]) {
+                GLuint64 benchmarkStart = 0;
+                GLuint64 benchmarkEnd = 0;
+                glGetQueryObjectui64v(gpuQuery(m_gpuQueryReadIndex, kBenchmarkStartTimestamp),
+                                      GL_QUERY_RESULT, &benchmarkStart);
+                glGetQueryObjectui64v(gpuQuery(m_gpuQueryReadIndex, kBenchmarkEndTimestamp),
+                                      GL_QUERY_RESULT, &benchmarkEnd);
+
+                if (frameStart <= benchmarkStart && benchmarkStart <= benchmarkEnd &&
+                    benchmarkEnd <= uiStart) {
+                    const float benchmarkSample =
+                        static_cast<float>(benchmarkEnd - benchmarkStart) * nanosecondsToMilliseconds;
+
+                    if (m_hasGpuBenchmarkTime) {
+                        constexpr float smoothingFactor = 0.1f;
+                        m_gpuBenchmarkTimeMs +=
+                            (benchmarkSample - m_gpuBenchmarkTimeMs) * smoothingFactor;
+                    } else {
+                        m_gpuBenchmarkTimeMs = benchmarkSample;
+                        m_hasGpuBenchmarkTime = true;
+                    }
+
+                    if (m_gpuBenchmarkCaptureActive) {
+                        m_gpuBenchmarkCaptureSamples.push_back(benchmarkSample);
+                        if (m_gpuBenchmarkCaptureSamples.size() >= m_gpuBenchmarkCaptureTarget) {
+                            m_gpuBenchmarkCaptureActive = false;
+                        }
+                    }
+                }
+            }
+
             if (m_hasGpuFrameTime) {
                 constexpr float smoothingFactor = 0.1f;
                 m_gpuFrameTimeMs += (frameSample - m_gpuFrameTimeMs) * smoothingFactor;
@@ -168,6 +240,7 @@ void Renderer::collectGpuFrameTimes() {
             }
         }
 
+        m_gpuBenchmarkTimestampsComplete[m_gpuQueryReadIndex] = false;
         m_gpuQueryReadIndex = (m_gpuQueryReadIndex + 1) % kGpuQueryCount;
         --m_pendingGpuQueries;
     }

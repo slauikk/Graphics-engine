@@ -15,6 +15,7 @@ class Camera;
 class Shader;
 class Texture2D;
 class Renderer;
+class Framebuffer;
 class Material;
 class Mesh;
 
@@ -33,12 +34,21 @@ public:
     int run();
 
 private:
+    enum class BenchmarkCaptureState {
+        Idle,
+        WarmingUp,
+        Capturing,
+        Complete
+    };
+
     bool init();
     bool initBenchmarkScene();
     void shutdown();
     void applyGlobalShininess();
     Material* getOrCreateMaterial(const std::string& relativeTexturePath);
     void resetFrameStatistics();
+    void restartBenchmarkCapture();
+    void updateBenchmarkCapture();
     void toggleBenchmark();
     void processInput(float dt);
     void update(float dt);
@@ -112,11 +122,16 @@ private:
     std::shared_ptr<Mesh> m_cubeMesh = nullptr;
     std::shared_ptr<Shader> m_shader = nullptr;
     Renderer* m_renderer = nullptr;
+    std::unique_ptr<Framebuffer> m_benchmarkFramebuffer;
 
     // Fixed, single-draw GPU benchmark resources.
     GLsizei m_benchmarkInstanceCount = 0;
     std::unique_ptr<Material> m_benchmarkMaterial;
     bool m_benchmarkEnabled = false;
+    BenchmarkCaptureState m_benchmarkCaptureState = BenchmarkCaptureState::Idle;
+    double m_benchmarkWarmupStart = 0.0;
+    float m_benchmarkMedianGpuMs = 0.0f;
+    float m_benchmarkP95GpuMs = 0.0f;
     
     // Cached ownership; RenderObject keeps non-owning Material pointers.
     std::unordered_map<std::string, std::unique_ptr<Material>> m_materials;
