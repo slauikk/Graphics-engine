@@ -37,12 +37,13 @@ void VertexArray::unbind() const {
     glBindVertexArray(0);
 }
 
-void VertexArray::addVertexBuffer(VertexBuffer& vbo, const BufferLayout& layout) {
+void VertexArray::addVertexBuffer(VertexBuffer& vbo, const BufferLayout& layout,
+                                  GLuint firstAttribute, GLuint divisor) {
     bind();
     vbo.bind();
 
     const auto& elements = layout.getElements();
-    uint32_t index = 0;
+    GLuint index = firstAttribute;
     for (const auto& element : elements) {
         glEnableVertexAttribArray(index);
         if (BufferElement::isIntegerType(element.type)) {
@@ -63,6 +64,7 @@ void VertexArray::addVertexBuffer(VertexBuffer& vbo, const BufferLayout& layout)
                 reinterpret_cast<const void*>(element.offset)
             );
         }
+        glVertexAttribDivisor(index, divisor);
         index++;
     }
 

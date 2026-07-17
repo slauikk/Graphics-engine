@@ -24,6 +24,12 @@
 
 namespace {
 
+constexpr int kBenchmarkColumns = 32;
+constexpr int kBenchmarkRows = 18;
+constexpr int kBenchmarkLayers = 4;
+constexpr int kBenchmarkShaderIterations = 48;
+constexpr float kBenchmarkFov = 45.0f;
+
 const char* shaderViewModeName(int mode) {
     switch (mode) {
         case 1: return "Albedo";
@@ -80,6 +86,7 @@ bool Application::init() {
     glfwMakeContextCurrent(m_window);
     glfwSetWindowUserPointer(m_window, this);
     glfwSetFramebufferSizeCallback(m_window, framebufferSizeCallback);
+    glfwSetKeyCallback(m_window, keyCallback);
 
     // VSync 1 - on 0 - off
     glfwSwapInterval(0);
@@ -142,6 +149,13 @@ bool Application::init() {
     m_objects[2] = { glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), matGrid, false };
     m_objects[3] = { glm::vec3(2.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), matJager, false };
     m_objects[4] = { glm::vec3(4.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), matZelya, false };
+
+    m_benchmarkMaterial = std::make_unique<Material>(m_shader.get(), matGrid->albedo);
+    m_benchmarkMaterial->shininess = 32.0f;
+    if (!initBenchmarkScene()) {
+        std::cerr << "Failed to create benchmark scene\n";
+        return false;
+    }
     
     m_selectedObject = 0;
     
@@ -255,6 +269,54 @@ void main() {
     return true;
 }
 
+bool Application::initBenchmarkScene() {
+    if (!m_cubeMesh || m_benchmarkMaterial == nullptr) {
+        return false;
+    }
+
+    std::vector<glm::mat4> transforms;
+    transforms.reserve(kBenchmarkColumns * kBenchmarkRows * kBenchmarkLayers);
+
+    for (int layer = 0; layer < kBenchmarkLayers; ++layer) {
+        for (int row = 0; row < kBenchmarkRows; ++row) {
+            for (int column = 0; column < kBenchmarkColumns; ++column) {
+                const float x = (static_cast<float>(column) - (kBenchmarkColumns - 1) * 0.5f) * 1.15f
+                              + (layer % 2 == 0 ? 0.0f : 0.35f);
+                const float y = (static_cast<float>(row) - (kBenchmarkRows - 1) * 0.5f) * 1.15f;
+                const float z = -static_cast<float>(layer) * 1.4f;
+
+                glm::mat4 model(1.0f);
+                model = glm::translate(model, glm::vec3(x, y, z));
+                const float angle = glm::radians(static_cast<float>((column * 13 + row * 7 + layer * 19) % 360));
+                const glm::vec3 axis = glm::normalize(glm::vec3(
+                    0.35f + static_cast<float>(row % 3) * 0.1f,
+                    1.0f,
+                    0.25f + static_cast<float>(column % 5) * 0.05f));
+                model = glm::rotate(model, angle, axis);
+                model = glm::scale(model, glm::vec3(0.92f));
+                transforms.push_back(model);
+            }
+        }
+    }
+
+    m_benchmarkInstanceCount = static_cast<GLsizei>(transforms.size());
+    auto instanceVbo = std::make_unique<VertexBuffer>(
+        transforms.data(), transforms.size() * sizeof(glm::mat4), GL_STATIC_DRAW);
+    if (instanceVbo->getId() == 0) {
+        m_benchmarkInstanceCount = 0;
+        return false;
+    }
+
+    BufferLayout instanceLayout({
+        { ShaderDataType::Float4, "aInstanceModel0" },
+        { ShaderDataType::Float4, "aInstanceModel1" },
+        { ShaderDataType::Float4, "aInstanceModel2" },
+        { ShaderDataType::Float4, "aInstanceModel3" }
+    });
+    m_cubeMesh->addVertexBuffer(std::move(instanceVbo), instanceLayout, 3, 1);
+    return true;
+}
+
 Material* Application::getOrCreateMaterial(const std::string& relativeTexturePath) {
     if (!m_shader || relativeTexturePath.empty()) {
         return nullptr;
@@ -291,12 +353,42 @@ void Application::applyGlobalShininess() {
     }
 }
 
+void Application::resetFrameStatistics() {
+    m_fpsUpdateTime = 0.0f;
+    m_frameCount = 0;
+    m_currentFPS = 0.0f;
+    m_cpuFrameTimeMs = 0.0f;
+    m_presentTimeMs = 0.0f;
+    m_hasFrameStatistics = false;
+    m_hasPresentTime = false;
+    m_skipNextFrameSample = true;
+    m_lastFrame = static_cast<float>(glfwGetTime());
+
+    if (m_renderer != nullptr) {
+        m_renderer->resetGpuFrameTimes();
+    }
+}
+
+void Application::toggleBenchmark() {
+    m_benchmarkEnabled = !m_benchmarkEnabled;
+    if (m_benchmarkEnabled && Menu::isOpen()) {
+        Menu::toggle();
+    }
+    m_firstMouse = true;
+    resetFrameStatistics();
+
+    std::cout << "GPU benchmark " << (m_benchmarkEnabled ? "enabled" : "disabled") << "\n";
+}
+
 void Application::shutdown() {
     m_initialized = false;
 
     if (m_contextReady && m_window) {
         glfwMakeContextCurrent(m_window);
     }
+
+    m_benchmarkInstanceCount = 0;
+    m_benchmarkMaterial.reset();
 
     m_objects.clear();
     m_materials.clear();
@@ -389,14 +481,30 @@ int Application::run() {
 
 void Application::processInput(float dt) {
     // FPS
-    m_frameCount++;
-    m_fpsUpdateTime += dt;
-    if (m_fpsUpdateTime >= 0.5f) {
-        const float sampledFrameCount = static_cast<float>(m_frameCount);
-        m_currentFPS = sampledFrameCount / m_fpsUpdateTime;
-        m_cpuFrameTimeMs = (m_fpsUpdateTime * 1000.0f) / sampledFrameCount;
-        m_frameCount = 0;
-        m_fpsUpdateTime = 0.0f;
+    if (m_skipNextFrameSample) {
+        m_skipNextFrameSample = false;
+    } else {
+        m_frameCount++;
+        m_fpsUpdateTime += dt;
+        if (m_fpsUpdateTime >= 0.5f) {
+            const float sampledFrameCount = static_cast<float>(m_frameCount);
+            m_currentFPS = sampledFrameCount / m_fpsUpdateTime;
+            m_cpuFrameTimeMs = (m_fpsUpdateTime * 1000.0f) / sampledFrameCount;
+            m_frameCount = 0;
+            m_fpsUpdateTime = 0.0f;
+            m_hasFrameStatistics = true;
+        }
+    }
+
+    if (m_benchmarkEnabled) {
+        if (glfwGetKey(m_window, GLFW_KEY_ESCAPE) == GLFW_PRESS && !m_escPressed) {
+            glfwSetWindowShouldClose(m_window, true);
+            m_escPressed = true;
+        }
+        if (glfwGetKey(m_window, GLFW_KEY_ESCAPE) == GLFW_RELEASE) {
+            m_escPressed = false;
+        }
+        return;
     }
 
     // F9 — toggle GPU info
@@ -513,26 +621,32 @@ void Application::processInput(float dt) {
         m_kPressed = false;
     }
 
-    // Camera movement
-    if (glfwGetKey(m_window, GLFW_KEY_W) == GLFW_PRESS)
-        m_camera->processKeyboard(FORWARD, dt);
-    if (glfwGetKey(m_window, GLFW_KEY_S) == GLFW_PRESS)
-        m_camera->processKeyboard(BACKWARD, dt);
-    if (glfwGetKey(m_window, GLFW_KEY_A) == GLFW_PRESS)
-        m_camera->processKeyboard(LEFT, dt);
-    if (glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS)
-        m_camera->processKeyboard(RIGHT, dt);
-    if (glfwGetKey(m_window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || 
-        glfwGetKey(m_window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS)
-        m_camera->processKeyboard(UP, dt);
-    if (glfwGetKey(m_window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || 
-        glfwGetKey(m_window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS)
-        m_camera->processKeyboard(DOWN, dt);
+    // Camera movement is frozen while the benchmark uses its fixed view.
+    if (!m_benchmarkEnabled) {
+        if (glfwGetKey(m_window, GLFW_KEY_W) == GLFW_PRESS)
+            m_camera->processKeyboard(FORWARD, dt);
+        if (glfwGetKey(m_window, GLFW_KEY_S) == GLFW_PRESS)
+            m_camera->processKeyboard(BACKWARD, dt);
+        if (glfwGetKey(m_window, GLFW_KEY_A) == GLFW_PRESS)
+            m_camera->processKeyboard(LEFT, dt);
+        if (glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS)
+            m_camera->processKeyboard(RIGHT, dt);
+        if (glfwGetKey(m_window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+            glfwGetKey(m_window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS)
+            m_camera->processKeyboard(UP, dt);
+        if (glfwGetKey(m_window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+            glfwGetKey(m_window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS)
+            m_camera->processKeyboard(DOWN, dt);
+    }
 }
 
 void Application::update(float dt) {
     if (m_reloadMessageTime > 0.0f) {
         m_reloadMessageTime -= dt;
+    }
+
+    if (m_benchmarkEnabled) {
+        return;
     }
     
     if (Menu::needsCubeUpdate()) {
@@ -791,41 +905,54 @@ void Application::render() {
     m_renderer->beginFrame(0.10f, 0.12f, 0.16f, 1.0f);
     
     if (m_shader != nullptr && m_shader->m_id != 0 && m_camera != nullptr) {
-        glm::mat4 view = m_camera->getViewMatrix();
-        float aspect = static_cast<float>(width) / static_cast<float>(height);
-        glm::mat4 projection = glm::perspective(glm::radians(m_camera->fov), aspect, 0.1f, 100.0f);
-        
-        // Render all objects
-        if (m_cubeMesh) {
-            for (const RenderObject& obj : m_objects) {
-                if (!obj.material) continue;
-                
-                glm::mat4 model = glm::mat4(1.0f);
-                model = glm::translate(model, obj.position);
-                model = glm::rotate(model, glm::radians(obj.rotationDeg.x), glm::vec3(1.0f, 0.0f, 0.0f));
-                model = glm::rotate(model, glm::radians(obj.rotationDeg.y), glm::vec3(0.0f, 1.0f, 0.0f));
-                model = glm::rotate(model, glm::radians(obj.rotationDeg.z), glm::vec3(0.0f, 0.0f, 1.0f));
-                model = glm::scale(model, obj.scale);
-                
-                m_renderer->drawMesh(*m_cubeMesh, *obj.material, model, view, projection,
-                                     m_camera->position, m_dirLight, m_pointLight, m_shaderViewMode);
+        const float aspect = static_cast<float>(width) / static_cast<float>(height);
+
+        if (m_benchmarkEnabled && m_cubeMesh && m_benchmarkMaterial != nullptr) {
+            const glm::vec3 cameraPos(0.0f, 0.0f, 28.0f);
+            const glm::mat4 view = glm::lookAt(cameraPos, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+            const glm::mat4 projection = glm::perspective(glm::radians(kBenchmarkFov), aspect, 0.1f, 100.0f);
+            DirectionalLight benchmarkDirLight;
+            PointLight benchmarkPointLight;
+            benchmarkPointLight.enabled = false;
+
+            m_renderer->drawMeshInstanced(*m_cubeMesh, *m_benchmarkMaterial,
+                                          m_benchmarkInstanceCount, view, projection,
+                                          cameraPos, benchmarkDirLight, benchmarkPointLight,
+                                          kBenchmarkShaderIterations);
+        } else {
+            const glm::mat4 view = m_camera->getViewMatrix();
+            const glm::mat4 projection = glm::perspective(glm::radians(m_camera->fov), aspect, 0.1f, 100.0f);
+
+            if (m_cubeMesh) {
+                for (const RenderObject& obj : m_objects) {
+                    if (!obj.material) continue;
+
+                    glm::mat4 model = glm::mat4(1.0f);
+                    model = glm::translate(model, obj.position);
+                    model = glm::rotate(model, glm::radians(obj.rotationDeg.x), glm::vec3(1.0f, 0.0f, 0.0f));
+                    model = glm::rotate(model, glm::radians(obj.rotationDeg.y), glm::vec3(0.0f, 1.0f, 0.0f));
+                    model = glm::rotate(model, glm::radians(obj.rotationDeg.z), glm::vec3(0.0f, 0.0f, 1.0f));
+                    model = glm::scale(model, obj.scale);
+
+                    m_renderer->drawMesh(*m_cubeMesh, *obj.material, model, view, projection,
+                                         m_camera->position, m_dirLight, m_pointLight, m_shaderViewMode);
+                }
             }
-        }
-        
-        // Render point light sphere
-        if (m_pointLight.enabled && m_lightShader != nullptr && m_lightShader->m_id != 0) {
-            glm::mat4 lightModel = glm::mat4(1.0f);
-            lightModel = glm::translate(lightModel, m_pointLight.position);
-            lightModel = glm::scale(lightModel, glm::vec3(0.1f)); // Small sphere
-            
-            m_lightShader->use();
-            m_lightShader->setMat4("u_Model", lightModel);
-            m_lightShader->setMat4("u_View", view);
-            m_lightShader->setMat4("u_Projection", projection);
-            m_lightShader->setVec3("u_LightColor", m_pointLight.color);
-            
-            glBindVertexArray(m_lightVAO);
-            glDrawElements(GL_TRIANGLES, m_lightIndexCount, GL_UNSIGNED_INT, 0);
+
+            if (m_pointLight.enabled && m_lightShader != nullptr && m_lightShader->m_id != 0) {
+                glm::mat4 lightModel = glm::mat4(1.0f);
+                lightModel = glm::translate(lightModel, m_pointLight.position);
+                lightModel = glm::scale(lightModel, glm::vec3(0.1f));
+
+                m_lightShader->use();
+                m_lightShader->setMat4("u_Model", lightModel);
+                m_lightShader->setMat4("u_View", view);
+                m_lightShader->setMat4("u_Projection", projection);
+                m_lightShader->setVec3("u_LightColor", m_pointLight.color);
+
+                glBindVertexArray(m_lightVAO);
+                glDrawElements(GL_TRIANGLES, m_lightIndexCount, GL_UNSIGNED_INT, 0);
+            }
         }
     }
     
@@ -837,10 +964,16 @@ void Application::render() {
     // Render UI
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(1);
-    oss << "FPS: " << m_currentFPS << "\n";
-    oss << std::setprecision(2);
-    oss << "CPU frame: " << m_cpuFrameTimeMs << " ms\n";
+    if (m_hasFrameStatistics) {
+        oss << "FPS: " << m_currentFPS << "\n";
+        oss << std::setprecision(2);
+        oss << "Frame interval: " << m_cpuFrameTimeMs << " ms\n";
+    } else {
+        oss << "FPS: warming up\n";
+        oss << "Frame interval: warming up\n";
+    }
     if (m_hasPresentTime) {
+        oss << std::setprecision(2);
         oss << "Present: " << m_presentTimeMs << " ms\n";
     } else {
         oss << "Present: warming up\n";
@@ -853,8 +986,18 @@ void Application::render() {
         oss << "GPU timings: warming up\n";
     }
     oss << std::setprecision(1);
-    oss << "FOV: " << (m_camera ? m_camera->fov : 45.0f);
-    if (m_showGPUInfo) {
+    oss << "FOV: " << (m_benchmarkEnabled ? kBenchmarkFov : (m_camera ? m_camera->fov : 45.0f));
+    if (m_benchmarkEnabled) {
+        oss << " (fixed)";
+    }
+    oss << "\nBenchmark: " << (m_benchmarkEnabled ? "ON" : "OFF") << " [F7]";
+    if (m_benchmarkEnabled) {
+        oss << "\nResolution: " << width << "x" << height;
+        oss << "\nInstances: " << m_benchmarkInstanceCount;
+        oss << "\nShader loops: " << kBenchmarkShaderIterations;
+        oss << "\nCompare GPUs by Scene time";
+    }
+    if (m_showGPUInfo || m_benchmarkEnabled) {
         std::string gpuStr = m_gpuRenderer;
         if (gpuStr.length() > 40) {
             gpuStr = gpuStr.substr(0, 37) + "...";
@@ -872,30 +1015,39 @@ void Application::render() {
     }
     
     // Show active shader inspection view.
-    if (m_shader != nullptr && m_shader->m_id != 0) {
+    if (!m_benchmarkEnabled && m_shader != nullptr && m_shader->m_id != 0) {
         std::string shaderStatus = std::string("Shader: ") + shaderViewModeName(m_shaderViewMode) +
                                    " [F1-F4/F6]";
         UIText::renderTextWithColor(shaderStatus, 10.0f, 250.0f, 1.2f, 0.0f, 1.0f, 0.0f);
     }
-    
-    // Lighting UI
-    std::ostringstream lightOss;
-    lightOss << std::fixed << std::setprecision(0);
-    lightOss << "Shininess: " << m_shininess << "\n";
-    lightOss << "DirLight: " << (m_dirLight.enabled ? "ON" : "OFF") << "\n";
-    lightOss << "PointLight: " << (m_pointLight.enabled ? "ON" : "OFF");
-    UIText::renderText(lightOss.str(), 10.0f, 290.0f, 1.2f);
-    
-    // Selected Cube UI
-    std::ostringstream cubeOss;
-    cubeOss << "Selected Cube: " << m_selectedObject;
-    UIText::renderText(cubeOss.str(), 10.0f, 350.0f, 1.2f);
+
+    if (!m_benchmarkEnabled) {
+        std::ostringstream lightOss;
+        lightOss << std::fixed << std::setprecision(0);
+        lightOss << "Shininess: " << m_shininess << "\n";
+        lightOss << "DirLight: " << (m_dirLight.enabled ? "ON" : "OFF") << "\n";
+        lightOss << "PointLight: " << (m_pointLight.enabled ? "ON" : "OFF");
+        UIText::renderText(lightOss.str(), 10.0f, 290.0f, 1.2f);
+
+        std::ostringstream cubeOss;
+        cubeOss << "Selected Cube: " << m_selectedObject;
+        UIText::renderText(cubeOss.str(), 10.0f, 350.0f, 1.2f);
+    }
     UIText::flush();
 }
 
 void Application::framebufferSizeCallback(GLFWwindow* window, int width, int height) {
     auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
     app->onFramebufferResize(width, height);
+}
+
+void Application::keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    (void)scancode;
+    (void)mods;
+    auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
+    if (app != nullptr) {
+        app->onKey(key, action);
+    }
 }
 
 void Application::mouseCallback(GLFWwindow* window, double xpos, double ypos) {
@@ -920,8 +1072,20 @@ void Application::onFramebufferResize(int width, int height) {
     m_height = height;
 }
 
+void Application::onKey(int key, int action) {
+    if (key == GLFW_KEY_F7 && action == GLFW_PRESS) {
+        toggleBenchmark();
+    }
+}
+
 void Application::onMouseMove(double xpos, double ypos) {
     if (m_camera == nullptr) return;
+
+    if (m_benchmarkEnabled) {
+        m_lastX = static_cast<float>(xpos);
+        m_lastY = static_cast<float>(ypos);
+        return;
+    }
     
     if (m_firstMouse) {
         m_lastX = static_cast<float>(xpos);
@@ -940,6 +1104,6 @@ void Application::onMouseMove(double xpos, double ypos) {
 
 void Application::onScroll(double xoffset, double yoffset) {
     (void)xoffset;
-    if (m_camera == nullptr) return;
+    if (m_camera == nullptr || m_benchmarkEnabled) return;
     m_camera->processScroll(static_cast<float>(yoffset));
 }

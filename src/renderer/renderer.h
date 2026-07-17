@@ -6,6 +6,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 
 class Shader;
 class Texture2D;
@@ -31,7 +32,12 @@ public:
                   const glm::mat4& view, const glm::mat4& projection,
                   const glm::vec3& cameraPos, const DirectionalLight& dirLight,
                   const PointLight& pointLight, int shaderViewMode);
+    void drawMeshInstanced(const Mesh& mesh, const Material& material, GLsizei instanceCount,
+                           const glm::mat4& view, const glm::mat4& projection,
+                           const glm::vec3& cameraPos, const DirectionalLight& dirLight,
+                           const PointLight& pointLight, int shaderIterations);
     void endFrame();
+    void resetGpuFrameTimes();
 
     bool hasGpuFrameTime() const { return m_hasGpuFrameTime; }
     float gpuFrameTimeMs() const { return m_gpuFrameTimeMs; }
@@ -49,11 +55,14 @@ private:
     GLuint gpuQuery(std::size_t frameIndex, std::size_t timestampIndex) const;
 
     std::array<GLuint, kGpuQueryCount * kTimestampsPerFrame> m_gpuQueries{};
+    std::array<std::uint64_t, kGpuQueryCount> m_gpuQueryEpochs{};
     std::size_t m_gpuQueryWriteIndex = 0;
     std::size_t m_gpuQueryReadIndex = 0;
     std::size_t m_pendingGpuQueries = 0;
     bool m_gpuTimestampFrameActive = false;
     bool m_gpuUiTimestampIssued = false;
+    std::uint64_t m_gpuTimingEpoch = 1;
+    std::uint64_t m_gpuActiveFrameEpoch = 1;
     bool m_hasGpuFrameTime = false;
     float m_gpuFrameTimeMs = 0.0f;
     float m_gpuSceneTimeMs = 0.0f;

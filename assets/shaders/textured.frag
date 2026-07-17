@@ -30,6 +30,7 @@ uniform vec3 u_AlbedoColor;
 uniform vec3 u_SpecularColor;
 uniform float u_Shininess;
 uniform int u_DebugViewMode;
+uniform int u_BenchmarkIterations;
 
 void main() {
     vec3 albedo = u_UseAlbedoTex != 0 ? texture(u_AlbedoTex, TexCoord).rgb : u_AlbedoColor;
@@ -50,8 +51,11 @@ void main() {
         float diff = max(dot(norm, lightDir), 0.0);
         vec3 diffuseColor = diff * albedo * u_DirLight.color;
         
-        vec3 reflectDir = reflect(-lightDir, norm);
-        float spec = pow(max(dot(viewDir, reflectDir), 0.0), u_Shininess);
+        float spec = 0.0;
+        if (diff > 0.0) {
+            vec3 reflectDir = reflect(-lightDir, norm);
+            spec = pow(max(dot(viewDir, reflectDir), 0.0), u_Shininess);
+        }
         vec3 specularColor = spec * u_SpecularColor * u_DirLight.color;
         
         ambientResult += ambientColor;
@@ -71,8 +75,11 @@ void main() {
         float diff = max(dot(norm, lightDir), 0.0);
         vec3 diffuseColor = diff * albedo * u_PointLight.color;
         
-        vec3 reflectDir = reflect(-lightDir, norm);
-        float spec = pow(max(dot(viewDir, reflectDir), 0.0), u_Shininess);
+        float spec = 0.0;
+        if (diff > 0.0) {
+            vec3 reflectDir = reflect(-lightDir, norm);
+            spec = pow(max(dot(viewDir, reflectDir), 0.0), u_Shininess);
+        }
         vec3 specularColor = spec * u_SpecularColor * u_PointLight.color;
         
         ambientResult += ambientColor * attenuation;
@@ -89,6 +96,19 @@ void main() {
         result = diffuseResult;
     } else if (u_DebugViewMode == 4) {
         result = specularResult;
+    }
+
+    if (u_BenchmarkIterations > 0) {
+        vec3 workload = vec3(0.0);
+        vec3 phase = FragPos * 0.035 + vec3(TexCoord, norm.z) + vec3(0.17, 0.31, 0.47);
+        for (int i = 0; i < 48; ++i) {
+            float sampleIndex = float(i) + 1.0;
+            vec3 wave = sin(phase * (1.0 + sampleIndex * 0.013)
+                            + sampleIndex * vec3(0.11, 0.13, 0.17));
+            workload += wave * wave;
+        }
+        workload *= 1.0 / 48.0;
+        result *= 0.8 + 0.2 * workload;
     }
 
     FragColor = vec4(result, 1.0);

@@ -6,6 +6,41 @@
 #include "light.h"
 #include <glad/glad.h>
 
+namespace {
+
+bool prepareMeshDraw(const Material& material, const glm::mat4& model,
+                     const glm::mat4& view, const glm::mat4& projection,
+                     const glm::vec3& cameraPos, const DirectionalLight& dirLight,
+                     const PointLight& pointLight, int shaderViewMode,
+                     bool useInstancing, int fragmentWorkIterations) {
+    if (material.shader == nullptr || material.shader->m_id == 0) {
+        return false;
+    }
+
+    material.bind();
+    material.shader->setMat4("u_Model", model);
+    material.shader->setMat4("u_View", view);
+    material.shader->setMat4("u_Projection", projection);
+    material.shader->setVec3("u_CameraPos", cameraPos);
+    material.shader->setInt("u_DebugViewMode", shaderViewMode);
+    material.shader->setInt("u_UseInstancing", useInstancing ? 1 : 0);
+    material.shader->setInt("u_BenchmarkIterations", fragmentWorkIterations);
+
+    material.shader->setVec3("u_DirLight.direction", dirLight.direction);
+    material.shader->setVec3("u_DirLight.color", dirLight.color);
+    material.shader->setInt("u_DirLight.enabled", dirLight.enabled ? 1 : 0);
+
+    material.shader->setVec3("u_PointLight.position", pointLight.position);
+    material.shader->setVec3("u_PointLight.color", pointLight.color);
+    material.shader->setFloat("u_PointLight.constant", pointLight.constant);
+    material.shader->setFloat("u_PointLight.linear", pointLight.linear);
+    material.shader->setFloat("u_PointLight.quadratic", pointLight.quadratic);
+    material.shader->setInt("u_PointLight.enabled", pointLight.enabled ? 1 : 0);
+    return true;
+}
+
+} // namespace
+
 Renderer::~Renderer() {
     if (m_gpuQueries.front() != 0) {
         glDeleteQueries(static_cast<GLsizei>(m_gpuQueries.size()), m_gpuQueries.data());
@@ -30,6 +65,7 @@ void Renderer::beginFrame(float r, float g, float b, float a) {
             glQueryCounter(query, GL_TIMESTAMP);
             m_gpuTimestampFrameActive = true;
             m_gpuUiTimestampIssued = false;
+            m_gpuActiveFrameEpoch = m_gpuTimingEpoch;
         }
     }
 
@@ -50,32 +86,23 @@ void Renderer::drawMesh(const Mesh& mesh, const Material& material, const glm::m
                         const glm::mat4& view, const glm::mat4& projection,
                         const glm::vec3& cameraPos, const DirectionalLight& dirLight,
                         const PointLight& pointLight, int shaderViewMode) {
-    if (material.shader == nullptr || material.shader->m_id == 0) {
+    if (!prepareMeshDraw(material, model, view, projection, cameraPos,
+                         dirLight, pointLight, shaderViewMode, false, 0)) {
         return;
     }
-
-    material.bind();
-    
-    material.shader->setMat4("u_Model", model);
-    material.shader->setMat4("u_View", view);
-    material.shader->setMat4("u_Projection", projection);
-    material.shader->setVec3("u_CameraPos", cameraPos);
-    material.shader->setInt("u_DebugViewMode", shaderViewMode);
-    
-    // Directional Light uniforms
-    material.shader->setVec3("u_DirLight.direction", dirLight.direction);
-    material.shader->setVec3("u_DirLight.color", dirLight.color);
-    material.shader->setInt("u_DirLight.enabled", dirLight.enabled ? 1 : 0);
-    
-    // Point Light uniforms
-    material.shader->setVec3("u_PointLight.position", pointLight.position);
-    material.shader->setVec3("u_PointLight.color", pointLight.color);
-    material.shader->setFloat("u_PointLight.constant", pointLight.constant);
-    material.shader->setFloat("u_PointLight.linear", pointLight.linear);
-    material.shader->setFloat("u_PointLight.quadratic", pointLight.quadratic);
-    material.shader->setInt("u_PointLight.enabled", pointLight.enabled ? 1 : 0);
-    
     mesh.draw();
+}
+
+void Renderer::drawMeshInstanced(const Mesh& mesh, const Material& material, GLsizei instanceCount,
+                                 const glm::mat4& view, const glm::mat4& projection,
+                                 const glm::vec3& cameraPos, const DirectionalLight& dirLight,
+                                 const PointLight& pointLight, int shaderIterations) {
+    if (instanceCount <= 0 ||
+        !prepareMeshDraw(material, glm::mat4(1.0f), view, projection, cameraPos,
+                         dirLight, pointLight, 0, true, shaderIterations)) {
+        return;
+    }
+    mesh.drawInstanced(instanceCount);
 }
 
 void Renderer::endFrame() {
@@ -87,11 +114,20 @@ void Renderer::endFrame() {
         beginUiPass();
     }
     glQueryCounter(gpuQuery(m_gpuQueryWriteIndex, kFrameEndTimestamp), GL_TIMESTAMP);
+    m_gpuQueryEpochs[m_gpuQueryWriteIndex] = m_gpuActiveFrameEpoch;
 
     m_gpuTimestampFrameActive = false;
     m_gpuUiTimestampIssued = false;
     m_gpuQueryWriteIndex = (m_gpuQueryWriteIndex + 1) % kGpuQueryCount;
     ++m_pendingGpuQueries;
+}
+
+void Renderer::resetGpuFrameTimes() {
+    ++m_gpuTimingEpoch;
+    m_hasGpuFrameTime = false;
+    m_gpuFrameTimeMs = 0.0f;
+    m_gpuSceneTimeMs = 0.0f;
+    m_gpuUiTimeMs = 0.0f;
 }
 
 void Renderer::collectGpuFrameTimes() {
@@ -112,7 +148,8 @@ void Renderer::collectGpuFrameTimes() {
                               GL_QUERY_RESULT, &uiStart);
         glGetQueryObjectui64v(endQuery, GL_QUERY_RESULT, &frameEnd);
 
-        if (frameStart <= uiStart && uiStart <= frameEnd) {
+        if (m_gpuQueryEpochs[m_gpuQueryReadIndex] == m_gpuTimingEpoch &&
+            frameStart <= uiStart && uiStart <= frameEnd) {
             constexpr float nanosecondsToMilliseconds = 1.0f / 1'000'000.0f;
             const float frameSample = static_cast<float>(frameEnd - frameStart) * nanosecondsToMilliseconds;
             const float sceneSample = static_cast<float>(uiStart - frameStart) * nanosecondsToMilliseconds;

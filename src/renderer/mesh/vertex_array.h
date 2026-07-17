@@ -21,7 +21,8 @@ public:
     void bind() const;
     void unbind() const;
 
-    void addVertexBuffer(VertexBuffer& vbo, const BufferLayout& layout);
+    void addVertexBuffer(VertexBuffer& vbo, const BufferLayout& layout,
+                         GLuint firstAttribute = 0, GLuint divisor = 0);
     void setIndexBuffer(IndexBuffer& ebo);
 
     GLuint getId() const { return m_id; }

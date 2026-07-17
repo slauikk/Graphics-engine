@@ -34,21 +34,26 @@ public:
 
 private:
     bool init();
+    bool initBenchmarkScene();
     void shutdown();
     void applyGlobalShininess();
     Material* getOrCreateMaterial(const std::string& relativeTexturePath);
+    void resetFrameStatistics();
+    void toggleBenchmark();
     void processInput(float dt);
     void update(float dt);
     void render();
     
     // GLFW callbacks (static)
     static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
+    static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
     static void mouseCallback(GLFWwindow* window, double xpos, double ypos);
     static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset);
     static void glfwErrorCallback(int error, const char* description);
     
     // Instance callbacks
     void onFramebufferResize(int width, int height);
+    void onKey(int key, int action);
     void onMouseMove(double xpos, double ypos);
     void onScroll(double xoffset, double yoffset);
     
@@ -69,6 +74,8 @@ private:
     float m_cpuFrameTimeMs = 0.0f;
     float m_presentTimeMs = 0.0f;
     bool m_hasPresentTime = false;
+    bool m_hasFrameStatistics = false;
+    bool m_skipNextFrameSample = false;
     
     // GPU info
     bool m_showGPUInfo = false;
@@ -105,6 +112,11 @@ private:
     std::shared_ptr<Mesh> m_cubeMesh = nullptr;
     std::shared_ptr<Shader> m_shader = nullptr;
     Renderer* m_renderer = nullptr;
+
+    // Fixed, single-draw GPU benchmark resources.
+    GLsizei m_benchmarkInstanceCount = 0;
+    std::unique_ptr<Material> m_benchmarkMaterial;
+    bool m_benchmarkEnabled = false;
     
     // Cached ownership; RenderObject keeps non-owning Material pointers.
     std::unordered_map<std::string, std::unique_ptr<Material>> m_materials;
