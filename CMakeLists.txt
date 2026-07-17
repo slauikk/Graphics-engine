@@ -38,7 +38,10 @@ target_link_libraries(Graphics_engine
         glm::glm
 )
 
-target_compile_definitions(Graphics_engine PRIVATE GLFW_INCLUDE_NONE)
+target_compile_definitions(Graphics_engine PRIVATE
+        GLFW_INCLUDE_NONE
+        $<$<CONFIG:Debug>:GRAPHICS_ENGINE_SOURCE_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets">
+)
 
 target_include_directories(Graphics_engine PRIVATE ${CMAKE_SOURCE_DIR}/src)
 

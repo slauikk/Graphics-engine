@@ -69,7 +69,7 @@ private:
     
     // GPU info
     bool m_showGPUInfo = false;
-    const char* m_gpuRenderer = nullptr;
+    std::string m_gpuRenderer;
     
     // Key debounce flags
     bool m_f9Pressed = false;
@@ -84,6 +84,7 @@ private:
     float m_reloadMessageTime = 0.0f;
     std::string m_reloadMessage;
     bool m_reloadSucceeded = false;
+    int m_shaderViewMode = 0;
     
     // Mouse state
     bool m_firstMouse = true;

@@ -15,7 +15,10 @@ void Renderer::beginFrame(float r, float g, float b, float a) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
-void Renderer::drawMesh(const Mesh& mesh, const Material& material, const glm::mat4& model, const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos, const DirectionalLight& dirLight, const PointLight& pointLight) {
+void Renderer::drawMesh(const Mesh& mesh, const Material& material, const glm::mat4& model,
+                        const glm::mat4& view, const glm::mat4& projection,
+                        const glm::vec3& cameraPos, const DirectionalLight& dirLight,
+                        const PointLight& pointLight, int shaderViewMode) {
     if (material.shader == nullptr || material.shader->m_id == 0) {
         return;
     }
@@ -26,6 +29,7 @@ void Renderer::drawMesh(const Mesh& mesh, const Material& material, const glm::m
     material.shader->setMat4("u_View", view);
     material.shader->setMat4("u_Projection", projection);
     material.shader->setVec3("u_CameraPos", cameraPos);
+    material.shader->setInt("u_DebugViewMode", shaderViewMode);
     
     // Directional Light uniforms
     material.shader->setVec3("u_DirLight.direction", dirLight.direction);

@@ -1,4 +1,5 @@
 #include "application.h"
+#include "asset_paths.h"
 #include "../camera.h"
 #include "../shader.h"
 #include "../texture2d.h"
@@ -20,6 +21,20 @@
 #include <cmath>
 #include <algorithm>
 #include <utility>
+
+namespace {
+
+const char* shaderViewModeName(int mode) {
+    switch (mode) {
+        case 1: return "Albedo";
+        case 2: return "Normals";
+        case 3: return "Diffuse";
+        case 4: return "Specular";
+        default: return "Lit";
+    }
+}
+
+} // namespace
 
 Application::Application() {
     m_initialized = init();
@@ -75,8 +90,14 @@ bool Application::init() {
     }
     m_contextReady = true;
 
+    const auto* rendererName = glGetString(GL_RENDERER);
+    m_gpuRenderer = rendererName != nullptr
+        ? reinterpret_cast<const char*>(rendererName)
+        : "Unknown GPU";
+
     std::cout << "OpenGL: " << glGetString(GL_VERSION) << "\n";
-    std::cout << "GPU:    " << glGetString(GL_RENDERER) << "\n";
+    std::cout << "GPU:    " << m_gpuRenderer << "\n";
+    std::cout << "Assets: " << core::findAssetsRoot().string() << "\n";
 
     // Enable debug output
     GL_EnableDebugOutput();
@@ -215,8 +236,6 @@ void main() {
 
     m_lightShader = new Shader(lightVertexSource, lightFragmentSource);
 
-    m_gpuRenderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
-    
     // Renderer
     m_renderer = new Renderer();
     m_renderer->init();
@@ -318,7 +337,7 @@ void Application::shutdown() {
 
     m_lightShader = nullptr;
     m_lightIndexCount = 0;
-    m_gpuRenderer = nullptr;
+    m_gpuRenderer.clear();
 
     if (m_window) {
         glfwDestroyWindow(m_window);
@@ -336,6 +355,8 @@ int Application::run() {
     if (!m_initialized || !m_window || !m_renderer) {
         return 1;
     }
+
+    m_lastFrame = static_cast<float>(glfwGetTime());
 
     while (!glfwWindowShouldClose(m_window)) {
         // Delta time
@@ -384,6 +405,13 @@ void Application::processInput(float dt) {
     if (glfwGetKey(m_window, GLFW_KEY_F5) == GLFW_RELEASE) {
         m_f5Pressed = false;
     }
+
+    // Shader inspection views. Reassigning while held is harmless and avoids debounce state.
+    if (glfwGetKey(m_window, GLFW_KEY_F1) == GLFW_PRESS) m_shaderViewMode = 0;
+    if (glfwGetKey(m_window, GLFW_KEY_F2) == GLFW_PRESS) m_shaderViewMode = 1;
+    if (glfwGetKey(m_window, GLFW_KEY_F3) == GLFW_PRESS) m_shaderViewMode = 2;
+    if (glfwGetKey(m_window, GLFW_KEY_F4) == GLFW_PRESS) m_shaderViewMode = 3;
+    if (glfwGetKey(m_window, GLFW_KEY_F6) == GLFW_PRESS) m_shaderViewMode = 4;
     
     // F8 — toggle texture menu
     if (glfwGetKey(m_window, GLFW_KEY_F8) == GLFW_PRESS && !m_f8Pressed) {
@@ -766,7 +794,8 @@ void Application::render() {
                 model = glm::rotate(model, glm::radians(obj.rotationDeg.z), glm::vec3(0.0f, 0.0f, 1.0f));
                 model = glm::scale(model, obj.scale);
                 
-                m_renderer->drawMesh(*m_cubeMesh, *obj.material, model, view, projection, m_camera->position, m_dirLight, m_pointLight);
+                m_renderer->drawMesh(*m_cubeMesh, *obj.material, model, view, projection,
+                                     m_camera->position, m_dirLight, m_pointLight, m_shaderViewMode);
             }
         }
         
@@ -796,7 +825,7 @@ void Application::render() {
     oss << "FPS: " << m_currentFPS << "\n";
     oss << "FOV: " << (m_camera ? m_camera->fov : 45.0f);
     if (m_showGPUInfo) {
-        std::string gpuStr = std::string(m_gpuRenderer);
+        std::string gpuStr = m_gpuRenderer;
         if (gpuStr.length() > 40) {
             gpuStr = gpuStr.substr(0, 37) + "...";
         }
@@ -812,9 +841,11 @@ void Application::render() {
         UIText::renderTextWithColor(m_reloadMessage, 10.0f, 200.0f, 1.5f, red, green, 0.0f);
     }
     
-    // Show shader source indicator (if loaded from files)
+    // Show active shader inspection view.
     if (m_shader != nullptr && m_shader->m_id != 0) {
-        UIText::renderTextWithColor("Shaders: Files", 10.0f, 250.0f, 1.2f, 0.0f, 1.0f, 0.0f);
+        std::string shaderStatus = std::string("Shader: ") + shaderViewModeName(m_shaderViewMode) +
+                                   " [F1-F4/F6]";
+        UIText::renderTextWithColor(shaderStatus, 10.0f, 250.0f, 1.2f, 0.0f, 1.0f, 0.0f);
     }
     
     // Lighting UI

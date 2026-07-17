@@ -13,11 +13,14 @@
 
 namespace {
 
-class ScopedTextBlendState {
+class ScopedTextRenderState {
 public:
-    ScopedTextBlendState()
+    ScopedTextRenderState()
         : m_depthTestEnabled(glIsEnabled(GL_DEPTH_TEST)),
           m_blendEnabled(glIsEnabled(GL_BLEND)) {
+        glGetIntegerv(GL_CURRENT_PROGRAM, &m_program);
+        glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &m_vertexArray);
+        glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &m_arrayBuffer);
         glGetIntegerv(GL_BLEND_SRC_RGB, &m_blendSrcRgb);
         glGetIntegerv(GL_BLEND_DST_RGB, &m_blendDstRgb);
         glGetIntegerv(GL_BLEND_SRC_ALPHA, &m_blendSrcAlpha);
@@ -28,7 +31,10 @@ public:
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     }
 
-    ~ScopedTextBlendState() {
+    ~ScopedTextRenderState() {
+        glUseProgram(static_cast<GLuint>(m_program));
+        glBindVertexArray(static_cast<GLuint>(m_vertexArray));
+        glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(m_arrayBuffer));
         glBlendFuncSeparate(m_blendSrcRgb, m_blendDstRgb, m_blendSrcAlpha, m_blendDstAlpha);
 
         if (m_blendEnabled) {
@@ -47,6 +53,9 @@ public:
 private:
     GLboolean m_depthTestEnabled;
     GLboolean m_blendEnabled;
+    GLint m_program = 0;
+    GLint m_vertexArray = 0;
+    GLint m_arrayBuffer = 0;
     GLint m_blendSrcRgb = GL_ONE;
     GLint m_blendDstRgb = GL_ZERO;
     GLint m_blendSrcAlpha = GL_ONE;
@@ -84,7 +93,6 @@ void UIText::init(int windowWidth, int windowHeight) {
     
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 2, nullptr, GL_DYNAMIC_DRAW);
     
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
@@ -100,14 +108,12 @@ void UIText::updateWindowSize(int width, int height) {
     windowHeight = height;
 }
 
-void UIText::renderChar(char c, float x, float y, float scale, bool isOutline) {
+void UIText::appendCharVertices(std::vector<float>& vertices, char c, float x, float y, float scale) {
     if (fontData.find(c) == fontData.end()) {
         c = ' ';
     }
     
     unsigned char* bitmap = fontData[c];
-    float charWidth = 8.0f * scale;
-    float charHeight = 12.0f * scale;
     float pixelSize = scale;
     
     for (int row = 0; row < 12; row++) {
@@ -117,130 +123,88 @@ void UIText::renderChar(char c, float x, float y, float scale, bool isOutline) {
                 float px = x + (7 - col) * pixelSize;
                 float py = y + row * pixelSize;
                 
-                float vertices[6][2] = {
-                    { px, py },
-                    { px + pixelSize, py },
-                    { px + pixelSize, py + pixelSize },
-                    { px, py },
-                    { px + pixelSize, py + pixelSize },
-                    { px, py + pixelSize }
+                const float x1 = px + pixelSize;
+                const float y1 = py + pixelSize;
+                const float quad[] = {
+                    px, py, x1, py, x1, y1,
+                    px, py, x1, y1, px, y1
                 };
-                
-                glBindBuffer(GL_ARRAY_BUFFER, VBO);
-                glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
-                
-                glDrawArrays(GL_TRIANGLES, 0, 6);
+                vertices.insert(vertices.end(), quad, quad + 12);
             }
         }
     }
 }
 
-void UIText::renderText(const std::string& text, float x, float y, float scale) {
-    if (!initialized || shader == nullptr) return;
-    
-    shader->use();
-    
-    glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(windowWidth),
-                                     static_cast<float>(windowHeight), 0.0f);
-    shader->setMat4("projection", projection);
-    
-    ScopedTextBlendState blendState;
-    glBindVertexArray(VAO);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    
-    float charWidth = 8.0f * scale;
+void UIText::appendTextVertices(std::vector<float>& vertices, const std::string& text,
+                                float x, float y, float scale, float offsetX, float offsetY) {
+    const float charWidth = 8.0f * scale;
     float currentX = x;
     float currentY = y;
-    
-    shader->setVec3("textColor", 0.0f, 0.0f, 0.0f);
-    
-    for (size_t i = 0; i < text.length(); i++) {
-        if (text[i] == '\n') {
+
+    for (char c : text) {
+        if (c == '\n') {
             currentY += 14.0f * scale;
             currentX = x;
             continue;
         }
-        
-        float outlineOffset = 1.5f * scale;
-        renderChar(text[i], currentX - outlineOffset, currentY, scale, true);
-        renderChar(text[i], currentX + outlineOffset, currentY, scale, true);
-        renderChar(text[i], currentX, currentY - outlineOffset, scale, true);
-        renderChar(text[i], currentX, currentY + outlineOffset, scale, true);
-        
+
+        appendCharVertices(vertices, c, currentX + offsetX, currentY + offsetY, scale);
         currentX += charWidth;
     }
-    
-    currentX = x;
-    currentY = y;
-    shader->setVec3("textColor", 1.0f, 1.0f, 1.0f);
-    
-    for (size_t i = 0; i < text.length(); i++) {
-        if (text[i] == '\n') {
-            currentY += 14.0f * scale;
-            currentX = x;
-            continue;
-        }
-        
-        renderChar(text[i], currentX, currentY, scale, false);
-        currentX += charWidth;
-    }
-    
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
 }
 
-void UIText::renderTextWithColor(const std::string& text, float x, float y, float scale, float r, float g, float b) {
-    if (!initialized || shader == nullptr) return;
-    
+void UIText::drawBatch(const std::vector<float>& vertices, float r, float g, float b) {
+    if (vertices.empty()) {
+        return;
+    }
+
+    shader->setVec3("textColor", r, g, b);
+    glBufferData(GL_ARRAY_BUFFER,
+                 static_cast<GLsizeiptr>(vertices.size() * sizeof(float)),
+                 vertices.data(), GL_STREAM_DRAW);
+    glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size() / 2));
+}
+
+void UIText::renderTextInternal(const std::string& text, float x, float y, float scale,
+                                float r, float g, float b) {
+    if (!initialized || shader == nullptr || shader->m_id == 0 || text.empty()) {
+        return;
+    }
+
+    ScopedTextRenderState renderState;
     shader->use();
-    
+
     glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(windowWidth),
                                      static_cast<float>(windowHeight), 0.0f);
     shader->setMat4("projection", projection);
-    
-    ScopedTextBlendState blendState;
+
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    
-    float charWidth = 8.0f * scale;
-    float currentX = x;
-    float currentY = y;
-    
-    shader->setVec3("textColor", 0.0f, 0.0f, 0.0f);
-    float outlineOffset = 1.5f * scale;
-    
-    for (size_t i = 0; i < text.length(); i++) {
-        if (text[i] == '\n') {
-            currentY += 14.0f * scale;
-            currentX = x;
-            continue;
-        }
-        
-        renderChar(text[i], currentX - outlineOffset, currentY, scale, true);
-        renderChar(text[i], currentX + outlineOffset, currentY, scale, true);
-        renderChar(text[i], currentX, currentY - outlineOffset, scale, true);
-        renderChar(text[i], currentX, currentY + outlineOffset, scale, true);
-        
-        currentX += charWidth;
-    }
-    
-    currentX = x;
-    currentY = y;
-    shader->setVec3("textColor", r, g, b);
-    
-    for (size_t i = 0; i < text.length(); i++) {
-        if (text[i] == '\n') {
-            currentY += 14.0f * scale;
-            currentX = x;
-            continue;
-        }
-        
-        renderChar(text[i], currentX, currentY, scale, false);
-        currentX += charWidth;
-    }
-    
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
+
+    constexpr std::size_t estimatedPixelsPerGlyph = 32;
+    std::vector<float> outlineVertices;
+    std::vector<float> fillVertices;
+    outlineVertices.reserve(text.size() * 4 * estimatedPixelsPerGlyph * 12);
+    fillVertices.reserve(text.size() * estimatedPixelsPerGlyph * 12);
+
+    const float outlineOffset = 1.5f * scale;
+    appendTextVertices(outlineVertices, text, x, y, scale, -outlineOffset, 0.0f);
+    appendTextVertices(outlineVertices, text, x, y, scale, outlineOffset, 0.0f);
+    appendTextVertices(outlineVertices, text, x, y, scale, 0.0f, -outlineOffset);
+    appendTextVertices(outlineVertices, text, x, y, scale, 0.0f, outlineOffset);
+    appendTextVertices(fillVertices, text, x, y, scale, 0.0f, 0.0f);
+
+    drawBatch(outlineVertices, 0.0f, 0.0f, 0.0f);
+    drawBatch(fillVertices, r, g, b);
+}
+
+void UIText::renderText(const std::string& text, float x, float y, float scale) {
+    renderTextInternal(text, x, y, scale, 1.0f, 1.0f, 1.0f);
+}
+
+void UIText::renderTextWithColor(const std::string& text, float x, float y, float scale,
+                                 float r, float g, float b) {
+    renderTextInternal(text, x, y, scale, r, g, b);
 }
 
 void UIText::cleanup() {

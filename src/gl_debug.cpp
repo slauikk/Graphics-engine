@@ -18,7 +18,6 @@ void GL_EnableDebugOutput() {
 #ifdef GLAD_GL_KHR_debug
     if (GLAD_GL_KHR_debug) {
         glEnable(GL_DEBUG_OUTPUT);
-        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
         glDebugMessageCallback(debugCallback, nullptr);
         
         glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, 

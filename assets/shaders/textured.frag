@@ -29,13 +29,16 @@ uniform sampler2D u_AlbedoTex;
 uniform vec3 u_AlbedoColor;
 uniform vec3 u_SpecularColor;
 uniform float u_Shininess;
+uniform int u_DebugViewMode;
 
 void main() {
     vec3 albedo = u_UseAlbedoTex != 0 ? texture(u_AlbedoTex, TexCoord).rgb : u_AlbedoColor;
     vec3 norm = normalize(Normal);
     vec3 viewDir = normalize(u_CameraPos - FragPos);
     
-    vec3 result = vec3(0.0);
+    vec3 ambientResult = vec3(0.0);
+    vec3 diffuseResult = vec3(0.0);
+    vec3 specularResult = vec3(0.0);
     
     // Directional Light
     if (u_DirLight.enabled != 0) {
@@ -51,7 +54,9 @@ void main() {
         float spec = pow(max(dot(viewDir, reflectDir), 0.0), u_Shininess);
         vec3 specularColor = spec * u_SpecularColor * u_DirLight.color;
         
-        result += ambientColor + diffuseColor + specularColor;
+        ambientResult += ambientColor;
+        diffuseResult += diffuseColor;
+        specularResult += specularColor;
     }
     
     // Point Light
@@ -70,8 +75,21 @@ void main() {
         float spec = pow(max(dot(viewDir, reflectDir), 0.0), u_Shininess);
         vec3 specularColor = spec * u_SpecularColor * u_PointLight.color;
         
-        result += (ambientColor + diffuseColor + specularColor) * attenuation;
+        ambientResult += ambientColor * attenuation;
+        diffuseResult += diffuseColor * attenuation;
+        specularResult += specularColor * attenuation;
     }
-    
+
+    vec3 result = ambientResult + diffuseResult + specularResult;
+    if (u_DebugViewMode == 1) {
+        result = albedo;
+    } else if (u_DebugViewMode == 2) {
+        result = norm * 0.5 + 0.5;
+    } else if (u_DebugViewMode == 3) {
+        result = diffuseResult;
+    } else if (u_DebugViewMode == 4) {
+        result = specularResult;
+    }
+
     FragColor = vec4(result, 1.0);
 }

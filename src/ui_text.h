@@ -4,6 +4,7 @@
 #include <glad/glad.h>
 #include <memory>
 #include <string>
+#include <vector>
 
 class Shader;
 
@@ -23,7 +24,12 @@ private:
     static int windowWidth, windowHeight;
     
     static bool createTextShader();
-    static void renderChar(char c, float x, float y, float scale, bool isOutline = false);
+    static void appendCharVertices(std::vector<float>& vertices, char c, float x, float y, float scale);
+    static void appendTextVertices(std::vector<float>& vertices, const std::string& text,
+                                   float x, float y, float scale, float offsetX, float offsetY);
+    static void drawBatch(const std::vector<float>& vertices, float r, float g, float b);
+    static void renderTextInternal(const std::string& text, float x, float y, float scale,
+                                   float r, float g, float b);
 };
 
 #endif // UI_TEXT_H

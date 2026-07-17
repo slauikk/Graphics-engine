@@ -6,6 +6,27 @@
 #include <Windows.h>
 #endif
 
+namespace {
+
+bool isAssetsRoot(const std::filesystem::path& candidate) {
+    std::error_code error;
+    const bool hasTextures = std::filesystem::is_directory(candidate / "textures", error);
+    if (error) {
+        return false;
+    }
+
+    const bool hasShaders = std::filesystem::is_directory(candidate / "shaders", error);
+    return !error && hasTextures && hasShaders;
+}
+
+std::filesystem::path normalizedPath(const std::filesystem::path& path) {
+    std::error_code error;
+    std::filesystem::path normalized = std::filesystem::weakly_canonical(path, error);
+    return error ? path.lexically_normal() : normalized;
+}
+
+} // namespace
+
 namespace core {
 
     std::filesystem::path executableDir() {
@@ -23,39 +44,36 @@ namespace core {
     }
 
     std::filesystem::path findAssetsRoot() {
-        static bool initialized = false;
-        static std::filesystem::path cachedRoot;
+        static const std::filesystem::path cachedRoot = [] {
+#ifdef GRAPHICS_ENGINE_SOURCE_ASSETS_DIR
+            const std::filesystem::path sourceAssets = GRAPHICS_ENGINE_SOURCE_ASSETS_DIR;
+            if (isAssetsRoot(sourceAssets)) {
+                return normalizedPath(sourceAssets);
+            }
+#endif
 
-        if (initialized) {
-            return cachedRoot;
-        }
-
-        std::vector<std::filesystem::path> bases = {
-            executableDir(),
-            std::filesystem::current_path()
-        };
-
-        for (const auto& base : bases) {
-            std::vector<std::filesystem::path> candidates = {
-                base / "assets",
-                base / ".." / "assets",
-                base / ".." / ".." / "assets"
+            const std::vector<std::filesystem::path> bases = {
+                executableDir(),
+                std::filesystem::current_path()
             };
 
-            for (const auto& candidate : candidates) {
-                std::filesystem::path texturesDir = candidate / "textures";
-                std::filesystem::path shadersDir = candidate / "shaders";
-                if (std::filesystem::exists(texturesDir) && std::filesystem::is_directory(texturesDir) &&
-                    std::filesystem::exists(shadersDir) && std::filesystem::is_directory(shadersDir)) {
-                    cachedRoot = candidate;
-                    initialized = true;
-                    return cachedRoot;
-                    }
-            }
-        }
+            for (const auto& base : bases) {
+                const std::vector<std::filesystem::path> candidates = {
+                    base / "assets",
+                    base / ".." / "assets",
+                    base / ".." / ".." / "assets"
+                };
 
-        cachedRoot = std::filesystem::current_path() / "assets";
-        initialized = true;
+                for (const auto& candidate : candidates) {
+                    if (isAssetsRoot(candidate)) {
+                        return normalizedPath(candidate);
+                    }
+                }
+            }
+
+            return normalizedPath(std::filesystem::current_path() / "assets");
+        }();
+
         return cachedRoot;
     }
 

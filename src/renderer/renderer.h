@@ -18,7 +18,10 @@ class Renderer {
 public:
     void init();
     void beginFrame(float r, float g, float b, float a);
-    void drawMesh(const Mesh& mesh, const Material& material, const glm::mat4& model, const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos, const DirectionalLight& dirLight, const PointLight& pointLight);
+    void drawMesh(const Mesh& mesh, const Material& material, const glm::mat4& model,
+                  const glm::mat4& view, const glm::mat4& projection,
+                  const glm::vec3& cameraPos, const DirectionalLight& dirLight,
+                  const PointLight& pointLight, int shaderViewMode);
     void endFrame();
 };
 
