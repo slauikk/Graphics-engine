@@ -381,7 +381,9 @@ void Application::processInput(float dt) {
     m_frameCount++;
     m_fpsUpdateTime += dt;
     if (m_fpsUpdateTime >= 0.5f) {
-        m_currentFPS = m_frameCount / m_fpsUpdateTime;
+        const float sampledFrameCount = static_cast<float>(m_frameCount);
+        m_currentFPS = sampledFrameCount / m_fpsUpdateTime;
+        m_cpuFrameTimeMs = (m_fpsUpdateTime * 1000.0f) / sampledFrameCount;
         m_frameCount = 0;
         m_fpsUpdateTime = 0.0f;
     }
@@ -823,6 +825,14 @@ void Application::render() {
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(1);
     oss << "FPS: " << m_currentFPS << "\n";
+    oss << std::setprecision(2);
+    oss << "CPU frame: " << m_cpuFrameTimeMs << " ms\n";
+    if (m_renderer->hasGpuFrameTime()) {
+        oss << "GPU render: " << m_renderer->gpuFrameTimeMs() << " ms\n";
+    } else {
+        oss << "GPU render: warming up\n";
+    }
+    oss << std::setprecision(1);
     oss << "FOV: " << (m_camera ? m_camera->fov : 45.0f);
     if (m_showGPUInfo) {
         std::string gpuStr = m_gpuRenderer;
