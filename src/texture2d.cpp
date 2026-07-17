@@ -2,7 +2,6 @@
 #include "texture2d.h"
 #include <stb_image.h>
 #include <iostream>
-#include <filesystem>
 
 Texture2D::Texture2D(const std::string& path, bool flipY) 
     : id(0), width(0), height(0), channels(0) {
@@ -22,48 +21,12 @@ void Texture2D::loadFromFile(const std::string& path, bool flipY) {
     stbi_set_flip_vertically_on_load(flipY);
     
     unsigned char* data = stbi_load(path.c_str(), &width, &height, &channels, 0);
-    std::string actualPath = path;
-    
+
     if (!data) {
-        std::filesystem::path fsPath(path);
-        if (fsPath.is_relative()) {
-            std::vector<std::filesystem::path> altPaths;
-            
-            if (path.find("../") == 0) {
-                altPaths.push_back(path.substr(3));
-                altPaths.push_back("../../" + path);
-            } else {
-                altPaths.push_back("../" + path);
-                altPaths.push_back("../../" + path);
-            }
-            
-            for (const auto& altPath : altPaths) {
-                if (std::filesystem::exists(altPath) && std::filesystem::is_regular_file(altPath)) {
-                    std::cerr << "Trying alternative path: " << altPath.string() << "\n";
-                    std::cerr << "File size: " << std::filesystem::file_size(altPath) << " bytes\n";
-                    data = stbi_load(altPath.string().c_str(), &width, &height, &channels, 0);
-                    if (data) {
-                        actualPath = altPath.string();
-                        break;
-                    } else {
-                        std::cerr << "stbi_load failed for: " << altPath.string() << "\n";
-                        std::cerr << "stbi_failure_reason: " << stbi_failure_reason() << "\n";
-                    }
-                }
-            }
-        }
-        
-        if (!data) {
-            std::cerr << "Failed to load texture: " << path << "\n";
-            if (std::filesystem::exists(path)) {
-                std::cerr << "File exists, size: " << std::filesystem::file_size(path) << " bytes\n";
-                std::cerr << "stbi_failure_reason: " << stbi_failure_reason() << "\n";
-            } else {
-                std::cerr << "File does not exist\n";
-            }
-            createMagentaFallback();
-            return;
-        }
+        std::cerr << "Failed to load texture: " << path << "\n";
+        std::cerr << "stbi_failure_reason: " << stbi_failure_reason() << "\n";
+        createMagentaFallback();
+        return;
     }
     
     glGenTextures(1, &id);
@@ -72,11 +35,18 @@ void Texture2D::loadFromFile(const std::string& path, bool flipY) {
     GLenum format = GL_RGB;
     if (channels == 4) {
         format = GL_RGBA;
+    } else if (channels == 2) {
+        format = GL_RG;
     } else if (channels == 1) {
         format = GL_RED;
     }
     
+    GLint previousUnpackAlignment = 0;
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &previousUnpackAlignment);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
     glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, previousUnpackAlignment);
     glGenerateMipmap(GL_TEXTURE_2D);
     
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -100,6 +70,32 @@ Texture2D::~Texture2D() {
     if (id != 0) {
         glDeleteTextures(1, &id);
     }
+}
+
+Texture2D::Texture2D(Texture2D&& other) noexcept
+    : id(other.id), width(other.width), height(other.height), channels(other.channels) {
+    other.id = 0;
+    other.width = 0;
+    other.height = 0;
+    other.channels = 0;
+}
+
+Texture2D& Texture2D::operator=(Texture2D&& other) noexcept {
+    if (this != &other) {
+        if (id != 0) {
+            glDeleteTextures(1, &id);
+        }
+
+        id = other.id;
+        width = other.width;
+        height = other.height;
+        channels = other.channels;
+        other.id = 0;
+        other.width = 0;
+        other.height = 0;
+        other.channels = 0;
+    }
+    return *this;
 }
 
 void Texture2D::bind(uint32_t slot) const {

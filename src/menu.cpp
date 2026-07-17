@@ -1,10 +1,95 @@
 #include "menu.h"
 #include "ui_text.h"
+#include "core/asset_paths.h"
 #include <GLFW/glfw3.h>
 #include <filesystem>
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
+
+namespace {
+
+const std::vector<std::string> MAIN_MENU_ITEMS = {
+    "Textures", "Movement", "Lighting"
+};
+
+const std::vector<std::string> MOVEMENT_ROOT_ITEMS = {
+    "Cube", "Light"
+};
+
+const std::vector<std::string> CUBE_MENU_ITEMS = {
+    "Prev Cube",
+    "Next Cube",
+    "---",
+    "Reset",
+    "Spin",
+    "Stop",
+    "---",
+    "Move X+",
+    "Move X-",
+    "Move Y+",
+    "Move Y-",
+    "Move Z+",
+    "Move Z-"
+};
+
+const std::vector<std::string> LIGHT_MENU_ITEMS = {
+    "Reset",
+    "Spin",
+    "Stop",
+    "---",
+    "Move X+",
+    "Move X-",
+    "Move Y+",
+    "Move Y-",
+    "Move Z+",
+    "Move Z-",
+    "---",
+    "XY Plane: Up",
+    "XY Plane: Down",
+    "XY Plane: Left",
+    "XY Plane: Right",
+    "---",
+    "XZ Plane: Forward",
+    "XZ Plane: Back",
+    "XZ Plane: Left",
+    "XZ Plane: Right",
+    "---",
+    "YZ Plane: Up",
+    "YZ Plane: Down",
+    "YZ Plane: Forward",
+    "YZ Plane: Back"
+};
+
+const std::vector<std::string> LIGHTING_MENU_ITEMS = {
+    "Toggle Directional",
+    "DirLight Rotate Left",
+    "DirLight Rotate Right",
+    "DirLight Tilt Up",
+    "DirLight Tilt Down",
+    "Toggle Point"
+};
+
+int itemCountForState(Menu::MenuState state, int textureCount) {
+    switch (state) {
+        case Menu::MAIN_MENU:
+            return static_cast<int>(MAIN_MENU_ITEMS.size());
+        case Menu::TEXTURES:
+            return textureCount;
+        case Menu::MOVEMENT_ROOT:
+            return static_cast<int>(MOVEMENT_ROOT_ITEMS.size());
+        case Menu::MOVEMENT_CUBE:
+            return static_cast<int>(CUBE_MENU_ITEMS.size());
+        case Menu::MOVEMENT_LIGHT:
+            return static_cast<int>(LIGHT_MENU_ITEMS.size());
+        case Menu::LIGHTING:
+            return static_cast<int>(LIGHTING_MENU_ITEMS.size());
+    }
+
+    return 0;
+}
+
+} // namespace
 
 bool Menu::m_isOpen = false;
 Menu::MenuState Menu::m_currentState = MAIN_MENU;
@@ -37,11 +122,11 @@ void Menu::scanTextures() {
     
     TextureOption gridOption;
     gridOption.name = "Grid (Generated)";
-    gridOption.path = "GENERATED_GRID";
+    gridOption.path = "textures/generated_grid";
     gridOption.isGenerated = true;
     m_textures.push_back(gridOption);
     
-    std::string texturesDir = "../assets/textures/";
+    std::filesystem::path texturesDir = core::assetPath("textures");
     
     try {
         if (std::filesystem::exists(texturesDir) && std::filesystem::is_directory(texturesDir)) {
@@ -53,7 +138,7 @@ void Menu::scanTextures() {
                     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg") {
                         TextureOption option;
                         option.name = entry.path().filename().string();
-                        option.path = texturesDir + option.name;
+                        option.path = "textures/" + option.name;
                         option.isGenerated = false;
                         m_textures.push_back(option);
                     }
@@ -66,7 +151,7 @@ void Menu::scanTextures() {
     if (m_textures.empty()) {
         TextureOption gridOption;
         gridOption.name = "Grid (Generated)";
-        gridOption.path = "GENERATED_GRID";
+        gridOption.path = "textures/generated_grid";
         gridOption.isGenerated = true;
         m_textures.push_back(gridOption);
     }
@@ -116,15 +201,13 @@ void Menu::renderMainMenu() {
     UIText::renderText(header, x, y, 1.5f);
     y += lineHeight * 2;
     
-    std::vector<std::string> mainMenuItems = {"Textures", "Movement", "Lighting"};
-    
-    for (size_t i = 0; i < mainMenuItems.size(); i++) {
+    for (size_t i = 0; i < MAIN_MENU_ITEMS.size(); i++) {
         std::string itemText;
         if (static_cast<int>(i) == m_selectedIndex) {
-            itemText = "> " + mainMenuItems[i];
+            itemText = "> " + MAIN_MENU_ITEMS[i];
             UIText::renderTextWithColor(itemText, x, y, 1.5f, 1.0f, 1.0f, 0.0f);
         } else {
-            itemText = "  " + mainMenuItems[i];
+            itemText = "  " + MAIN_MENU_ITEMS[i];
             UIText::renderText(itemText, x, y, 1.5f);
         }
         y += lineHeight;
@@ -170,15 +253,13 @@ void Menu::renderMovementRootMenu() {
     UIText::renderText(header, x, y, 1.5f);
     y += lineHeight * 2;
     
-    std::vector<std::string> items = {"Cube", "Light"};
-    
-    for (size_t i = 0; i < items.size(); i++) {
+    for (size_t i = 0; i < MOVEMENT_ROOT_ITEMS.size(); i++) {
         std::string itemText;
         if (static_cast<int>(i) == m_selectedIndex) {
-            itemText = "> " + items[i];
+            itemText = "> " + MOVEMENT_ROOT_ITEMS[i];
             UIText::renderTextWithColor(itemText, x, y, 1.5f, 1.0f, 1.0f, 0.0f);
         } else {
-            itemText = "  " + items[i];
+            itemText = "  " + MOVEMENT_ROOT_ITEMS[i];
             UIText::renderText(itemText, x, y, 1.5f);
         }
         y += lineHeight;
@@ -198,34 +279,18 @@ void Menu::renderCubeMenu() {
     UIText::renderText(header, x, y, 1.5f);
     y += lineHeight * 2;
     
-    std::vector<std::string> items = {
-        "Prev Cube",
-        "Next Cube",
-        "---",
-        "Reset",
-        "Spin",
-        "Stop",
-        "---",
-        "Move X+",
-        "Move X-",
-        "Move Y+",
-        "Move Y-",
-        "Move Z+",
-        "Move Z-"
-    };
-    
     std::ostringstream cubeInfo;
     cubeInfo << "Selected Cube: " << m_selectedCubeIndex;
     UIText::renderText(cubeInfo.str(), x, y, 1.5f);
     y += lineHeight * 2;
     
-    for (size_t i = 0; i < items.size(); i++) {
+    for (size_t i = 0; i < CUBE_MENU_ITEMS.size(); i++) {
         std::string itemText;
         if (static_cast<int>(i) == m_selectedIndex) {
-            itemText = "> " + items[i];
+            itemText = "> " + CUBE_MENU_ITEMS[i];
             UIText::renderTextWithColor(itemText, x, y, 1.5f, 1.0f, 1.0f, 0.0f);
         } else {
-            itemText = "  " + items[i];
+            itemText = "  " + CUBE_MENU_ITEMS[i];
             UIText::renderText(itemText, x, y, 1.5f);
         }
         y += lineHeight;
@@ -251,41 +316,13 @@ void Menu::renderLightMenu() {
     UIText::renderText(header, x, y, 1.5f);
     y += lineHeight * 2;
     
-    std::vector<std::string> items = {
-        "Reset",
-        "Spin",
-        "Stop",
-        "---",
-        "Move X+",
-        "Move X-",
-        "Move Y+",
-        "Move Y-",
-        "Move Z+",
-        "Move Z-",
-        "---",
-        "XY Plane: Up",
-        "XY Plane: Down",
-        "XY Plane: Left",
-        "XY Plane: Right",
-        "---",
-        "XZ Plane: Forward",
-        "XZ Plane: Back",
-        "XZ Plane: Left",
-        "XZ Plane: Right",
-        "---",
-        "YZ Plane: Up",
-        "YZ Plane: Down",
-        "YZ Plane: Forward",
-        "YZ Plane: Back"
-    };
-    
-    for (size_t i = 0; i < items.size(); i++) {
+    for (size_t i = 0; i < LIGHT_MENU_ITEMS.size(); i++) {
         std::string itemText;
         if (static_cast<int>(i) == m_selectedIndex) {
-            itemText = "> " + items[i];
+            itemText = "> " + LIGHT_MENU_ITEMS[i];
             UIText::renderTextWithColor(itemText, x, y, 1.5f, 1.0f, 1.0f, 0.0f);
         } else {
-            itemText = "  " + items[i];
+            itemText = "  " + LIGHT_MENU_ITEMS[i];
             UIText::renderText(itemText, x, y, 1.5f);
         }
         y += lineHeight;
@@ -318,42 +355,14 @@ void Menu::toggle() {
 void Menu::processKey(int key) {
     if (!m_isOpen) return;
     
-    if (key == GLFW_KEY_UP) {
-        int maxItems = 0;
-        if (m_currentState == MAIN_MENU) {
-            maxItems = 2;
-        } else if (m_currentState == TEXTURES) {
-            maxItems = static_cast<int>(m_textures.size());
-        } else if (m_currentState == MOVEMENT_ROOT) {
-            maxItems = 2;
-        } else if (m_currentState == MOVEMENT_CUBE) {
-            maxItems = 10;
-        } else if (m_currentState == MOVEMENT_LIGHT) {
-            maxItems = 25;
-        } else if (m_currentState == LIGHTING) {
-            maxItems = 6;
-        }
-        
+    const int maxItems = itemCountForState(m_currentState, static_cast<int>(m_textures.size()));
+
+    if (key == GLFW_KEY_UP && maxItems > 0) {
         m_selectedIndex--;
         if (m_selectedIndex < 0) {
             m_selectedIndex = maxItems - 1;
         }
-    } else if (key == GLFW_KEY_DOWN) {
-        int maxItems = 0;
-        if (m_currentState == MAIN_MENU) {
-            maxItems = 3;
-        } else if (m_currentState == TEXTURES) {
-            maxItems = static_cast<int>(m_textures.size());
-        } else if (m_currentState == MOVEMENT_ROOT) {
-            maxItems = 2;
-        } else if (m_currentState == MOVEMENT_CUBE) {
-            maxItems = 10;
-        } else if (m_currentState == MOVEMENT_LIGHT) {
-            maxItems = 25;
-        } else if (m_currentState == LIGHTING) {
-            maxItems = 6;
-        }
-        
+    } else if (key == GLFW_KEY_DOWN && maxItems > 0) {
         m_selectedIndex++;
         if (m_selectedIndex >= maxItems) {
             m_selectedIndex = 0;
@@ -592,22 +601,13 @@ void Menu::renderLightingMenu() {
     UIText::renderText(header, x, y, 1.5f);
     y += lineHeight * 2;
     
-    std::vector<std::string> items = {
-        "Toggle Directional",
-        "DirLight Rotate Left",
-        "DirLight Rotate Right",
-        "DirLight Tilt Up",
-        "DirLight Tilt Down",
-        "Toggle Point"
-    };
-    
-    for (size_t i = 0; i < items.size(); i++) {
+    for (size_t i = 0; i < LIGHTING_MENU_ITEMS.size(); i++) {
         std::string itemText;
         if (static_cast<int>(i) == m_selectedIndex) {
-            itemText = "> " + items[i];
+            itemText = "> " + LIGHTING_MENU_ITEMS[i];
             UIText::renderTextWithColor(itemText, x, y, 1.5f, 1.0f, 1.0f, 0.0f);
         } else {
-            itemText = "  " + items[i];
+            itemText = "  " + LIGHTING_MENU_ITEMS[i];
             UIText::renderText(itemText, x, y, 1.5f);
         }
         y += lineHeight;

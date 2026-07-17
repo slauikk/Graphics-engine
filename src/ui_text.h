@@ -2,6 +2,7 @@
 #define UI_TEXT_H
 
 #include <glad/glad.h>
+#include <memory>
 #include <string>
 
 class Shader;
@@ -17,7 +18,7 @@ public:
     
 private:
     static GLuint VAO, VBO;
-    static Shader* shader;
+    static std::shared_ptr<Shader> shader;
     static bool initialized;
     static int windowWidth, windowHeight;
     

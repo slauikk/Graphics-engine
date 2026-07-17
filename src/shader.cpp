@@ -4,7 +4,9 @@
 #include <fstream>
 #include <sstream>
 #include <filesystem>
+#include <cctype>
 #include <cstring>
+#include <utility>
 #include <glm/gtc/type_ptr.hpp>
 
 GLuint Shader::compile(GLenum type, const char* source) {
@@ -25,7 +27,7 @@ GLuint Shader::compile(GLenum type, const char* source) {
                 break;
             }
         }
-        if (looksLikePath && (isalpha(source[0]) || source[0] == '.' || source[0] == '/')) {
+        if (looksLikePath && (std::isalpha(static_cast<unsigned char>(source[0])) || source[0] == '.' || source[0] == '/')) {
             std::cerr << "[Shader] ERROR: compile() received what looks like a file path instead of shader source!\n";
             std::cerr << "[Shader] Received: " << source << "\n";
             std::cerr << "[Shader] This means readTextFile() failed to read the file!\n";
@@ -139,6 +141,31 @@ Shader::~Shader() {
     }
 }
 
+Shader::Shader(Shader&& other) noexcept
+    : m_id(other.m_id),
+      m_vertexPath(std::move(other.m_vertexPath)),
+      m_fragmentPath(std::move(other.m_fragmentPath)),
+      m_uniformCache(std::move(other.m_uniformCache)),
+      m_uniformWarned(std::move(other.m_uniformWarned)) {
+    other.m_id = 0;
+}
+
+Shader& Shader::operator=(Shader&& other) noexcept {
+    if (this != &other) {
+        if (m_id != 0) {
+            glDeleteProgram(m_id);
+        }
+
+        m_id = other.m_id;
+        m_vertexPath = std::move(other.m_vertexPath);
+        m_fragmentPath = std::move(other.m_fragmentPath);
+        m_uniformCache = std::move(other.m_uniformCache);
+        m_uniformWarned = std::move(other.m_uniformWarned);
+        other.m_id = 0;
+    }
+    return *this;
+}
+
 void Shader::use() const {
     glUseProgram(m_id);
 }
@@ -196,68 +223,46 @@ void Shader::setFloat(const char* name, float value) const {
 }
 
 std::string Shader::readTextFile(const std::string& path) {
-    std::vector<std::string> altPaths;
-    
-    // Add current directory paths first
-    altPaths.push_back(path);
-    
-    // Add relative paths
-    if (path.find("../") == 0) {
-        altPaths.push_back(path.substr(3));
-        altPaths.push_back("../../" + path);
-    } else {
-        altPaths.push_back("../" + path);
-        altPaths.push_back("../../" + path);
+    if (!std::filesystem::exists(path) || !std::filesystem::is_regular_file(path)) {
+        std::cerr << "[Shader] Failed to read file: " << path << "\n";
+        return "";
     }
     
-    for (const auto& altPath : altPaths) {
-        if (std::filesystem::exists(altPath) && std::filesystem::is_regular_file(altPath)) {
-            std::ifstream file(altPath, std::ios::in | std::ios::binary);
-            if (file.is_open()) {
-                file.seekg(0, std::ios::end);
-                size_t size = file.tellg();
-                file.seekg(0, std::ios::beg);
-                
-                if (size == 0) {
-                    file.close();
-                    continue;
-                }
-                
-                std::string content(size, '\0');
-                file.read(&content[0], size);
-                file.close();
-                
-                // Remove BOM if present (UTF-8 BOM: EF BB BF)
-                if (content.size() >= 3 && 
-                    static_cast<unsigned char>(content[0]) == 0xEF &&
-                    static_cast<unsigned char>(content[1]) == 0xBB &&
-                    static_cast<unsigned char>(content[2]) == 0xBF) {
-                    content = content.substr(3);
-                }
-                
-                // Remove null terminators that might be at the end
-                while (!content.empty() && content.back() == '\0') {
-                    content.pop_back();
-                }
-                
-                if (!content.empty()) {
-                    return content;
-                }
-            }
+    std::ifstream file(path, std::ios::in | std::ios::binary);
+    if (!file.is_open()) {
+        std::cerr << "[Shader] Failed to open file: " << path << "\n";
+        return "";
+    }
+    
+    file.seekg(0, std::ios::end);
+    size_t size = file.tellg();
+    file.seekg(0, std::ios::beg);
+
+    if (size == 0) {
+        return "";
+    }
+    std::string content(size, '\0');
+    file.read(&content[0], size);
+    file.close();
+
+    // Remove BOM if present (UTF-8 BOM: EF BB BF)
+    if (content.size() >= 3 &&
+        static_cast<unsigned char>(content[0]) == 0xEF &&
+        static_cast<unsigned char>(content[1]) == 0xBB &&
+        static_cast<unsigned char>(content[2]) == 0xBF) {
+        content = content.substr(3);
         }
+
+    // Remove null terminators that might be at the end
+    while (!content.empty() && content.back() == '\0') {
+        content.pop_back();
     }
-    
-    std::cerr << "[Shader] Failed to read file: " << path << "\n";
-    std::cerr << "[Shader] Tried paths:\n";
-    for (const auto& altPath : altPaths) {
-        bool exists = std::filesystem::exists(altPath);
-        std::cerr << "  - " << altPath << (exists ? " (exists)" : " (not found)");
-        if (exists) {
-            std::cerr << " size: " << std::filesystem::file_size(altPath) << " bytes";
-        }
-        std::cerr << "\n";
+
+    if (content.empty()) {
+        std::cerr << "[Shader] File is empty: " << path << "\n";
     }
-    return "";
+
+    return content;
 }
 
 bool Shader::loadFromFiles(const std::string& vertexPath, const std::string& fragmentPath) {

@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 #include <string>
 #include <sstream>
+#include <unordered_map>
 #include <vector>
 #include <memory>
 #include "renderer/light.h"
@@ -32,8 +33,10 @@ public:
     int run();
 
 private:
-    void init();
+    bool init();
     void shutdown();
+    void applyGlobalShininess();
+    Material* getOrCreateMaterial(const std::string& relativeTexturePath);
     void processInput(float dt);
     void update(float dt);
     void render();
@@ -50,6 +53,9 @@ private:
     void onScroll(double xoffset, double yoffset);
     
     GLFWwindow* m_window = nullptr;
+    bool m_glfwInitialized = false;
+    bool m_contextReady = false;
+    bool m_initialized = false;
     int m_width = 1280;
     int m_height = 720;
     
@@ -77,6 +83,7 @@ private:
     // Shader reload message
     float m_reloadMessageTime = 0.0f;
     std::string m_reloadMessage;
+    bool m_reloadSucceeded = false;
     
     // Mouse state
     bool m_firstMouse = true;
@@ -92,12 +99,12 @@ private:
     
     // Rendering resources
     std::shared_ptr<Mesh> m_cubeMesh = nullptr;
-    Shader* m_shader = nullptr;
+    std::shared_ptr<Shader> m_shader = nullptr;
     Renderer* m_renderer = nullptr;
     
-    // Materials (owned by Application, referenced by RenderObject)
-    std::vector<Material*> m_materials;
-    std::vector<Texture2D*> m_textures;  // Owned textures for materials
+    // Cached ownership; RenderObject keeps non-owning Material pointers.
+    std::unordered_map<std::string, std::unique_ptr<Material>> m_materials;
+    std::unordered_map<std::string, std::shared_ptr<Texture2D>> m_textures;
     
     // Lighting
     DirectionalLight m_dirLight;

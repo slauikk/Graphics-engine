@@ -2,6 +2,7 @@
 #define VERTEX_LAYOUT_H
 
 #include <glad/glad.h>
+#include <cstddef>
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -49,6 +50,18 @@ struct BufferElement {
                 return GL_INT;
         }
         return GL_FLOAT;
+    }
+
+    static bool isIntegerType(ShaderDataType type) {
+        switch (type) {
+            case ShaderDataType::Int:
+            case ShaderDataType::Int2:
+            case ShaderDataType::Int3:
+            case ShaderDataType::Int4:
+                return true;
+            default:
+                return false;
+        }
     }
 
     static uint32_t getComponentCount(ShaderDataType type) {

@@ -16,6 +16,10 @@ void Renderer::beginFrame(float r, float g, float b, float a) {
 }
 
 void Renderer::drawMesh(const Mesh& mesh, const Material& material, const glm::mat4& model, const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos, const DirectionalLight& dirLight, const PointLight& pointLight) {
+    if (material.shader == nullptr || material.shader->m_id == 0) {
+        return;
+    }
+
     material.bind();
     
     material.shader->setMat4("u_Model", model);

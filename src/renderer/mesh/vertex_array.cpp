@@ -45,14 +45,24 @@ void VertexArray::addVertexBuffer(VertexBuffer& vbo, const BufferLayout& layout)
     uint32_t index = 0;
     for (const auto& element : elements) {
         glEnableVertexAttribArray(index);
-        glVertexAttribPointer(
-            index,
-            BufferElement::getComponentCount(element.type),
-            BufferElement::getGLType(element.type),
-            element.normalized ? GL_TRUE : GL_FALSE,
-            layout.getStride(),
-            (const void*)element.offset
-        );
+        if (BufferElement::isIntegerType(element.type)) {
+            glVertexAttribIPointer(
+                index,
+                BufferElement::getComponentCount(element.type),
+                BufferElement::getGLType(element.type),
+                layout.getStride(),
+                reinterpret_cast<const void*>(element.offset)
+            );
+        } else {
+            glVertexAttribPointer(
+                index,
+                BufferElement::getComponentCount(element.type),
+                BufferElement::getGLType(element.type),
+                element.normalized ? GL_TRUE : GL_FALSE,
+                layout.getStride(),
+                reinterpret_cast<const void*>(element.offset)
+            );
+        }
         index++;
     }
 

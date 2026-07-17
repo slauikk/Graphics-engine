@@ -280,6 +280,10 @@ void initFontData() {
     fontData['?'][0] = 0x3E; fontData['?'][1] = 0x63; fontData['?'][2] = 0x60; fontData['?'][3] = 0x30;
     fontData['?'][4] = 0x18; fontData['?'][5] = 0x18; fontData['?'][6] = 0x18; fontData['?'][7] = 0x18;
     fontData['?'][8] = 0x00; fontData['?'][9] = 0x00; fontData['?'][10] = 0x18; fontData['?'][11] = 0x18;
+
+    fontData['>'][0] = 0x00; fontData['>'][1] = 0x03; fontData['>'][2] = 0x06; fontData['>'][3] = 0x0C;
+    fontData['>'][4] = 0x18; fontData['>'][5] = 0x30; fontData['>'][6] = 0x18; fontData['>'][7] = 0x0C;
+    fontData['>'][8] = 0x06; fontData['>'][9] = 0x03; fontData['>'][10] = 0x00; fontData['>'][11] = 0x00;
     
     fontData['('][0] = 0x30; fontData['('][1] = 0x18; fontData['('][2] = 0x0C; fontData['('][3] = 0x06;
     fontData['('][4] = 0x03; fontData['('][5] = 0x03; fontData['('][6] = 0x03; fontData['('][7] = 0x03;

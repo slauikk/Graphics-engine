@@ -1,6 +1,7 @@
 #include "ui_text.h"
 #include "font_data.h"
 #include "shader.h"
+#include "core/resource_manager.h"
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -10,47 +11,60 @@
 #include <sstream>
 #include <iomanip>
 
+namespace {
+
+class ScopedTextBlendState {
+public:
+    ScopedTextBlendState()
+        : m_depthTestEnabled(glIsEnabled(GL_DEPTH_TEST)),
+          m_blendEnabled(glIsEnabled(GL_BLEND)) {
+        glGetIntegerv(GL_BLEND_SRC_RGB, &m_blendSrcRgb);
+        glGetIntegerv(GL_BLEND_DST_RGB, &m_blendDstRgb);
+        glGetIntegerv(GL_BLEND_SRC_ALPHA, &m_blendSrcAlpha);
+        glGetIntegerv(GL_BLEND_DST_ALPHA, &m_blendDstAlpha);
+
+        glDisable(GL_DEPTH_TEST);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    }
+
+    ~ScopedTextBlendState() {
+        glBlendFuncSeparate(m_blendSrcRgb, m_blendDstRgb, m_blendSrcAlpha, m_blendDstAlpha);
+
+        if (m_blendEnabled) {
+            glEnable(GL_BLEND);
+        } else {
+            glDisable(GL_BLEND);
+        }
+
+        if (m_depthTestEnabled) {
+            glEnable(GL_DEPTH_TEST);
+        } else {
+            glDisable(GL_DEPTH_TEST);
+        }
+    }
+
+private:
+    GLboolean m_depthTestEnabled;
+    GLboolean m_blendEnabled;
+    GLint m_blendSrcRgb = GL_ONE;
+    GLint m_blendDstRgb = GL_ZERO;
+    GLint m_blendSrcAlpha = GL_ONE;
+    GLint m_blendDstAlpha = GL_ZERO;
+};
+
+} // namespace
+
 GLuint UIText::VAO = 0;
 GLuint UIText::VBO = 0;
-Shader* UIText::shader = nullptr;
+std::shared_ptr<Shader> UIText::shader = nullptr;
 bool UIText::initialized = false;
 int UIText::windowWidth = 1280;
 int UIText::windowHeight = 720;
 
 bool UIText::createTextShader() {
-    if (shader != nullptr) {
-        delete shader;
-    }
-    
-    const char* vertexSource = R"(
-#version 330 core
-layout(location = 0) in vec2 aPos;
-
-uniform mat4 projection;
-
-void main() {
-    gl_Position = projection * vec4(aPos, 0.0, 1.0);
-}
-)";
-
-    const char* fragmentSource = R"(
-#version 330 core
-out vec4 FragColor;
-
-uniform vec3 textColor;
-
-void main() {
-    FragColor = vec4(textColor, 1.0);
-}
-)";
-    
-    shader = new Shader("assets/shaders/ui_text.vert", "assets/shaders/ui_text.frag");
-    if (shader->m_id == 0) {
-        std::cerr << "[UIText] Shader files not found, using inline fallback\n";
-        delete shader;
-        shader = new Shader(vertexSource, fragmentSource);
-    }
-    return shader->m_id != 0;
+    shader = ResourceManager::getShader("shaders/ui_text.vert", "shaders/ui_text.frag");
+    return shader && shader->m_id != 0;
 }
 
 void UIText::init(int windowWidth, int windowHeight) {
@@ -130,11 +144,9 @@ void UIText::renderText(const std::string& text, float x, float y, float scale) 
                                      static_cast<float>(windowHeight), 0.0f);
     shader->setMat4("projection", projection);
     
+    ScopedTextBlendState blendState;
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glDisable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     
     float charWidth = 8.0f * scale;
     float currentX = x;
@@ -174,8 +186,6 @@ void UIText::renderText(const std::string& text, float x, float y, float scale) 
     }
     
     glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glDisable(GL_BLEND);
-    glEnable(GL_DEPTH_TEST);
     glBindVertexArray(0);
 }
 
@@ -188,11 +198,9 @@ void UIText::renderTextWithColor(const std::string& text, float x, float y, floa
                                      static_cast<float>(windowHeight), 0.0f);
     shader->setMat4("projection", projection);
     
+    ScopedTextBlendState blendState;
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glDisable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     
     float charWidth = 8.0f * scale;
     float currentX = x;
@@ -232,8 +240,6 @@ void UIText::renderTextWithColor(const std::string& text, float x, float y, floa
     }
     
     glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glDisable(GL_BLEND);
-    glEnable(GL_DEPTH_TEST);
     glBindVertexArray(0);
 }
 
@@ -246,14 +252,12 @@ void UIText::cleanup() {
         glDeleteBuffers(1, &VBO);
         VBO = 0;
     }
-    if (shader != nullptr) {
-        delete shader;
-        shader = nullptr;
-    }
+    shader.reset();
     initialized = false;
 }
 
 bool UIText::reloadShaders() {
     if (!initialized) return false;
-    return createTextShader();
+    ResourceManager::reloadAllShaders();
+    return shader && shader->m_id != 0;
 }

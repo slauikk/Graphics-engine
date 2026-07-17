@@ -9,6 +9,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_executable(Graphics_engine
         src/main.cpp
         src/core/application.cpp
+        src/core/asset_paths.cpp
+        src/core/resource_manager.cpp
         src/renderer/renderer.cpp
         src/renderer/material.cpp
         src/renderer/mesh/vertex_buffer.cpp

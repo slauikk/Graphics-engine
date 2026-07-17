@@ -9,6 +9,7 @@
 #include "../renderer/material.h"
 #include "../renderer/mesh/mesh_factory.h"
 #include "../renderer/light.h"
+#include "resource_manager.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/constants.hpp>
@@ -18,22 +19,24 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
+#include <utility>
 
 Application::Application() {
-    init();
+    m_initialized = init();
 }
 
 Application::~Application() {
     shutdown();
 }
 
-void Application::init() {
+bool Application::init() {
     glfwSetErrorCallback(glfwErrorCallback);
 
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW\n";
-        return;
+        return false;
     }
+    m_glfwInitialized = true;
 
     // OpenGL 3.3 Core
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -42,12 +45,21 @@ void Application::init() {
     glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 
     GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    if (!monitor) {
+        std::cerr << "Failed to get primary monitor\n";
+        return false;
+    }
+
     const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+    if (!mode) {
+        std::cerr << "Failed to get primary monitor video mode\n";
+        return false;
+    }
+
     m_window = glfwCreateWindow(mode->width, mode->height, "Graphics_engine", monitor, nullptr);
     if (!m_window) {
         std::cerr << "Failed to create GLFW window\n";
-        glfwTerminate();
-        return;
+        return false;
     }
 
     glfwMakeContextCurrent(m_window);
@@ -59,10 +71,9 @@ void Application::init() {
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cerr << "Failed to initialize GLAD\n";
-        glfwDestroyWindow(m_window);
-        glfwTerminate();
-        return;
+        return false;
     }
+    m_contextReady = true;
 
     std::cout << "OpenGL: " << glGetString(GL_VERSION) << "\n";
     std::cout << "GPU:    " << glGetString(GL_RENDERER) << "\n";
@@ -84,106 +95,32 @@ void Application::init() {
     glfwSetScrollCallback(m_window, scrollCallback);
     glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
-    // Shaders - try from files first, fallback to inline
-    const char* vertexShaderSource = R"(
-#version 330 core
-layout(location = 0) in vec3 aPos;
-layout(location = 1) in vec3 aNormal;
-layout(location = 2) in vec2 aTexCoord;
-
-out vec3 FragPos;
-out vec3 Normal;
-out vec2 TexCoord;
-
-uniform mat4 u_Model;
-uniform mat4 u_View;
-uniform mat4 u_Projection;
-
-void main() {
-    FragPos = vec3(u_Model * vec4(aPos, 1.0));
-    Normal = mat3(transpose(inverse(u_Model))) * aNormal;
-    TexCoord = aTexCoord;
-    gl_Position = u_Projection * u_View * vec4(FragPos, 1.0);
-}
-)";
-
-    const char* fragmentShaderSource = R"(
-#version 330 core
-in vec3 FragPos;
-in vec3 Normal;
-in vec2 TexCoord;
-
-out vec4 FragColor;
-
-uniform vec3 u_CameraPos;
-uniform vec3 u_LightPos;
-uniform vec3 u_LightColor;
-uniform int u_UseAlbedoTex;
-uniform sampler2D u_AlbedoTex;
-uniform vec3 u_AlbedoColor;
-uniform vec3 u_SpecularColor;
-uniform float u_Shininess;
-
-void main() {
-    vec3 albedo = u_UseAlbedoTex != 0 ? texture(u_AlbedoTex, TexCoord).rgb : u_AlbedoColor;
-    vec3 norm = normalize(Normal);
-    vec3 lightDir = normalize(u_LightPos - FragPos);
-    float ambient = 0.1;
-    vec3 ambientColor = ambient * albedo;
-    float diff = max(dot(norm, lightDir), 0.0);
-    vec3 diffuseColor = diff * albedo * u_LightColor;
-    vec3 viewDir = normalize(u_CameraPos - FragPos);
-    vec3 reflectDir = reflect(-lightDir, norm);
-    float spec = pow(max(dot(viewDir, reflectDir), 0.0), u_Shininess);
-    vec3 specularColor = spec * u_SpecularColor * u_LightColor;
-    vec3 result = ambientColor + diffuseColor + specularColor;
-    FragColor = vec4(result, 1.0);
-}
-)";
-
-    m_shader = new Shader("assets/shaders/textured.vert", "assets/shaders/textured.frag");
-    if (m_shader->m_id == 0) {
-        std::cerr << "[Application] Shader files not found, using inline fallback\n";
-        delete m_shader;
-        m_shader = new Shader(vertexShaderSource, fragmentShaderSource);
-        if (m_shader->m_id == 0) {
-            std::cerr << "Failed to create shader program\n";
-            return;
-        }
+    // Shaders
+    m_shader = ResourceManager::getShader("shaders/textured.vert", "shaders/textured.frag");
+    if (!m_shader || m_shader->m_id == 0) {
+        std::cerr << "Failed to create shader program\n";
+        return false;
     }
 
     // Create cube mesh
     m_cubeMesh = MeshFactory::CreateCube();
 
-    // Create materials
-    Texture2D* texJager = new Texture2D();
-    texJager->loadFromFile("assets/textures/jager.png");
-    m_textures.push_back(texJager);
-    Material* matJager = new Material(m_shader, texJager);
-    matJager->shininess = 32.0f;
-    m_materials.push_back(matJager);
-    
-    Texture2D* texZelya = new Texture2D();
-    texZelya->loadFromFile("assets/textures/zelya.png");
-    m_textures.push_back(texZelya);
-    Material* matZelya = new Material(m_shader, texZelya);
-    matZelya->shininess = 8.0f;
-    m_materials.push_back(matZelya);
-    
-    Texture2D* texGrid = new Texture2D();
-    texGrid->loadGeneratedGrid();
-    m_textures.push_back(texGrid);
-    Material* matGrid = new Material(m_shader, texGrid);
-    matGrid->shininess = 128.0f;
-    m_materials.push_back(matGrid);
+    // Create the initial materials through the same cache used by menu selections.
+    Material* matJager = getOrCreateMaterial("textures/jager.png");
+    Material* matZelya = getOrCreateMaterial("textures/zelya.png");
+    Material* matGrid = getOrCreateMaterial("textures/generated_grid");
+    if (!matJager || !matZelya || !matGrid) {
+        std::cerr << "Failed to create initial materials\n";
+        return false;
+    }
     
     // Create objects (5 cubes in a row)
     m_objects.resize(5);
-    m_objects[0] = { glm::vec3(-4.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), m_materials[0], false };
-    m_objects[1] = { glm::vec3(-2.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), m_materials[1], false };
-    m_objects[2] = { glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), m_materials[2], false };
-    m_objects[3] = { glm::vec3(2.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), m_materials[0], false };
-    m_objects[4] = { glm::vec3(4.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), m_materials[1], false };
+    m_objects[0] = { glm::vec3(-4.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), matJager, false };
+    m_objects[1] = { glm::vec3(-2.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), matZelya, false };
+    m_objects[2] = { glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), matGrid, false };
+    m_objects[3] = { glm::vec3(2.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), matJager, false };
+    m_objects[4] = { glm::vec3(4.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), matZelya, false };
     
     m_selectedObject = 0;
     
@@ -295,44 +232,108 @@ void main() {
                              m_objects[m_selectedObject].position.y, 
                              m_objects[m_selectedObject].position.z);
     }
+
+    return true;
+}
+
+Material* Application::getOrCreateMaterial(const std::string& relativeTexturePath) {
+    if (!m_shader || relativeTexturePath.empty()) {
+        return nullptr;
+    }
+
+    std::string cacheKey = relativeTexturePath;
+    std::replace(cacheKey.begin(), cacheKey.end(), '\\', '/');
+
+    auto existing = m_materials.find(cacheKey);
+    if (existing != m_materials.end()) {
+        return existing->second.get();
+    }
+
+    std::shared_ptr<Texture2D> texture = ResourceManager::getTexture(cacheKey);
+    if (!texture) {
+        return nullptr;
+    }
+
+    auto material = std::make_unique<Material>(m_shader.get(), texture.get());
+    material->shininess = m_shininess;
+    Material* materialPtr = material.get();
+
+    m_textures.emplace(cacheKey, std::move(texture));
+    m_materials.emplace(cacheKey, std::move(material));
+    return materialPtr;
+}
+
+void Application::applyGlobalShininess() {
+    for (auto& [path, material] : m_materials) {
+        (void)path;
+        if (material) {
+            material->shininess = m_shininess;
+        }
+    }
 }
 
 void Application::shutdown() {
-    m_cubeMesh = nullptr;
-    if (m_shader) {
-        delete m_shader;
+    m_initialized = false;
+
+    if (m_contextReady && m_window) {
+        glfwMakeContextCurrent(m_window);
     }
-    // Cleanup materials
-    for (Material* mat : m_materials) {
-        delete mat;
-    }
+
+    m_objects.clear();
     m_materials.clear();
-    // Cleanup textures
-    for (Texture2D* tex : m_textures) {
-        delete tex;
-    }
+    m_cubeMesh.reset();
     m_textures.clear();
+    m_shader.reset();
+
     if (m_camera) {
         delete m_camera;
+        m_camera = nullptr;
     }
     if (m_renderer) {
         delete m_renderer;
+        m_renderer = nullptr;
     }
-    if (m_lightShader) {
-        delete m_lightShader;
+
+    if (m_contextReady) {
+        if (m_lightShader) {
+            delete m_lightShader;
+            m_lightShader = nullptr;
+        }
+        if (m_lightEBO != 0) {
+            glDeleteBuffers(1, &m_lightEBO);
+            m_lightEBO = 0;
+        }
+        if (m_lightVBO != 0) {
+            glDeleteBuffers(1, &m_lightVBO);
+            m_lightVBO = 0;
+        }
+        if (m_lightVAO != 0) {
+            glDeleteVertexArrays(1, &m_lightVAO);
+            m_lightVAO = 0;
+        }
+
+        UIText::cleanup();
+        ResourceManager::clear();
     }
-    if (m_lightVAO != 0) {
-        glDeleteVertexArrays(1, &m_lightVAO);
-    }
-    UIText::cleanup();
+
+    m_lightShader = nullptr;
+    m_lightIndexCount = 0;
+    m_gpuRenderer = nullptr;
+
     if (m_window) {
         glfwDestroyWindow(m_window);
+        m_window = nullptr;
     }
-    glfwTerminate();
+    m_contextReady = false;
+
+    if (m_glfwInitialized) {
+        glfwTerminate();
+        m_glfwInitialized = false;
+    }
 }
 
 int Application::run() {
-    if (!m_window) {
+    if (!m_initialized || !m_window || !m_renderer) {
         return 1;
     }
 
@@ -375,21 +376,9 @@ void Application::processInput(float dt) {
     
     // F5 — reload shaders
     if (glfwGetKey(m_window, GLFW_KEY_F5) == GLFW_PRESS && !m_f5Pressed) {
-        bool mainReload = false;
-        bool uiReload = false;
-        
-        if (m_shader != nullptr) {
-            mainReload = m_shader->reload();
-        }
-        uiReload = UIText::reloadShaders();
-        
-        if (mainReload && uiReload) {
-            m_reloadMessage = "Shaders reloaded";
-            m_reloadMessageTime = 2.0f;
-        } else {
-            m_reloadMessage = "Reload failed";
-            m_reloadMessageTime = 2.0f;
-        }
+        m_reloadSucceeded = ResourceManager::reloadAllShaders();
+        m_reloadMessage = m_reloadSucceeded ? "Shaders reloaded" : "Shader reload failed";
+        m_reloadMessageTime = 2.0f;
         m_f5Pressed = true;
     }
     if (glfwGetKey(m_window, GLFW_KEY_F5) == GLFW_RELEASE) {
@@ -466,6 +455,7 @@ void Application::processInput(float dt) {
     // J — decrease shininess
     if (glfwGetKey(m_window, GLFW_KEY_J) == GLFW_PRESS && !m_jPressed) {
         m_shininess = glm::max(2.0f, m_shininess - 8.0f);
+        applyGlobalShininess();
         m_jPressed = true;
     }
     if (glfwGetKey(m_window, GLFW_KEY_J) == GLFW_RELEASE) {
@@ -475,6 +465,7 @@ void Application::processInput(float dt) {
     // K — increase shininess
     if (glfwGetKey(m_window, GLFW_KEY_K) == GLFW_PRESS && !m_kPressed) {
         m_shininess = glm::min(256.0f, m_shininess + 8.0f);
+        applyGlobalShininess();
         m_kPressed = true;
     }
     if (glfwGetKey(m_window, GLFW_KEY_K) == GLFW_RELEASE) {
@@ -549,7 +540,8 @@ void Application::update(float dt) {
                 case Menu::CUBE_NONE: break;
             }
             
-            Menu::setCubePosition(obj.position.x, obj.position.y, obj.position.z);
+            const RenderObject& selectedObj = m_objects[m_selectedObject];
+            Menu::setCubePosition(selectedObj.position.x, selectedObj.position.y, selectedObj.position.z);
         }
         Menu::markCubeUpdated();
     } else {
@@ -589,24 +581,7 @@ void Application::update(float dt) {
         // Update material for selected cube
         if (m_selectedObject >= 0 && m_selectedObject < static_cast<int>(m_objects.size())) {
             RenderObject& obj = m_objects[m_selectedObject];
-            
-            Material* newMaterial = nullptr;
-            
-            if (selectedPath == "GENERATED_GRID") {
-                // Grid material is at index 2
-                newMaterial = m_materials[2];
-            } else {
-                // Match texture by filename
-                std::string texPath = selectedPath;
-                std::replace(texPath.begin(), texPath.end(), '\\', '/');
-                if (texPath.find("jager") != std::string::npos) {
-                    newMaterial = m_materials[0];
-                } else if (texPath.find("zelya") != std::string::npos) {
-                    newMaterial = m_materials[1];
-                }
-            }
-            
-            if (newMaterial) {
+            if (Material* newMaterial = getOrCreateMaterial(selectedPath)) {
                 obj.material = newMaterial;
             }
         }
@@ -832,7 +807,9 @@ void Application::render() {
     
     // Show shader reload status
     if (m_reloadMessageTime > 0.0f) {
-        UIText::renderTextWithColor(m_reloadMessage, 10.0f, 200.0f, 1.5f, 0.0f, 1.0f, 0.0f);
+        const float red = m_reloadSucceeded ? 0.0f : 1.0f;
+        const float green = m_reloadSucceeded ? 1.0f : 0.0f;
+        UIText::renderTextWithColor(m_reloadMessage, 10.0f, 200.0f, 1.5f, red, green, 0.0f);
     }
     
     // Show shader source indicator (if loaded from files)

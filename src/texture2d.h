@@ -2,6 +2,7 @@
 #define TEXTURE2D_H
 
 #include <glad/glad.h>
+#include <cstdint>
 #include <string>
 
 class Texture2D {
@@ -14,6 +15,11 @@ public:
     Texture2D(const std::string& path, bool flipY = true);
     Texture2D();
     ~Texture2D();
+
+    Texture2D(const Texture2D&) = delete;
+    Texture2D& operator=(const Texture2D&) = delete;
+    Texture2D(Texture2D&& other) noexcept;
+    Texture2D& operator=(Texture2D&& other) noexcept;
     
     void loadFromFile(const std::string& path, bool flipY = true);
     void loadGeneratedGrid();
