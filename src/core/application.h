@@ -10,6 +10,7 @@
 #include <vector>
 #include <memory>
 #include "renderer/light.h"
+#include "renderer/post_processor.h"
 
 class Camera;
 class Shader;
@@ -43,6 +44,7 @@ private:
 
     bool init();
     bool initBenchmarkScene();
+    bool ensureSceneFramebuffer(int width, int height);
     void shutdown();
     void applyGlobalShininess();
     Material* getOrCreateMaterial(const std::string& relativeTexturePath);
@@ -106,6 +108,7 @@ private:
     std::string m_reloadMessage;
     bool m_reloadSucceeded = false;
     int m_shaderViewMode = 0;
+    PostProcessEffect m_postProcessEffect = PostProcessEffect::Normal;
     
     // Mouse state
     bool m_firstMouse = true;
@@ -123,7 +126,9 @@ private:
     std::shared_ptr<Mesh> m_cubeMesh = nullptr;
     std::shared_ptr<Shader> m_shader = nullptr;
     Renderer* m_renderer = nullptr;
+    std::unique_ptr<Framebuffer> m_sceneFramebuffer;
     std::unique_ptr<Framebuffer> m_benchmarkFramebuffer;
+    std::unique_ptr<PostProcessor> m_postProcessor;
 
     // Fixed, single-draw GPU benchmark resources.
     GLsizei m_benchmarkInstanceCount = 0;

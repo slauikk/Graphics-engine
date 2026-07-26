@@ -9,6 +9,7 @@
 #include "../gl_debug.h"
 #include "../renderer/renderer.h"
 #include "../renderer/framebuffer.h"
+#include "../renderer/post_processor.h"
 #include "../renderer/material.h"
 #include "../renderer/mesh/mesh_factory.h"
 #include "../renderer/light.h"
@@ -268,6 +269,18 @@ void main() {
     m_renderer = new Renderer();
     m_renderer->init();
 
+    m_sceneFramebuffer = std::make_unique<Framebuffer>();
+    if (!m_sceneFramebuffer->init(m_width, m_height)) {
+        std::cerr << "Failed to create scene framebuffer\n";
+        return false;
+    }
+
+    m_postProcessor = std::make_unique<PostProcessor>();
+    if (!m_postProcessor->init()) {
+        std::cerr << "Failed to initialize post processor\n";
+        return false;
+    }
+
     m_benchmarkFramebuffer = std::make_unique<Framebuffer>();
     if (!m_benchmarkFramebuffer->init(kBenchmarkWidth, kBenchmarkHeight)) {
         std::cerr << "Failed to create benchmark framebuffer\n";
@@ -334,6 +347,22 @@ bool Application::initBenchmarkScene() {
         { ShaderDataType::Float4, "aInstanceModel3" }
     });
     m_cubeMesh->addVertexBuffer(std::move(instanceVbo), instanceLayout, 3, 1);
+    return true;
+}
+
+bool Application::ensureSceneFramebuffer(int width, int height) {
+    if (!m_sceneFramebuffer || width <= 0 || height <= 0) {
+        return false;
+    }
+    if (m_sceneFramebuffer->isValid() &&
+        m_sceneFramebuffer->width() == width && m_sceneFramebuffer->height() == height) {
+        return true;
+    }
+    if (!m_sceneFramebuffer->init(width, height)) {
+        std::cerr << "Failed to resize scene framebuffer to "
+                  << width << "x" << height << "\n";
+        return false;
+    }
     return true;
 }
 
@@ -508,7 +537,9 @@ void Application::shutdown() {
         glfwMakeContextCurrent(m_window);
     }
 
+    m_postProcessor.reset();
     m_benchmarkFramebuffer.reset();
+    m_sceneFramebuffer.reset();
     m_benchmarkInstanceCount = 0;
     m_benchmarkMaterial.reset();
 
@@ -658,13 +689,6 @@ void Application::processInput(float dt) {
     if (glfwGetKey(m_window, GLFW_KEY_F9) == GLFW_RELEASE) {
         m_f9Pressed = false;
     }
-    
-    // Shader inspection views. Reassigning while held is harmless and avoids debounce state.
-    if (glfwGetKey(m_window, GLFW_KEY_F1) == GLFW_PRESS) m_shaderViewMode = 0;
-    if (glfwGetKey(m_window, GLFW_KEY_F2) == GLFW_PRESS) m_shaderViewMode = 1;
-    if (glfwGetKey(m_window, GLFW_KEY_F3) == GLFW_PRESS) m_shaderViewMode = 2;
-    if (glfwGetKey(m_window, GLFW_KEY_F4) == GLFW_PRESS) m_shaderViewMode = 3;
-    if (glfwGetKey(m_window, GLFW_KEY_F6) == GLFW_PRESS) m_shaderViewMode = 4;
     
     // F8 — toggle texture menu
     if (glfwGetKey(m_window, GLFW_KEY_F8) == GLFW_PRESS && !m_f8Pressed) {
@@ -1066,6 +1090,15 @@ void Application::render() {
             glViewport(0, 0, width, height);
             m_benchmarkFramebuffer->blitColorToDefault(width, height);
         } else {
+            const bool usePostProcessing = m_postProcessor && m_postProcessor->isReady() &&
+                                           ensureSceneFramebuffer(width, height);
+            if (usePostProcessing) {
+                m_sceneFramebuffer->bind();
+                glViewport(0, 0, width, height);
+                glClearColor(0.10f, 0.12f, 0.16f, 1.0f);
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            }
+
             const float aspect = static_cast<float>(width) / static_cast<float>(height);
             const glm::mat4 view = m_camera->getViewMatrix();
             const glm::mat4 projection = glm::perspective(glm::radians(m_camera->fov), aspect, 0.1f, 100.0f);
@@ -1099,6 +1132,14 @@ void Application::render() {
 
                 glBindVertexArray(m_lightVAO);
                 glDrawElements(GL_TRIANGLES, m_lightIndexCount, GL_UNSIGNED_INT, 0);
+            }
+
+            if (usePostProcessing) {
+                Framebuffer::bindDefault();
+                glViewport(0, 0, width, height);
+                m_postProcessor->render(
+                    m_sceneFramebuffer->colorTexture(), m_postProcessEffect,
+                    static_cast<float>(glfwGetTime()));
             }
         }
     }
@@ -1184,9 +1225,11 @@ void Application::render() {
         UIText::renderTextWithColor(m_reloadMessage, 10.0f, 200.0f, 1.5f, red, green, 0.0f);
     }
     
-    // Show active shader inspection view.
+    // Show active post-process and material inspection views.
     if (!m_benchmarkEnabled && m_shader != nullptr && m_shader->m_id != 0) {
-        std::string shaderStatus = std::string("Shader: ") + shaderViewModeName(m_shaderViewMode) +
+        std::string shaderStatus = std::string("Post: ") +
+                                   PostProcessor::effectName(m_postProcessEffect) +
+                                   " [1-6]\nMaterial: " + shaderViewModeName(m_shaderViewMode) +
                                    " [F1-F4/F6]";
         UIText::renderTextWithColor(shaderStatus, 10.0f, 250.0f, 1.2f, 0.0f, 1.0f, 0.0f);
     }
@@ -1243,13 +1286,29 @@ void Application::onFramebufferResize(int width, int height) {
 }
 
 void Application::onKey(int key, int action) {
-    if (key == GLFW_KEY_F5 && action == GLFW_PRESS) {
+    if (action != GLFW_PRESS) {
+        return;
+    }
+
+    if (key >= GLFW_KEY_1 && key <= GLFW_KEY_6) {
+        m_postProcessEffect = static_cast<PostProcessEffect>(key - GLFW_KEY_1);
+    } else if (key == GLFW_KEY_F1) {
+        m_shaderViewMode = 0;
+    } else if (key == GLFW_KEY_F2) {
+        m_shaderViewMode = 1;
+    } else if (key == GLFW_KEY_F3) {
+        m_shaderViewMode = 2;
+    } else if (key == GLFW_KEY_F4) {
+        m_shaderViewMode = 3;
+    } else if (key == GLFW_KEY_F6) {
+        m_shaderViewMode = 4;
+    } else if (key == GLFW_KEY_F5) {
         m_reloadSucceeded = ResourceManager::reloadAllShaders();
         m_reloadMessage = m_reloadSucceeded ? "Shaders reloaded" : "Shader reload failed";
         m_reloadMessageTime = 2.0f;
-    } else if (key == GLFW_KEY_F7 && action == GLFW_PRESS) {
+    } else if (key == GLFW_KEY_F7) {
         toggleBenchmark();
-    } else if (key == GLFW_KEY_F10 && action == GLFW_PRESS && m_benchmarkEnabled) {
+    } else if (key == GLFW_KEY_F10 && m_benchmarkEnabled) {
         resetFrameStatistics();
         restartBenchmarkCapture();
         std::cout << "GPU benchmark capture restarted\n";

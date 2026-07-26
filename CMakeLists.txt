@@ -14,6 +14,7 @@ add_executable(Graphics_engine
         src/core/resource_manager.cpp
         src/renderer/renderer.cpp
         src/renderer/framebuffer.cpp
+        src/renderer/post_processor.cpp
         src/renderer/material.cpp
         src/renderer/mesh/vertex_buffer.cpp
         src/renderer/mesh/index_buffer.cpp

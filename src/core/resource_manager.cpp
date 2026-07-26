@@ -32,6 +32,12 @@ struct ShaderCacheKeyHash {
 std::unordered_map<std::string, std::shared_ptr<Texture2D>> textureCache;
 std::unordered_map<ShaderCacheKey, std::shared_ptr<Shader>, ShaderCacheKeyHash> shaderCache;
 
+enum class ShaderKind {
+    Mesh,
+    UiText,
+    PostProcess
+};
+
 constexpr const char* kMeshFallbackVertex = R"(
 #version 330 core
 layout(location = 0) in vec3 aPos;
@@ -95,9 +101,50 @@ void main() {
 }
 )";
 
-bool isUiTextShader(const ShaderCacheKey& key) {
-    return std::filesystem::path(key.vertexPath).filename() == "ui_text.vert" &&
-           std::filesystem::path(key.fragmentPath).filename() == "ui_text.frag";
+constexpr const char* kPostProcessFallbackVertex = R"(
+#version 330 core
+out vec2 TexCoord;
+
+void main() {
+    const vec2 positions[3] = vec2[3](
+        vec2(-1.0, -1.0),
+        vec2( 3.0, -1.0),
+        vec2(-1.0,  3.0)
+    );
+    vec2 position = positions[gl_VertexID];
+    TexCoord = position * 0.5 + 0.5;
+    gl_Position = vec4(position, 0.0, 1.0);
+}
+)";
+
+constexpr const char* kPostProcessFallbackFragment = R"(
+#version 330 core
+in vec2 TexCoord;
+out vec4 FragColor;
+
+uniform sampler2D u_Scene;
+uniform int u_Effect;
+uniform float u_Time;
+
+void main() {
+    vec3 color = texture(u_Scene, TexCoord).rgb;
+    if (u_Effect < 0 && u_Time < 0.0) {
+        color = vec3(1.0) - color;
+    }
+    FragColor = vec4(color, 1.0);
+}
+)";
+
+ShaderKind shaderKind(const ShaderCacheKey& key) {
+    const auto vertexFilename = std::filesystem::path(key.vertexPath).filename();
+    const auto fragmentFilename = std::filesystem::path(key.fragmentPath).filename();
+    if (vertexFilename == "ui_text.vert" && fragmentFilename == "ui_text.frag") {
+        return ShaderKind::UiText;
+    }
+    if (vertexFilename == "post_process.vert" && fragmentFilename == "post_process.frag") {
+        return ShaderKind::PostProcess;
+    }
+    return ShaderKind::Mesh;
 }
 
 bool hasUiTextInterface(const Shader& shader) {
@@ -112,11 +159,33 @@ bool hasUiTextInterface(const Shader& shader) {
            glGetUniformLocation(shader.m_id, "fontAtlas") >= 0;
 }
 
-bool loadFallback(Shader& shader, bool uiTextShader) {
-    if (uiTextShader) {
-        return shader.loadFromSource(kUiFallbackVertex, kUiFallbackFragment);
+bool hasPostProcessInterface(const Shader& shader) {
+    return shader.m_id != 0 &&
+           glGetUniformLocation(shader.m_id, "u_Scene") >= 0 &&
+           glGetUniformLocation(shader.m_id, "u_Effect") >= 0 &&
+           glGetUniformLocation(shader.m_id, "u_Time") >= 0;
+}
+
+bool hasExpectedInterface(const Shader& shader, ShaderKind kind) {
+    switch (kind) {
+        case ShaderKind::UiText: return hasUiTextInterface(shader);
+        case ShaderKind::PostProcess: return hasPostProcessInterface(shader);
+        case ShaderKind::Mesh:
+        default: return shader.m_id != 0;
     }
-    return shader.loadFromSource(kMeshFallbackVertex, kMeshFallbackFragment);
+}
+
+bool loadFallback(Shader& shader, ShaderKind kind) {
+    switch (kind) {
+        case ShaderKind::UiText:
+            return shader.loadFromSource(kUiFallbackVertex, kUiFallbackFragment);
+        case ShaderKind::PostProcess:
+            return shader.loadFromSource(
+                kPostProcessFallbackVertex, kPostProcessFallbackFragment);
+        case ShaderKind::Mesh:
+        default:
+            return shader.loadFromSource(kMeshFallbackVertex, kMeshFallbackFragment);
+    }
 }
 
 } // namespace
@@ -151,14 +220,13 @@ std::shared_ptr<Shader> getShader(const std::string& vertRel, const std::string&
     const std::filesystem::path fragPath = core::assetPath(fragRel);
     auto shader = std::make_shared<Shader>(vertPath, fragPath);
 
-    const bool uiTextShader = isUiTextShader(key);
-    const bool needsFallback = shader->m_id == 0 ||
-                               (uiTextShader && !hasUiTextInterface(*shader));
+    const ShaderKind kind = shaderKind(key);
+    const bool needsFallback = !hasExpectedInterface(*shader, kind);
     if (needsFallback) {
         if (shader->m_id != 0) {
-            std::cerr << "[ResourceManager] UI shader interface is incompatible; using fallback\n";
+            std::cerr << "[ResourceManager] Shader interface is incompatible; using fallback\n";
         }
-        if (!loadFallback(*shader, uiTextShader)) {
+        if (!loadFallback(*shader, kind)) {
             std::cerr << "[ResourceManager] Failed to build fallback shader\n";
         }
     }
@@ -179,10 +247,10 @@ bool reloadAllShaders() {
 
         reloadedAny = true;
         bool succeeded = shader->reload();
-        const bool uiTextShader = isUiTextShader(key);
-        if (succeeded && uiTextShader && !hasUiTextInterface(*shader)) {
-            std::cerr << "[ResourceManager] Reloaded UI shader has an incompatible interface\n";
-            loadFallback(*shader, true);
+        const ShaderKind kind = shaderKind(key);
+        if (succeeded && !hasExpectedInterface(*shader, kind)) {
+            std::cerr << "[ResourceManager] Reloaded shader has an incompatible interface\n";
+            loadFallback(*shader, kind);
             succeeded = false;
         }
         allSucceeded = succeeded && allSucceeded;

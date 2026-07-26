@@ -17,6 +17,7 @@ public:
     void blitColorToDefault(GLsizei destinationWidth, GLsizei destinationHeight) const;
 
     bool isValid() const { return m_id != 0; }
+    GLuint colorTexture() const { return m_colorTexture; }
     GLsizei width() const { return m_width; }
     GLsizei height() const { return m_height; }
 
