@@ -10,6 +10,7 @@ namespace core {
     std::filesystem::path findAssetsRoot();
     std::filesystem::path assetPath(const std::string& relativePath);
     std::filesystem::path benchmarkResultsDir();
+    std::filesystem::path quickSaveScenePath();
 
 } // namespace core
 

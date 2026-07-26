@@ -11,6 +11,7 @@
 #include <memory>
 #include "renderer/light.h"
 #include "renderer/post_processor.h"
+#include "scene_document.h"
 
 class Camera;
 class Shader;
@@ -21,6 +22,9 @@ class Material;
 class Mesh;
 
 struct RenderObject {
+    std::string name;
+    std::string meshAsset;
+    std::shared_ptr<Mesh> mesh;
     glm::vec3 position;
     glm::vec3 rotationDeg;   // Euler degrees
     glm::vec3 scale;
@@ -46,8 +50,13 @@ private:
     bool initBenchmarkScene();
     bool ensureSceneFramebuffer(int width, int height);
     void shutdown();
-    void applyGlobalShininess();
     Material* getOrCreateMaterial(const std::string& relativeTexturePath);
+    Material* selectedMaterial();
+    const Material* selectedMaterial() const;
+    core::SceneDocument captureScene() const;
+    bool applyScene(const core::SceneDocument& scene, std::string& error);
+    void saveQuickScene();
+    void loadQuickScene();
     void resetFrameStatistics();
     void restartBenchmarkCapture();
     void updateBenchmarkCapture();
@@ -110,6 +119,9 @@ private:
     float m_reloadMessageTime = 0.0f;
     std::string m_reloadMessage;
     bool m_reloadSucceeded = false;
+    float m_sceneMessageTime = 0.0f;
+    std::string m_sceneMessage;
+    bool m_sceneOperationSucceeded = false;
     int m_shaderViewMode = 0;
     PostProcessEffect m_postProcessEffect = PostProcessEffect::Normal;
     
@@ -155,7 +167,6 @@ private:
     // Lighting
     DirectionalLight m_dirLight;
     PointLight m_pointLight;
-    float m_shininess = 32.0f;
     bool m_pointLightSpinning = false;
     float m_pointLightSpinAngle = 0.0f;
     
@@ -166,11 +177,6 @@ private:
     int m_lightIndexCount = 0;
     Shader* m_lightShader = nullptr;
     
-    // Key debounce for lighting controls
-    bool m_lPressed = false;
-    bool m_oPressed = false;
-    bool m_jPressed = false;
-    bool m_kPressed = false;
 };
 
 #endif // APPLICATION_H

@@ -11,6 +11,7 @@ add_executable(Graphics_engine
         src/core/application.cpp
         src/core/asset_paths.cpp
         src/core/benchmark_report.cpp
+        src/core/scene_document.cpp
         src/core/resource_manager.cpp
         src/renderer/renderer.cpp
         src/renderer/framebuffer.cpp
@@ -33,12 +34,14 @@ add_executable(Graphics_engine
 find_package(glfw3 CONFIG REQUIRED)
 find_package(glad CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 target_link_libraries(Graphics_engine
         PRIVATE
         glfw
         glad::glad
         glm::glm
+        nlohmann_json::nlohmann_json
 )
 
 target_compile_definitions(Graphics_engine PRIVATE

@@ -28,7 +28,10 @@ uniform int u_UseAlbedoTex;
 uniform sampler2D u_AlbedoTex;
 uniform vec3 u_AlbedoColor;
 uniform vec3 u_SpecularColor;
+uniform vec3 u_EmissiveColor;
 uniform float u_Shininess;
+uniform float u_Metallic;
+uniform float u_Roughness;
 uniform int u_DebugViewMode;
 uniform int u_BenchmarkIterations;
 
@@ -36,6 +39,9 @@ void main() {
     vec3 albedo = u_UseAlbedoTex != 0 ? texture(u_AlbedoTex, TexCoord).rgb : u_AlbedoColor;
     vec3 norm = normalize(Normal);
     vec3 viewDir = normalize(u_CameraPos - FragPos);
+    float materialShininess = max(2.0, u_Shininess * mix(1.0, 0.0625, u_Roughness));
+    vec3 materialSpecular = mix(u_SpecularColor, albedo, u_Metallic);
+    float diffuseWeight = 1.0 - u_Metallic;
     
     vec3 ambientResult = vec3(0.0);
     vec3 diffuseResult = vec3(0.0);
@@ -49,14 +55,14 @@ void main() {
         vec3 ambientColor = ambient * albedo * u_DirLight.color;
         
         float diff = max(dot(norm, lightDir), 0.0);
-        vec3 diffuseColor = diff * albedo * u_DirLight.color;
+        vec3 diffuseColor = diff * albedo * u_DirLight.color * diffuseWeight;
         
         float spec = 0.0;
         if (diff > 0.0) {
             vec3 reflectDir = reflect(-lightDir, norm);
-            spec = pow(max(dot(viewDir, reflectDir), 0.0), u_Shininess);
+            spec = pow(max(dot(viewDir, reflectDir), 0.0), materialShininess);
         }
-        vec3 specularColor = spec * u_SpecularColor * u_DirLight.color;
+        vec3 specularColor = spec * materialSpecular * u_DirLight.color;
         
         ambientResult += ambientColor;
         diffuseResult += diffuseColor;
@@ -73,21 +79,21 @@ void main() {
         vec3 ambientColor = ambient * albedo * u_PointLight.color;
         
         float diff = max(dot(norm, lightDir), 0.0);
-        vec3 diffuseColor = diff * albedo * u_PointLight.color;
+        vec3 diffuseColor = diff * albedo * u_PointLight.color * diffuseWeight;
         
         float spec = 0.0;
         if (diff > 0.0) {
             vec3 reflectDir = reflect(-lightDir, norm);
-            spec = pow(max(dot(viewDir, reflectDir), 0.0), u_Shininess);
+            spec = pow(max(dot(viewDir, reflectDir), 0.0), materialShininess);
         }
-        vec3 specularColor = spec * u_SpecularColor * u_PointLight.color;
+        vec3 specularColor = spec * materialSpecular * u_PointLight.color;
         
         ambientResult += ambientColor * attenuation;
         diffuseResult += diffuseColor * attenuation;
         specularResult += specularColor * attenuation;
     }
 
-    vec3 result = ambientResult + diffuseResult + specularResult;
+    vec3 result = ambientResult + diffuseResult + specularResult + u_EmissiveColor;
     if (u_DebugViewMode == 1) {
         result = albedo;
     } else if (u_DebugViewMode == 2) {

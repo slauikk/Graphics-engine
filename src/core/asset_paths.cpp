@@ -212,4 +212,9 @@ namespace core {
 #endif
     }
 
+    std::filesystem::path quickSaveScenePath() {
+        return benchmarkResultsDir().parent_path() /
+               "saved-scenes" / "quick_save.scene.json";
+    }
+
 } // namespace core

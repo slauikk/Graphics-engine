@@ -48,6 +48,15 @@ const char* shaderViewModeName(int mode) {
     }
 }
 
+std::string normalizedAssetReference(std::string value) {
+    std::replace(value.begin(), value.end(), '\\', '/');
+    return value;
+}
+
+std::string materialIdForTexture(const std::string& texturePath) {
+    return "texture:" + texturePath;
+}
+
 } // namespace
 
 Application::Application() {
@@ -158,12 +167,18 @@ bool Application::init() {
     }
     
     // Create objects (5 cubes in a row)
-    m_objects.resize(5);
-    m_objects[0] = { glm::vec3(-4.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), matJager, false };
-    m_objects[1] = { glm::vec3(-2.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), matZelya, false };
-    m_objects[2] = { glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), matGrid, false };
-    m_objects[3] = { glm::vec3(2.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), matJager, false };
-    m_objects[4] = { glm::vec3(4.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f), matZelya, false };
+    m_objects = {
+        {"Cube 0", "builtin:cube", m_cubeMesh, glm::vec3(-4.0f, 0.0f, 0.0f),
+         glm::vec3(0.0f), glm::vec3(1.0f), matJager, false},
+        {"Cube 1", "builtin:cube", m_cubeMesh, glm::vec3(-2.0f, 0.0f, 0.0f),
+         glm::vec3(0.0f), glm::vec3(1.0f), matZelya, false},
+        {"Cube 2", "builtin:cube", m_cubeMesh, glm::vec3(0.0f),
+         glm::vec3(0.0f), glm::vec3(1.0f), matGrid, false},
+        {"Cube 3", "builtin:cube", m_cubeMesh, glm::vec3(2.0f, 0.0f, 0.0f),
+         glm::vec3(0.0f), glm::vec3(1.0f), matJager, false},
+        {"Cube 4", "builtin:cube", m_cubeMesh, glm::vec3(4.0f, 0.0f, 0.0f),
+         glm::vec3(0.0f), glm::vec3(1.0f), matZelya, false}
+    };
 
     m_benchmarkMaterial = std::make_unique<Material>(m_shader.get(), matGrid->albedo);
     m_benchmarkMaterial->shininess = 32.0f;
@@ -371,10 +386,10 @@ Material* Application::getOrCreateMaterial(const std::string& relativeTexturePat
         return nullptr;
     }
 
-    std::string cacheKey = relativeTexturePath;
-    std::replace(cacheKey.begin(), cacheKey.end(), '\\', '/');
+    const std::string cacheKey = normalizedAssetReference(relativeTexturePath);
+    const std::string materialId = materialIdForTexture(cacheKey);
 
-    auto existing = m_materials.find(cacheKey);
+    auto existing = m_materials.find(materialId);
     if (existing != m_materials.end()) {
         return existing->second.get();
     }
@@ -384,21 +399,218 @@ Material* Application::getOrCreateMaterial(const std::string& relativeTexturePat
         return nullptr;
     }
 
-    auto material = std::make_unique<Material>(m_shader.get(), texture.get());
-    material->shininess = m_shininess;
+    auto material = std::make_unique<Material>(
+        m_shader.get(), texture.get(), materialId, cacheKey);
     Material* materialPtr = material.get();
 
     m_textures.emplace(cacheKey, std::move(texture));
-    m_materials.emplace(cacheKey, std::move(material));
+    m_materials.emplace(materialId, std::move(material));
     return materialPtr;
 }
 
-void Application::applyGlobalShininess() {
-    for (auto& [path, material] : m_materials) {
-        (void)path;
+Material* Application::selectedMaterial() {
+    if (m_selectedObject < 0 ||
+        m_selectedObject >= static_cast<int>(m_objects.size())) {
+        return nullptr;
+    }
+    return m_objects[static_cast<std::size_t>(m_selectedObject)].material;
+}
+
+const Material* Application::selectedMaterial() const {
+    if (m_selectedObject < 0 ||
+        m_selectedObject >= static_cast<int>(m_objects.size())) {
+        return nullptr;
+    }
+    return m_objects[static_cast<std::size_t>(m_selectedObject)].material;
+}
+
+core::SceneDocument Application::captureScene() const {
+    core::SceneDocument scene;
+    if (m_camera != nullptr) {
+        scene.camera.position = m_camera->position;
+        scene.camera.yaw = m_camera->yaw;
+        scene.camera.pitch = m_camera->pitch;
+        scene.camera.fov = m_camera->fov;
+        scene.camera.movementSpeed = m_camera->movementSpeed;
+        scene.camera.mouseSensitivity = m_camera->mouseSensitivity;
+    }
+
+    scene.directionalLight.direction = m_dirLight.direction;
+    scene.directionalLight.color = m_dirLight.color;
+    scene.directionalLight.enabled = m_dirLight.enabled;
+    scene.pointLight.position = m_pointLight.position;
+    scene.pointLight.color = m_pointLight.color;
+    scene.pointLight.constant = m_pointLight.constant;
+    scene.pointLight.linear = m_pointLight.linear;
+    scene.pointLight.quadratic = m_pointLight.quadratic;
+    scene.pointLight.enabled = m_pointLight.enabled;
+    scene.pointLight.spinning = m_pointLightSpinning;
+    scene.renderSettings.postProcessEffect = static_cast<int>(m_postProcessEffect);
+    scene.renderSettings.shaderViewMode = m_shaderViewMode;
+    scene.selectedObject = m_objects.empty() ? -1 : m_selectedObject;
+
+    std::vector<std::string> materialIds;
+    materialIds.reserve(m_materials.size());
+    for (const auto& [id, material] : m_materials) {
         if (material) {
-            material->shininess = m_shininess;
+            materialIds.push_back(id);
         }
+    }
+    std::sort(materialIds.begin(), materialIds.end());
+    scene.materials.reserve(materialIds.size());
+    for (const std::string& id : materialIds) {
+        const Material& material = *m_materials.at(id);
+        core::SceneMaterial saved;
+        saved.id = id;
+        saved.albedoTexture = material.albedoTexturePath;
+        saved.albedoColor = material.albedoColor;
+        saved.specularColor = material.specularColor;
+        saved.emissiveColor = material.emissiveColor;
+        saved.shininess = material.shininess;
+        saved.metallic = material.metallic;
+        saved.roughness = material.roughness;
+        scene.materials.push_back(std::move(saved));
+    }
+
+    scene.objects.reserve(m_objects.size());
+    for (const RenderObject& object : m_objects) {
+        core::SceneObject saved;
+        saved.name = object.name;
+        saved.mesh = object.meshAsset.empty() ? "builtin:cube" : object.meshAsset;
+        saved.material = object.material != nullptr ? object.material->id : std::string();
+        saved.position = object.position;
+        saved.rotationDeg = object.rotationDeg;
+        saved.scale = object.scale;
+        saved.spinning = object.spinning;
+        scene.objects.push_back(std::move(saved));
+    }
+    return scene;
+}
+
+bool Application::applyScene(const core::SceneDocument& scene, std::string& error) {
+    if (!m_shader || !m_cubeMesh || m_camera == nullptr) {
+        error = "renderer resources are not ready";
+        return false;
+    }
+    if (!core::validateSceneDocument(scene, error)) {
+        return false;
+    }
+    for (const core::SceneObject& object : scene.objects) {
+        if (object.mesh != "builtin:cube") {
+            error = "mesh is not supported yet: " + object.mesh;
+            return false;
+        }
+    }
+
+    std::unordered_map<std::string, std::unique_ptr<Material>> newMaterials;
+    std::unordered_map<std::string, std::shared_ptr<Texture2D>> newTextures;
+    newMaterials.reserve(scene.materials.size());
+    newTextures.reserve(scene.materials.size());
+    for (const core::SceneMaterial& saved : scene.materials) {
+        std::shared_ptr<Texture2D> texture;
+        if (!saved.albedoTexture.empty()) {
+            texture = ResourceManager::getTexture(saved.albedoTexture);
+            if (!texture) {
+                error = "failed to load texture: " + saved.albedoTexture;
+                return false;
+            }
+            newTextures.emplace(saved.albedoTexture, texture);
+        }
+
+        auto material = std::make_unique<Material>(
+            m_shader.get(), texture.get(), saved.id, saved.albedoTexture);
+        material->albedoColor = saved.albedoColor;
+        material->specularColor = saved.specularColor;
+        material->emissiveColor = saved.emissiveColor;
+        material->shininess = saved.shininess;
+        material->metallic = saved.metallic;
+        material->roughness = saved.roughness;
+        newMaterials.emplace(saved.id, std::move(material));
+    }
+
+    std::vector<RenderObject> newObjects;
+    newObjects.reserve(scene.objects.size());
+    for (const core::SceneObject& saved : scene.objects) {
+        const auto material = newMaterials.find(saved.material);
+        if (material == newMaterials.end()) {
+            error = "object references a missing material: " + saved.material;
+            return false;
+        }
+        newObjects.push_back({
+            saved.name, saved.mesh, m_cubeMesh, saved.position, saved.rotationDeg,
+            saved.scale, material->second.get(), saved.spinning
+        });
+    }
+
+    Camera loadedCamera(scene.camera.position, scene.camera.yaw, scene.camera.pitch);
+    loadedCamera.fov = scene.camera.fov;
+    loadedCamera.movementSpeed = scene.camera.movementSpeed;
+    loadedCamera.mouseSensitivity = scene.camera.mouseSensitivity;
+
+    m_objects = std::move(newObjects);
+    m_materials = std::move(newMaterials);
+    m_textures = std::move(newTextures);
+    *m_camera = loadedCamera;
+    m_dirLight.direction = glm::normalize(scene.directionalLight.direction);
+    m_dirLight.color = scene.directionalLight.color;
+    m_dirLight.enabled = scene.directionalLight.enabled;
+    m_pointLight.position = scene.pointLight.position;
+    m_pointLight.color = scene.pointLight.color;
+    m_pointLight.constant = scene.pointLight.constant;
+    m_pointLight.linear = scene.pointLight.linear;
+    m_pointLight.quadratic = scene.pointLight.quadratic;
+    m_pointLight.enabled = scene.pointLight.enabled;
+    m_pointLightSpinning = scene.pointLight.spinning;
+    m_pointLightSpinAngle = std::atan2(m_pointLight.position.z, m_pointLight.position.x);
+    m_postProcessEffect = static_cast<PostProcessEffect>(
+        scene.renderSettings.postProcessEffect);
+    m_shaderViewMode = scene.renderSettings.shaderViewMode;
+    m_selectedObject = scene.selectedObject;
+    m_firstMouse = true;
+
+    Menu::setSelectedCubeIndex(m_selectedObject);
+    Menu::setLightPosition(
+        m_pointLight.position.x, m_pointLight.position.y, m_pointLight.position.z);
+    if (m_selectedObject >= 0) {
+        const RenderObject& selected = m_objects[static_cast<std::size_t>(m_selectedObject)];
+        Menu::setCubePosition(selected.position.x, selected.position.y, selected.position.z);
+    }
+    resetFrameStatistics();
+    return true;
+}
+
+void Application::saveQuickScene() {
+    const std::filesystem::path path = core::quickSaveScenePath();
+    const core::SceneIoResult result = core::saveSceneDocument(captureScene(), path);
+    m_sceneOperationSucceeded = result.success;
+    m_sceneMessageTime = 3.0f;
+    if (result.success) {
+        m_sceneMessage = "Scene saved: " + path.filename().string();
+        std::cout << "Scene saved: " << path.string() << "\n";
+    } else {
+        m_sceneMessage = "Scene save failed";
+        std::cerr << "Failed to save scene: " << result.error << "\n";
+    }
+}
+
+void Application::loadQuickScene() {
+    const std::filesystem::path path = core::quickSaveScenePath();
+    core::SceneDocument scene;
+    core::SceneIoResult result = core::loadSceneDocument(path, scene);
+    std::string applyError;
+    if (result.success && !applyScene(scene, applyError)) {
+        result.success = false;
+        result.error = std::move(applyError);
+    }
+
+    m_sceneOperationSucceeded = result.success;
+    m_sceneMessageTime = 3.0f;
+    if (result.success) {
+        m_sceneMessage = "Scene loaded: " + path.filename().string();
+        std::cout << "Scene loaded: " << path.string() << "\n";
+    } else {
+        m_sceneMessage = "Scene load failed";
+        std::cerr << "Failed to load scene: " << result.error << "\n";
     }
 }
 
@@ -827,44 +1039,6 @@ void Application::processInput(float dt) {
         }
     }
     
-    // L — toggle point light on/off
-    if (glfwGetKey(m_window, GLFW_KEY_L) == GLFW_PRESS && !m_lPressed) {
-        m_pointLight.enabled = !m_pointLight.enabled;
-        m_lPressed = true;
-    }
-    if (glfwGetKey(m_window, GLFW_KEY_L) == GLFW_RELEASE) {
-        m_lPressed = false;
-    }
-    
-    // O — toggle directional light on/off
-    if (glfwGetKey(m_window, GLFW_KEY_O) == GLFW_PRESS && !m_oPressed) {
-        m_dirLight.enabled = !m_dirLight.enabled;
-        m_oPressed = true;
-    }
-    if (glfwGetKey(m_window, GLFW_KEY_O) == GLFW_RELEASE) {
-        m_oPressed = false;
-    }
-    
-    // J — decrease shininess
-    if (glfwGetKey(m_window, GLFW_KEY_J) == GLFW_PRESS && !m_jPressed) {
-        m_shininess = glm::max(2.0f, m_shininess - 8.0f);
-        applyGlobalShininess();
-        m_jPressed = true;
-    }
-    if (glfwGetKey(m_window, GLFW_KEY_J) == GLFW_RELEASE) {
-        m_jPressed = false;
-    }
-    
-    // K — increase shininess
-    if (glfwGetKey(m_window, GLFW_KEY_K) == GLFW_PRESS && !m_kPressed) {
-        m_shininess = glm::min(256.0f, m_shininess + 8.0f);
-        applyGlobalShininess();
-        m_kPressed = true;
-    }
-    if (glfwGetKey(m_window, GLFW_KEY_K) == GLFW_RELEASE) {
-        m_kPressed = false;
-    }
-
     // Camera movement is frozen while the benchmark uses its fixed view.
     if (!m_benchmarkEnabled) {
         if (glfwGetKey(m_window, GLFW_KEY_W) == GLFW_PRESS)
@@ -887,6 +1061,9 @@ void Application::processInput(float dt) {
 void Application::update(float dt) {
     if (m_reloadMessageTime > 0.0f) {
         m_reloadMessageTime -= dt;
+    }
+    if (m_sceneMessageTime > 0.0f) {
+        m_sceneMessageTime -= dt;
     }
 
     if (m_benchmarkEnabled) {
@@ -1193,7 +1370,7 @@ void Application::render() {
 
             if (m_cubeMesh) {
                 for (const RenderObject& obj : m_objects) {
-                    if (!obj.material) continue;
+                    if (!obj.material || !obj.mesh) continue;
 
                     glm::mat4 model = glm::mat4(1.0f);
                     model = glm::translate(model, obj.position);
@@ -1202,7 +1379,7 @@ void Application::render() {
                     model = glm::rotate(model, glm::radians(obj.rotationDeg.z), glm::vec3(0.0f, 0.0f, 1.0f));
                     model = glm::scale(model, obj.scale);
 
-                    m_renderer->drawMesh(*m_cubeMesh, *obj.material, model, view, projection,
+                    m_renderer->drawMesh(*obj.mesh, *obj.material, model, view, projection,
                                          m_camera->position, m_dirLight, m_pointLight, m_shaderViewMode);
                 }
             }
@@ -1321,6 +1498,12 @@ void Application::render() {
         const float green = m_reloadSucceeded ? 1.0f : 0.0f;
         UIText::renderTextWithColor(m_reloadMessage, 10.0f, 200.0f, 1.5f, red, green, 0.0f);
     }
+    if (m_sceneMessageTime > 0.0f) {
+        const float red = m_sceneOperationSucceeded ? 0.0f : 1.0f;
+        const float green = m_sceneOperationSucceeded ? 1.0f : 0.0f;
+        UIText::renderTextWithColor(
+            m_sceneMessage, 10.0f, 225.0f, 1.5f, red, green, 0.0f);
+    }
     
     // Show active post-process and material inspection views.
     if (!m_benchmarkEnabled && m_shader != nullptr && m_shader->m_id != 0) {
@@ -1333,15 +1516,27 @@ void Application::render() {
 
     if (!m_benchmarkEnabled) {
         std::ostringstream lightOss;
-        lightOss << std::fixed << std::setprecision(0);
-        lightOss << "Shininess: " << m_shininess << "\n";
+        lightOss << std::fixed;
+        if (const Material* material = selectedMaterial()) {
+            std::string materialId = material->id;
+            if (materialId.length() > 34) {
+                materialId = materialId.substr(0, 31) + "...";
+            }
+            lightOss << "Material: " << materialId << "\n";
+            lightOss << std::setprecision(0)
+                     << "Shininess: " << material->shininess << " [J/K]\n";
+            lightOss << std::setprecision(1)
+                     << "Metallic: " << material->metallic << " [N/M]\n"
+                     << "Roughness: " << material->roughness << " [U/I]\n";
+        }
         lightOss << "DirLight: " << (m_dirLight.enabled ? "ON" : "OFF") << "\n";
-        lightOss << "PointLight: " << (m_pointLight.enabled ? "ON" : "OFF");
+        lightOss << "PointLight: " << (m_pointLight.enabled ? "ON" : "OFF") << "\n";
+        lightOss << "Scene: save [F11] load [F12]";
         UIText::renderText(lightOss.str(), 10.0f, 290.0f, 1.2f);
 
         std::ostringstream cubeOss;
         cubeOss << "Selected Cube: " << m_selectedObject;
-        UIText::renderText(cubeOss.str(), 10.0f, 350.0f, 1.2f);
+        UIText::renderText(cubeOss.str(), 10.0f, 430.0f, 1.2f);
     }
     UIText::flush();
 }
@@ -1387,6 +1582,44 @@ void Application::onKey(int key, int action) {
         return;
     }
 
+    if (!m_benchmarkEnabled && !Menu::isOpen()) {
+        Material* material = selectedMaterial();
+        if (key == GLFW_KEY_L) {
+            m_pointLight.enabled = !m_pointLight.enabled;
+            return;
+        }
+        if (key == GLFW_KEY_O) {
+            m_dirLight.enabled = !m_dirLight.enabled;
+            return;
+        }
+        if (material != nullptr) {
+            if (key == GLFW_KEY_J) {
+                material->shininess = glm::max(2.0f, material->shininess - 8.0f);
+                return;
+            }
+            if (key == GLFW_KEY_K) {
+                material->shininess = glm::min(256.0f, material->shininess + 8.0f);
+                return;
+            }
+            if (key == GLFW_KEY_N) {
+                material->metallic = glm::max(0.0f, material->metallic - 0.1f);
+                return;
+            }
+            if (key == GLFW_KEY_M) {
+                material->metallic = glm::min(1.0f, material->metallic + 0.1f);
+                return;
+            }
+            if (key == GLFW_KEY_U) {
+                material->roughness = glm::max(0.0f, material->roughness - 0.1f);
+                return;
+            }
+            if (key == GLFW_KEY_I) {
+                material->roughness = glm::min(1.0f, material->roughness + 0.1f);
+                return;
+            }
+        }
+    }
+
     if (key >= GLFW_KEY_1 && key <= GLFW_KEY_6) {
         m_postProcessEffect = static_cast<PostProcessEffect>(key - GLFW_KEY_1);
     } else if (key == GLFW_KEY_F1) {
@@ -1409,6 +1642,10 @@ void Application::onKey(int key, int action) {
         resetFrameStatistics();
         restartBenchmarkCapture();
         std::cout << "GPU benchmark capture restarted\n";
+    } else if (key == GLFW_KEY_F11 && !m_benchmarkEnabled) {
+        saveQuickScene();
+    } else if (key == GLFW_KEY_F12 && !m_benchmarkEnabled) {
+        loadQuickScene();
     }
 }
 

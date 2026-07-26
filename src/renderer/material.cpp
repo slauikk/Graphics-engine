@@ -2,8 +2,14 @@
 #include "../shader.h"
 #include "../texture2d.h"
 
-Material::Material(Shader* shader, Texture2D* albedoTexture)
-    : shader(shader), albedo(albedoTexture) {
+#include <utility>
+
+Material::Material(Shader* shader, Texture2D* albedoTexture,
+                   std::string materialId, std::string texturePath)
+    : id(std::move(materialId))
+    , albedoTexturePath(std::move(texturePath))
+    , albedo(albedoTexture)
+    , shader(shader) {
 }
 
 void Material::bind() const {
@@ -23,5 +29,8 @@ void Material::bind() const {
     
     shader->setVec3("u_AlbedoColor", albedoColor);
     shader->setVec3("u_SpecularColor", specularColor);
+    shader->setVec3("u_EmissiveColor", emissiveColor);
     shader->setFloat("u_Shininess", shininess);
+    shader->setFloat("u_Metallic", metallic);
+    shader->setFloat("u_Roughness", roughness);
 }
