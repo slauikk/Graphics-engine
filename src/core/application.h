@@ -96,7 +96,6 @@ private:
     // Key debounce flags
     bool m_f9Pressed = false;
     bool m_f8Pressed = false;
-    bool m_f5Pressed = false;
     bool m_upPressed = false;
     bool m_downPressed = false;
     bool m_enterPressed = false;

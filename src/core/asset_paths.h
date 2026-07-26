@@ -9,6 +9,7 @@ namespace core {
     std::filesystem::path executableDir();
     std::filesystem::path findAssetsRoot();
     std::filesystem::path assetPath(const std::string& relativePath);
+    std::filesystem::path benchmarkResultsDir();
 
 } // namespace core
 

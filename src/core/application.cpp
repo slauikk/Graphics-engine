@@ -70,6 +70,9 @@ bool Application::init() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+#ifdef __APPLE__
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+#endif
     glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 
     GLFWmonitor* monitor = glfwGetPrimaryMonitor();
@@ -458,8 +461,7 @@ void Application::updateBenchmarkCapture() {
     report.minMs = sortedSamples.front();
     report.maxMs = sortedSamples.back();
 
-    const std::filesystem::path reportDirectory =
-        core::findAssetsRoot().parent_path() / "benchmark-results";
+    const std::filesystem::path reportDirectory = core::benchmarkResultsDir();
     const core::BenchmarkReportResult reportResult =
         core::writeBenchmarkReport(report, reportDirectory);
 
@@ -573,8 +575,27 @@ int Application::run() {
     m_lastFrame = static_cast<float>(glfwGetTime());
 
     while (!glfwWindowShouldClose(m_window)) {
+        int framebufferWidth = 0;
+        int framebufferHeight = 0;
+        glfwGetFramebufferSize(m_window, &framebufferWidth, &framebufferHeight);
+
+        bool restoredFromMinimize = false;
+        while ((framebufferWidth <= 0 || framebufferHeight <= 0) &&
+               !glfwWindowShouldClose(m_window)) {
+            restoredFromMinimize = true;
+            glfwWaitEvents();
+            glfwGetFramebufferSize(m_window, &framebufferWidth, &framebufferHeight);
+        }
+        if (glfwWindowShouldClose(m_window)) {
+            break;
+        }
+
         // Delta time
         float currentFrame = static_cast<float>(glfwGetTime());
+        if (restoredFromMinimize) {
+            m_lastFrame = currentFrame;
+            m_skipNextFrameSample = true;
+        }
         m_deltaTime = currentFrame - m_lastFrame;
         m_lastFrame = currentFrame;
 
@@ -638,17 +659,6 @@ void Application::processInput(float dt) {
         m_f9Pressed = false;
     }
     
-    // F5 — reload shaders
-    if (glfwGetKey(m_window, GLFW_KEY_F5) == GLFW_PRESS && !m_f5Pressed) {
-        m_reloadSucceeded = ResourceManager::reloadAllShaders();
-        m_reloadMessage = m_reloadSucceeded ? "Shaders reloaded" : "Shader reload failed";
-        m_reloadMessageTime = 2.0f;
-        m_f5Pressed = true;
-    }
-    if (glfwGetKey(m_window, GLFW_KEY_F5) == GLFW_RELEASE) {
-        m_f5Pressed = false;
-    }
-
     // Shader inspection views. Reassigning while held is harmless and avoids debounce state.
     if (glfwGetKey(m_window, GLFW_KEY_F1) == GLFW_PRESS) m_shaderViewMode = 0;
     if (glfwGetKey(m_window, GLFW_KEY_F2) == GLFW_PRESS) m_shaderViewMode = 1;
@@ -1233,7 +1243,11 @@ void Application::onFramebufferResize(int width, int height) {
 }
 
 void Application::onKey(int key, int action) {
-    if (key == GLFW_KEY_F7 && action == GLFW_PRESS) {
+    if (key == GLFW_KEY_F5 && action == GLFW_PRESS) {
+        m_reloadSucceeded = ResourceManager::reloadAllShaders();
+        m_reloadMessage = m_reloadSucceeded ? "Shaders reloaded" : "Shader reload failed";
+        m_reloadMessageTime = 2.0f;
+    } else if (key == GLFW_KEY_F7 && action == GLFW_PRESS) {
         toggleBenchmark();
     } else if (key == GLFW_KEY_F10 && action == GLFW_PRESS && m_benchmarkEnabled) {
         resetFrameStatistics();

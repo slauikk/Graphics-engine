@@ -1,9 +1,16 @@
 #include "asset_paths.h"
+#include <cstdlib>
 #include <filesystem>
+#include <limits>
+#include <string>
 #include <vector>
 
 #ifdef _WIN32
 #include <Windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#elif defined(__linux__)
+#include <unistd.h>
 #endif
 
 namespace {
@@ -25,22 +32,115 @@ std::filesystem::path normalizedPath(const std::filesystem::path& path) {
     return error ? path.lexically_normal() : normalized;
 }
 
+std::filesystem::path safeCurrentPath() {
+    std::error_code error;
+    std::filesystem::path current = std::filesystem::current_path(error);
+    if (!error && !current.empty()) {
+        return current;
+    }
+
+    error.clear();
+    std::filesystem::path temporary = std::filesystem::temp_directory_path(error);
+    return !error && !temporary.empty() ? temporary : std::filesystem::path(".");
+}
+
+std::filesystem::path temporaryResultsDir() {
+    std::error_code error;
+    std::filesystem::path temporary = std::filesystem::temp_directory_path(error);
+    if (error || temporary.empty()) {
+        temporary = safeCurrentPath();
+    }
+    return normalizedPath(temporary / "Graphics_engine" / "benchmark-results");
+}
+
+#ifdef _WIN32
+std::filesystem::path windowsEnvironmentPath(const wchar_t* variable) {
+    DWORD capacity = GetEnvironmentVariableW(variable, nullptr, 0);
+    if (capacity == 0) {
+        return {};
+    }
+
+    std::vector<wchar_t> buffer(capacity);
+    while (true) {
+        const DWORD size = GetEnvironmentVariableW(
+            variable, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (size == 0) {
+            return {};
+        }
+        if (size < buffer.size()) {
+            return std::filesystem::path(std::wstring(buffer.data(), size));
+        }
+        if (size == (std::numeric_limits<DWORD>::max)()) {
+            return {};
+        }
+        buffer.resize(static_cast<std::size_t>(size) + 1);
+    }
+}
+#else
+std::filesystem::path environmentPath(const char* variable) {
+    const char* value = std::getenv(variable);
+    return value != nullptr && value[0] != '\0' ? std::filesystem::path(value)
+                                                  : std::filesystem::path();
+}
+#endif
+
 } // namespace
 
 namespace core {
 
     std::filesystem::path executableDir() {
 #ifdef _WIN32
-        std::wstring buffer(MAX_PATH, L'\0');
-        DWORD size = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-        if (size == 0) {
-            return std::filesystem::current_path();
+        std::vector<wchar_t> buffer(512);
+        while (buffer.size() <= (std::numeric_limits<DWORD>::max)()) {
+            const DWORD size = GetModuleFileNameW(
+                nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+            if (size == 0) {
+                break;
+            }
+            if (size < buffer.size()) {
+                return normalizedPath(
+                    std::filesystem::path(std::wstring(buffer.data(), size))).parent_path();
+            }
+            if (buffer.size() > (std::numeric_limits<DWORD>::max)() / 2) {
+                break;
+            }
+            buffer.resize(buffer.size() * 2);
         }
-        buffer.resize(size);
-        return std::filesystem::path(buffer).parent_path();
+
+#elif defined(__APPLE__)
+        uint32_t capacity = 1024;
+        std::vector<char> buffer(capacity);
+        while (_NSGetExecutablePath(buffer.data(), &capacity) != 0) {
+            if (capacity <= buffer.size()) {
+                break;
+            }
+            buffer.resize(capacity);
+        }
+        if (capacity <= buffer.size() && !buffer.empty() && buffer.front() != '\0') {
+            return normalizedPath(std::filesystem::path(buffer.data())).parent_path();
+        }
+
+#elif defined(__linux__)
+        std::vector<char> buffer(512);
+        while (true) {
+            const ssize_t size = readlink("/proc/self/exe", buffer.data(), buffer.size());
+            if (size < 0) {
+                break;
+            }
+            if (static_cast<std::size_t>(size) < buffer.size()) {
+                return normalizedPath(std::filesystem::path(
+                    std::string(buffer.data(), static_cast<std::size_t>(size)))).parent_path();
+            }
+            if (buffer.size() > std::numeric_limits<std::size_t>::max() / 2) {
+                break;
+            }
+            buffer.resize(buffer.size() * 2);
+        }
 #else
-        return std::filesystem::current_path();
+        return safeCurrentPath();
 #endif
+
+        return safeCurrentPath();
     }
 
     std::filesystem::path findAssetsRoot() {
@@ -54,7 +154,7 @@ namespace core {
 
             const std::vector<std::filesystem::path> bases = {
                 executableDir(),
-                std::filesystem::current_path()
+                safeCurrentPath()
             };
 
             for (const auto& base : bases) {
@@ -71,7 +171,7 @@ namespace core {
                 }
             }
 
-            return normalizedPath(std::filesystem::current_path() / "assets");
+            return normalizedPath(safeCurrentPath() / "assets");
         }();
 
         return cachedRoot;
@@ -79,6 +179,37 @@ namespace core {
 
     std::filesystem::path assetPath(const std::string& relativePath) {
         return findAssetsRoot() / relativePath;
+    }
+
+    std::filesystem::path benchmarkResultsDir() {
+#ifdef GRAPHICS_ENGINE_SOURCE_ASSETS_DIR
+        return normalizedPath(std::filesystem::path(GRAPHICS_ENGINE_SOURCE_ASSETS_DIR))
+            .parent_path() / "benchmark-results";
+#elif defined(_WIN32)
+        const std::filesystem::path localAppData = windowsEnvironmentPath(L"LOCALAPPDATA");
+        return localAppData.empty()
+            ? temporaryResultsDir()
+            : normalizedPath(localAppData / "Graphics_engine" / "benchmark-results");
+#elif defined(__APPLE__)
+        const std::filesystem::path home = environmentPath("HOME");
+        return home.empty()
+            ? temporaryResultsDir()
+            : normalizedPath(home / "Library" / "Application Support" /
+                             "Graphics_engine" / "benchmark-results");
+#elif defined(__linux__)
+        const std::filesystem::path stateHome = environmentPath("XDG_STATE_HOME");
+        if (!stateHome.empty() && stateHome.is_absolute()) {
+            return normalizedPath(stateHome / "Graphics_engine" / "benchmark-results");
+        }
+
+        const std::filesystem::path home = environmentPath("HOME");
+        return home.empty()
+            ? temporaryResultsDir()
+            : normalizedPath(home / ".local" / "state" /
+                             "Graphics_engine" / "benchmark-results");
+#else
+        return temporaryResultsDir();
+#endif
     }
 
 } // namespace core
