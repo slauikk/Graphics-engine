@@ -69,6 +69,7 @@ private:
     std::array<GLuint, kGpuQueryCount * kTimestampsPerFrame> m_gpuQueries{};
     std::array<std::uint64_t, kGpuQueryCount> m_gpuQueryEpochs{};
     std::array<bool, kGpuQueryCount> m_gpuBenchmarkTimestampsComplete{};
+    std::array<std::uint64_t, kGpuQueryCount> m_gpuBenchmarkCaptureGenerations{};
     std::size_t m_gpuQueryWriteIndex = 0;
     std::size_t m_gpuQueryReadIndex = 0;
     std::size_t m_pendingGpuQueries = 0;
@@ -78,6 +79,8 @@ private:
     bool m_gpuBenchmarkEndIssued = false;
     std::uint64_t m_gpuTimingEpoch = 1;
     std::uint64_t m_gpuActiveFrameEpoch = 1;
+    std::uint64_t m_gpuBenchmarkCaptureGeneration = 0;
+    std::uint64_t m_gpuActiveFrameBenchmarkCaptureGeneration = 0;
     bool m_hasGpuFrameTime = false;
     float m_gpuFrameTimeMs = 0.0f;
     float m_gpuSceneTimeMs = 0.0f;

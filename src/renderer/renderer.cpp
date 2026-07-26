@@ -68,6 +68,7 @@ void Renderer::beginFrame(float r, float g, float b, float a) {
             m_gpuBenchmarkStartIssued = false;
             m_gpuBenchmarkEndIssued = false;
             m_gpuActiveFrameEpoch = m_gpuTimingEpoch;
+            m_gpuActiveFrameBenchmarkCaptureGeneration = 0;
         }
     }
 
@@ -82,6 +83,8 @@ void Renderer::beginBenchmarkPass() {
 
     glQueryCounter(gpuQuery(m_gpuQueryWriteIndex, kBenchmarkStartTimestamp), GL_TIMESTAMP);
     m_gpuBenchmarkStartIssued = true;
+    m_gpuActiveFrameBenchmarkCaptureGeneration =
+        m_gpuBenchmarkCaptureActive ? m_gpuBenchmarkCaptureGeneration : 0;
 }
 
 void Renderer::endBenchmarkPass() {
@@ -138,11 +141,16 @@ void Renderer::endFrame() {
     m_gpuQueryEpochs[m_gpuQueryWriteIndex] = m_gpuActiveFrameEpoch;
     m_gpuBenchmarkTimestampsComplete[m_gpuQueryWriteIndex] =
         m_gpuBenchmarkStartIssued && m_gpuBenchmarkEndIssued;
+    m_gpuBenchmarkCaptureGenerations[m_gpuQueryWriteIndex] =
+        m_gpuBenchmarkTimestampsComplete[m_gpuQueryWriteIndex]
+            ? m_gpuActiveFrameBenchmarkCaptureGeneration
+            : 0;
 
     m_gpuTimestampFrameActive = false;
     m_gpuUiTimestampIssued = false;
     m_gpuBenchmarkStartIssued = false;
     m_gpuBenchmarkEndIssued = false;
+    m_gpuActiveFrameBenchmarkCaptureGeneration = 0;
     m_gpuQueryWriteIndex = (m_gpuQueryWriteIndex + 1) % kGpuQueryCount;
     ++m_pendingGpuQueries;
 }
@@ -162,7 +170,15 @@ void Renderer::beginGpuBenchmarkCapture(std::size_t sampleCount) {
     m_gpuBenchmarkCaptureSamples.clear();
     m_gpuBenchmarkCaptureTarget = sampleCount;
     m_gpuBenchmarkCaptureSamples.reserve(sampleCount);
-    m_gpuBenchmarkCaptureActive = sampleCount > 0;
+    m_gpuBenchmarkCaptureActive = false;
+
+    if (sampleCount > 0) {
+        ++m_gpuBenchmarkCaptureGeneration;
+        if (m_gpuBenchmarkCaptureGeneration == 0) {
+            ++m_gpuBenchmarkCaptureGeneration;
+        }
+        m_gpuBenchmarkCaptureActive = true;
+    }
 }
 
 void Renderer::cancelGpuBenchmarkCapture() {
@@ -218,7 +234,9 @@ void Renderer::collectGpuFrameTimes() {
                         m_hasGpuBenchmarkTime = true;
                     }
 
-                    if (m_gpuBenchmarkCaptureActive) {
+                    if (m_gpuBenchmarkCaptureActive &&
+                        m_gpuBenchmarkCaptureGenerations[m_gpuQueryReadIndex] ==
+                            m_gpuBenchmarkCaptureGeneration) {
                         m_gpuBenchmarkCaptureSamples.push_back(benchmarkSample);
                         if (m_gpuBenchmarkCaptureSamples.size() >= m_gpuBenchmarkCaptureTarget) {
                             m_gpuBenchmarkCaptureActive = false;
@@ -241,6 +259,7 @@ void Renderer::collectGpuFrameTimes() {
         }
 
         m_gpuBenchmarkTimestampsComplete[m_gpuQueryReadIndex] = false;
+        m_gpuBenchmarkCaptureGenerations[m_gpuQueryReadIndex] = 0;
         m_gpuQueryReadIndex = (m_gpuQueryReadIndex + 1) % kGpuQueryCount;
         --m_pendingGpuQueries;
     }

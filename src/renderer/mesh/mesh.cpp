@@ -7,11 +7,17 @@ void Mesh::setVertexBuffer(std::unique_ptr<VertexBuffer> vbo) {
 }
 
 void Mesh::setIndexBuffer(std::unique_ptr<IndexBuffer> ebo) {
+    if (ebo) {
+        m_vao.setIndexBuffer(*ebo);
+    }
     m_ebo = std::move(ebo);
 }
 
 void Mesh::setVertexArray(VertexArray&& vao) {
     m_vao = std::move(vao);
+    if (m_ebo) {
+        m_vao.setIndexBuffer(*m_ebo);
+    }
 }
 
 void Mesh::addVertexBuffer(std::unique_ptr<VertexBuffer> vbo, const BufferLayout& layout,

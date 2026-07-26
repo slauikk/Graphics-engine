@@ -1,12 +1,41 @@
 #include "framebuffer.h"
 #include <cmath>
 
+namespace {
+
+class ScopedFramebufferInitBindings {
+public:
+    ScopedFramebufferInitBindings() {
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &m_drawFramebuffer);
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &m_readFramebuffer);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &m_texture2D);
+        glGetIntegerv(GL_RENDERBUFFER_BINDING, &m_renderbuffer);
+    }
+
+    ~ScopedFramebufferInitBindings() {
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(m_drawFramebuffer));
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(m_readFramebuffer));
+        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(m_texture2D));
+        glBindRenderbuffer(GL_RENDERBUFFER, static_cast<GLuint>(m_renderbuffer));
+    }
+
+private:
+    GLint m_drawFramebuffer = 0;
+    GLint m_readFramebuffer = 0;
+    GLint m_texture2D = 0;
+    GLint m_renderbuffer = 0;
+};
+
+} // namespace
+
 Framebuffer::~Framebuffer() {
     release();
 }
 
 bool Framebuffer::init(GLsizei width, GLsizei height) {
     release();
+    const ScopedFramebufferInitBindings restoreBindings;
+
     if (width <= 0 || height <= 0) {
         return false;
     }
@@ -19,7 +48,6 @@ bool Framebuffer::init(GLsizei width, GLsizei height) {
 
     glGenTextures(1, &m_colorTexture);
     if (m_colorTexture == 0) {
-        bindDefault();
         release();
         return false;
     }
@@ -39,8 +67,6 @@ bool Framebuffer::init(GLsizei width, GLsizei height) {
 
     glGenRenderbuffers(1, &m_depthStencilRenderbuffer);
     if (m_depthStencilRenderbuffer == 0) {
-        glBindTexture(GL_TEXTURE_2D, 0);
-        bindDefault();
         release();
         return false;
     }
@@ -50,9 +76,6 @@ bool Framebuffer::init(GLsizei width, GLsizei height) {
                               GL_RENDERBUFFER, m_depthStencilRenderbuffer);
 
     const bool complete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glBindRenderbuffer(GL_RENDERBUFFER, 0);
-    bindDefault();
 
     if (!complete) {
         release();
