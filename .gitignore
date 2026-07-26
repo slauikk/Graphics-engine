@@ -2,6 +2,7 @@
 cmake-build-*/
 build/
 out/
+benchmark-results/
 
 # CLion
 .idea/

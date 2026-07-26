@@ -10,6 +10,7 @@ add_executable(Graphics_engine
         src/main.cpp
         src/core/application.cpp
         src/core/asset_paths.cpp
+        src/core/benchmark_report.cpp
         src/core/resource_manager.cpp
         src/renderer/renderer.cpp
         src/renderer/framebuffer.cpp

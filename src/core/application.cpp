@@ -1,5 +1,6 @@
 #include "application.h"
 #include "asset_paths.h"
+#include "benchmark_report.h"
 #include "../camera.h"
 #include "../shader.h"
 #include "../texture2d.h"
@@ -21,6 +22,7 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
+#include <numeric>
 #include <utility>
 
 namespace {
@@ -102,13 +104,17 @@ bool Application::init() {
     }
     m_contextReady = true;
 
-    const auto* rendererName = glGetString(GL_RENDERER);
-    m_gpuRenderer = rendererName != nullptr
-        ? reinterpret_cast<const char*>(rendererName)
-        : "Unknown GPU";
+    const auto readGlString = [](GLenum name, const char* fallback) {
+        const auto* value = glGetString(name);
+        return value != nullptr ? std::string(reinterpret_cast<const char*>(value))
+                                : std::string(fallback);
+    };
+    m_gpuVendor = readGlString(GL_VENDOR, "Unknown vendor");
+    m_gpuRenderer = readGlString(GL_RENDERER, "Unknown GPU");
+    m_openGlVersion = readGlString(GL_VERSION, "Unknown OpenGL version");
 
-    std::cout << "OpenGL: " << glGetString(GL_VERSION) << "\n";
-    std::cout << "GPU:    " << m_gpuRenderer << "\n";
+    std::cout << "OpenGL: " << m_openGlVersion << "\n";
+    std::cout << "GPU:    " << m_gpuRenderer << " (" << m_gpuVendor << ")\n";
     std::cout << "Assets: " << core::findAssetsRoot().string() << "\n";
 
     // Enable debug output
@@ -391,6 +397,7 @@ void Application::restartBenchmarkCapture() {
     m_benchmarkWarmupStart = glfwGetTime();
     m_benchmarkMedianGpuMs = 0.0f;
     m_benchmarkP95GpuMs = 0.0f;
+    m_benchmarkReportStatus.clear();
 }
 
 void Application::updateBenchmarkCapture() {
@@ -428,6 +435,42 @@ void Application::updateBenchmarkCapture() {
     const std::size_t p95Index = static_cast<std::size_t>(
         std::ceil(static_cast<double>(sampleCount) * 0.95)) - 1;
     m_benchmarkP95GpuMs = sortedSamples[p95Index];
+
+    const double sampleSum = std::accumulate(samples.begin(), samples.end(), 0.0);
+    const double sampleMean = sampleSum / static_cast<double>(sampleCount);
+
+    core::BenchmarkReport report;
+    report.workload = "fixed_instanced_shader_v1";
+    report.gpuVendor = m_gpuVendor;
+    report.gpuRenderer = m_gpuRenderer;
+    report.openGlVersion = m_openGlVersion;
+    report.targetWidth = kBenchmarkWidth;
+    report.targetHeight = kBenchmarkHeight;
+    report.displayWidth = m_width;
+    report.displayHeight = m_height;
+    report.instances = m_benchmarkInstanceCount;
+    report.shaderIterations = kBenchmarkShaderIterations;
+    report.warmupSeconds = kBenchmarkWarmupSeconds;
+    report.samplesMs.assign(samples.begin(), samples.end());
+    report.medianMs = m_benchmarkMedianGpuMs;
+    report.p95Ms = m_benchmarkP95GpuMs;
+    report.meanMs = sampleMean;
+    report.minMs = sortedSamples.front();
+    report.maxMs = sortedSamples.back();
+
+    const std::filesystem::path reportDirectory =
+        core::findAssetsRoot().parent_path() / "benchmark-results";
+    const core::BenchmarkReportResult reportResult =
+        core::writeBenchmarkReport(report, reportDirectory);
+
+    if (reportResult.success) {
+        m_benchmarkReportStatus = "Report: " + reportResult.jsonPath.filename().string();
+        std::cout << "Benchmark JSON: " << reportResult.jsonPath.string() << "\n";
+        std::cout << "Benchmark CSV:  " << reportResult.csvPath.string() << "\n";
+    } else {
+        m_benchmarkReportStatus = "Report failed (see console)";
+        std::cerr << "Failed to save benchmark report: " << reportResult.error << "\n";
+    }
     m_benchmarkCaptureState = BenchmarkCaptureState::Complete;
 
     std::ostringstream result;
@@ -506,7 +549,9 @@ void Application::shutdown() {
 
     m_lightShader = nullptr;
     m_lightIndexCount = 0;
+    m_gpuVendor.clear();
     m_gpuRenderer.clear();
+    m_openGlVersion.clear();
 
     if (m_window) {
         glfwDestroyWindow(m_window);
@@ -1114,6 +1159,9 @@ void Application::render() {
             oss << "\nDraw median: " << m_benchmarkMedianGpuMs << " ms";
             oss << "\nDraw p95: " << m_benchmarkP95GpuMs << " ms";
             oss << "\nCapture complete [F10 rerun]";
+            if (!m_benchmarkReportStatus.empty()) {
+                oss << "\n" << m_benchmarkReportStatus;
+            }
         }
     }
     

@@ -89,7 +89,9 @@ private:
     
     // GPU info
     bool m_showGPUInfo = false;
+    std::string m_gpuVendor;
     std::string m_gpuRenderer;
+    std::string m_openGlVersion;
     
     // Key debounce flags
     bool m_f9Pressed = false;
@@ -132,6 +134,7 @@ private:
     double m_benchmarkWarmupStart = 0.0;
     float m_benchmarkMedianGpuMs = 0.0f;
     float m_benchmarkP95GpuMs = 0.0f;
+    std::string m_benchmarkReportStatus;
     
     // Cached ownership; RenderObject keeps non-owning Material pointers.
     std::unordered_map<std::string, std::unique_ptr<Material>> m_materials;
