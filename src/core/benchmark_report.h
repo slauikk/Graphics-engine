@@ -2,10 +2,24 @@
 #define BENCHMARK_REPORT_H
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace core {
+
+struct BenchmarkStatistics {
+    double medianMs = 0.0;
+    double p95Ms = 0.0;
+    double meanMs = 0.0;
+    double minMs = 0.0;
+    double maxMs = 0.0;
+};
+
+struct BenchmarkMetric {
+    std::vector<float> samplesMs;
+    BenchmarkStatistics statistics;
+};
 
 struct BenchmarkReport {
     std::string workload;
@@ -19,12 +33,13 @@ struct BenchmarkReport {
     int instances = 0;
     int shaderIterations = 0;
     double warmupSeconds = 0.0;
-    std::vector<float> samplesMs;
-    double medianMs = 0.0;
-    double p95Ms = 0.0;
-    double meanMs = 0.0;
-    double minMs = 0.0;
-    double maxMs = 0.0;
+    BenchmarkMetric draw;
+    BenchmarkMetric frameInterval;
+    BenchmarkMetric cpuWork;
+    BenchmarkMetric present;
+    BenchmarkMetric gpuTotal;
+    BenchmarkMetric gpuScene;
+    BenchmarkMetric gpuUi;
 };
 
 struct BenchmarkReportResult {
@@ -35,9 +50,27 @@ struct BenchmarkReportResult {
     std::string error;
 };
 
+struct BenchmarkComparison {
+    std::string timestampUtc;
+    std::string gpuVendor;
+    std::string gpuRenderer;
+    BenchmarkStatistics draw;
+    BenchmarkStatistics frameInterval;
+    BenchmarkStatistics cpuWork;
+    BenchmarkStatistics present;
+    BenchmarkStatistics gpuTotal;
+};
+
+BenchmarkStatistics calculateBenchmarkStatistics(const std::vector<float>& samplesMs);
+BenchmarkMetric makeBenchmarkMetric(std::vector<float> samplesMs);
+
 BenchmarkReportResult writeBenchmarkReport(
     const BenchmarkReport& report,
     const std::filesystem::path& outputDirectory);
+
+std::optional<BenchmarkComparison> findLatestCompatibleGpuComparison(
+    const BenchmarkReport& currentReport,
+    const BenchmarkReportResult& currentResult);
 
 } // namespace core
 

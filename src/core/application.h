@@ -51,6 +51,7 @@ private:
     void resetFrameStatistics();
     void restartBenchmarkCapture();
     void updateBenchmarkCapture();
+    void recordBenchmarkFrameSample(float frameIntervalMs, float cpuWorkMs, float presentMs);
     void toggleBenchmark();
     void processInput(float dt);
     void update(float dt);
@@ -84,7 +85,9 @@ private:
     int m_frameCount = 0;
     float m_currentFPS = 0.0f;
     float m_cpuFrameTimeMs = 0.0f;
+    float m_cpuWorkTimeMs = 0.0f;
     float m_presentTimeMs = 0.0f;
+    bool m_hasCpuWorkTime = false;
     bool m_hasPresentTime = false;
     bool m_hasFrameStatistics = false;
     bool m_skipNextFrameSample = false;
@@ -139,6 +142,11 @@ private:
     float m_benchmarkMedianGpuMs = 0.0f;
     float m_benchmarkP95GpuMs = 0.0f;
     std::string m_benchmarkReportStatus;
+    std::string m_benchmarkComparisonStatus;
+    bool m_benchmarkCpuCaptureActive = false;
+    std::vector<float> m_benchmarkFrameIntervalSamples;
+    std::vector<float> m_benchmarkCpuWorkSamples;
+    std::vector<float> m_benchmarkPresentSamples;
     
     // Cached ownership; RenderObject keeps non-owning Material pointers.
     std::unordered_map<std::string, std::unique_ptr<Material>> m_materials;

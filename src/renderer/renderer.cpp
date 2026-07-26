@@ -237,7 +237,9 @@ void Renderer::collectGpuFrameTimes() {
                     if (m_gpuBenchmarkCaptureActive &&
                         m_gpuBenchmarkCaptureGenerations[m_gpuQueryReadIndex] ==
                             m_gpuBenchmarkCaptureGeneration) {
-                        m_gpuBenchmarkCaptureSamples.push_back(benchmarkSample);
+                        m_gpuBenchmarkCaptureSamples.push_back({
+                            benchmarkSample, frameSample, sceneSample, uiSample
+                        });
                         if (m_gpuBenchmarkCaptureSamples.size() >= m_gpuBenchmarkCaptureTarget) {
                             m_gpuBenchmarkCaptureActive = false;
                         }

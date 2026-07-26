@@ -407,7 +407,9 @@ void Application::resetFrameStatistics() {
     m_frameCount = 0;
     m_currentFPS = 0.0f;
     m_cpuFrameTimeMs = 0.0f;
+    m_cpuWorkTimeMs = 0.0f;
     m_presentTimeMs = 0.0f;
+    m_hasCpuWorkTime = false;
     m_hasFrameStatistics = false;
     m_hasPresentTime = false;
     m_skipNextFrameSample = true;
@@ -430,6 +432,26 @@ void Application::restartBenchmarkCapture() {
     m_benchmarkMedianGpuMs = 0.0f;
     m_benchmarkP95GpuMs = 0.0f;
     m_benchmarkReportStatus.clear();
+    m_benchmarkComparisonStatus.clear();
+    m_benchmarkCpuCaptureActive = false;
+    m_benchmarkFrameIntervalSamples.clear();
+    m_benchmarkCpuWorkSamples.clear();
+    m_benchmarkPresentSamples.clear();
+}
+
+void Application::recordBenchmarkFrameSample(float frameIntervalMs, float cpuWorkMs,
+                                             float presentMs) {
+    if (!m_benchmarkCpuCaptureActive ||
+        m_benchmarkFrameIntervalSamples.size() >= kBenchmarkCaptureSamples) {
+        return;
+    }
+
+    m_benchmarkFrameIntervalSamples.push_back(frameIntervalMs);
+    m_benchmarkCpuWorkSamples.push_back(cpuWorkMs);
+    m_benchmarkPresentSamples.push_back(presentMs);
+    if (m_benchmarkFrameIntervalSamples.size() >= kBenchmarkCaptureSamples) {
+        m_benchmarkCpuCaptureActive = false;
+    }
 }
 
 void Application::updateBenchmarkCapture() {
@@ -440,6 +462,13 @@ void Application::updateBenchmarkCapture() {
     if (m_benchmarkCaptureState == BenchmarkCaptureState::WarmingUp) {
         if (glfwGetTime() - m_benchmarkWarmupStart >= kBenchmarkWarmupSeconds) {
             m_renderer->beginGpuBenchmarkCapture(kBenchmarkCaptureSamples);
+            m_benchmarkFrameIntervalSamples.clear();
+            m_benchmarkCpuWorkSamples.clear();
+            m_benchmarkPresentSamples.clear();
+            m_benchmarkFrameIntervalSamples.reserve(kBenchmarkCaptureSamples);
+            m_benchmarkCpuWorkSamples.reserve(kBenchmarkCaptureSamples);
+            m_benchmarkPresentSamples.reserve(kBenchmarkCaptureSamples);
+            m_benchmarkCpuCaptureActive = true;
             m_benchmarkCaptureState = BenchmarkCaptureState::Capturing;
         }
         return;
@@ -450,26 +479,29 @@ void Application::updateBenchmarkCapture() {
         return;
     }
 
-    const auto& samples = m_renderer->gpuBenchmarkCaptureSamples();
-    if (samples.size() < kBenchmarkCaptureSamples) {
+    const auto& gpuSamples = m_renderer->gpuBenchmarkCaptureSamples();
+    if (gpuSamples.size() < kBenchmarkCaptureSamples ||
+        m_benchmarkFrameIntervalSamples.size() < kBenchmarkCaptureSamples ||
+        m_benchmarkCpuWorkSamples.size() < kBenchmarkCaptureSamples ||
+        m_benchmarkPresentSamples.size() < kBenchmarkCaptureSamples) {
         return;
     }
 
-    std::vector<float> sortedSamples(samples.begin(), samples.end());
-    std::sort(sortedSamples.begin(), sortedSamples.end());
-
-    const std::size_t sampleCount = sortedSamples.size();
-    const std::size_t middle = sampleCount / 2;
-    m_benchmarkMedianGpuMs = sampleCount % 2 == 0
-        ? (sortedSamples[middle - 1] + sortedSamples[middle]) * 0.5f
-        : sortedSamples[middle];
-
-    const std::size_t p95Index = static_cast<std::size_t>(
-        std::ceil(static_cast<double>(sampleCount) * 0.95)) - 1;
-    m_benchmarkP95GpuMs = sortedSamples[p95Index];
-
-    const double sampleSum = std::accumulate(samples.begin(), samples.end(), 0.0);
-    const double sampleMean = sampleSum / static_cast<double>(sampleCount);
+    const std::size_t sampleCount = gpuSamples.size();
+    std::vector<float> drawSamples;
+    std::vector<float> gpuTotalSamples;
+    std::vector<float> gpuSceneSamples;
+    std::vector<float> gpuUiSamples;
+    drawSamples.reserve(sampleCount);
+    gpuTotalSamples.reserve(sampleCount);
+    gpuSceneSamples.reserve(sampleCount);
+    gpuUiSamples.reserve(sampleCount);
+    for (const GpuBenchmarkSample& sample : gpuSamples) {
+        drawSamples.push_back(sample.drawMs);
+        gpuTotalSamples.push_back(sample.totalMs);
+        gpuSceneSamples.push_back(sample.sceneMs);
+        gpuUiSamples.push_back(sample.uiMs);
+    }
 
     core::BenchmarkReport report;
     report.workload = "fixed_instanced_shader_v1";
@@ -483,12 +515,15 @@ void Application::updateBenchmarkCapture() {
     report.instances = m_benchmarkInstanceCount;
     report.shaderIterations = kBenchmarkShaderIterations;
     report.warmupSeconds = kBenchmarkWarmupSeconds;
-    report.samplesMs.assign(samples.begin(), samples.end());
-    report.medianMs = m_benchmarkMedianGpuMs;
-    report.p95Ms = m_benchmarkP95GpuMs;
-    report.meanMs = sampleMean;
-    report.minMs = sortedSamples.front();
-    report.maxMs = sortedSamples.back();
+    report.draw = core::makeBenchmarkMetric(std::move(drawSamples));
+    report.frameInterval = core::makeBenchmarkMetric(m_benchmarkFrameIntervalSamples);
+    report.cpuWork = core::makeBenchmarkMetric(m_benchmarkCpuWorkSamples);
+    report.present = core::makeBenchmarkMetric(m_benchmarkPresentSamples);
+    report.gpuTotal = core::makeBenchmarkMetric(std::move(gpuTotalSamples));
+    report.gpuScene = core::makeBenchmarkMetric(std::move(gpuSceneSamples));
+    report.gpuUi = core::makeBenchmarkMetric(std::move(gpuUiSamples));
+    m_benchmarkMedianGpuMs = static_cast<float>(report.draw.statistics.medianMs);
+    m_benchmarkP95GpuMs = static_cast<float>(report.draw.statistics.p95Ms);
 
     const std::filesystem::path reportDirectory = core::benchmarkResultsDir();
     const core::BenchmarkReportResult reportResult =
@@ -498,10 +533,44 @@ void Application::updateBenchmarkCapture() {
         m_benchmarkReportStatus = "Report: " + reportResult.jsonPath.filename().string();
         std::cout << "Benchmark JSON: " << reportResult.jsonPath.string() << "\n";
         std::cout << "Benchmark CSV:  " << reportResult.csvPath.string() << "\n";
+
+        const auto comparison = core::findLatestCompatibleGpuComparison(report, reportResult);
+        if (comparison) {
+            std::string comparisonGpu = comparison->gpuRenderer;
+            if (comparisonGpu.length() > 32) {
+                comparisonGpu = comparisonGpu.substr(0, 29) + "...";
+            }
+            const double baselineDraw = comparison->draw.medianMs;
+            const double currentDraw = report.draw.statistics.medianMs;
+            const double differencePercent = baselineDraw > 0.0
+                ? std::abs(currentDraw / baselineDraw - 1.0) * 100.0
+                : 0.0;
+            const char* relation = differencePercent < 1.0
+                ? "similar"
+                : (currentDraw < baselineDraw ? "faster" : "slower");
+
+            std::ostringstream comparisonText;
+            comparisonText << std::fixed << std::setprecision(2)
+                           << "vs " << comparisonGpu
+                           << "\nDraw: " << currentDraw << " vs " << baselineDraw
+                           << " ms (" << std::setprecision(1) << differencePercent
+                           << "% " << relation << ")"
+                           << std::setprecision(2)
+                           << "\nFrame: " << report.frameInterval.statistics.medianMs
+                           << " vs " << comparison->frameInterval.medianMs
+                           << " | Present: " << report.present.statistics.medianMs
+                           << " vs " << comparison->present.medianMs;
+            m_benchmarkComparisonStatus = comparisonText.str();
+            std::cout << "GPU comparison | " << m_benchmarkComparisonStatus << "\n";
+        } else {
+            m_benchmarkComparisonStatus = "Compare: run F7 on another GPU";
+        }
     } else {
         m_benchmarkReportStatus = "Report failed (see console)";
+        m_benchmarkComparisonStatus.clear();
         std::cerr << "Failed to save benchmark report: " << reportResult.error << "\n";
     }
+    m_benchmarkCpuCaptureActive = false;
     m_benchmarkCaptureState = BenchmarkCaptureState::Complete;
 
     std::ostringstream result;
@@ -510,7 +579,10 @@ void Application::updateBenchmarkCapture() {
            << " | Target: " << kBenchmarkWidth << "x" << kBenchmarkHeight
            << " | Samples: " << sampleCount
            << " | Draw median: " << m_benchmarkMedianGpuMs << " ms"
-           << " | p95: " << m_benchmarkP95GpuMs << " ms";
+           << " | p95: " << m_benchmarkP95GpuMs << " ms"
+           << " | Frame median: " << report.frameInterval.statistics.medianMs << " ms"
+           << " | CPU work: " << report.cpuWork.statistics.medianMs << " ms"
+           << " | Present: " << report.present.statistics.medianMs << " ms";
     std::cout << result.str() << "\n";
 }
 
@@ -524,6 +596,7 @@ void Application::toggleBenchmark() {
     if (m_benchmarkEnabled) {
         restartBenchmarkCapture();
     } else {
+        m_benchmarkCpuCaptureActive = false;
         m_benchmarkCaptureState = BenchmarkCaptureState::Idle;
     }
 
@@ -630,11 +703,21 @@ int Application::run() {
         m_deltaTime = currentFrame - m_lastFrame;
         m_lastFrame = currentFrame;
 
+        const double cpuWorkStart = glfwGetTime();
         processInput(m_deltaTime);
         update(m_deltaTime);
         render();
         
         m_renderer->endFrame();
+        const float cpuWorkSampleMs = static_cast<float>(
+            (glfwGetTime() - cpuWorkStart) * 1000.0);
+        if (m_hasCpuWorkTime) {
+            constexpr float smoothingFactor = 0.1f;
+            m_cpuWorkTimeMs += (cpuWorkSampleMs - m_cpuWorkTimeMs) * smoothingFactor;
+        } else {
+            m_cpuWorkTimeMs = cpuWorkSampleMs;
+            m_hasCpuWorkTime = true;
+        }
 
         const double presentStart = glfwGetTime();
         glfwSwapBuffers(m_window);
@@ -645,6 +728,11 @@ int Application::run() {
         } else {
             m_presentTimeMs = presentSampleMs;
             m_hasPresentTime = true;
+        }
+
+        if (!restoredFromMinimize) {
+            recordBenchmarkFrameSample(
+                m_deltaTime * 1000.0f, cpuWorkSampleMs, presentSampleMs);
         }
 
         glfwPollEvents();
@@ -1160,6 +1248,12 @@ void Application::render() {
         oss << "FPS: warming up\n";
         oss << "Frame interval: warming up\n";
     }
+    if (m_hasCpuWorkTime) {
+        oss << std::setprecision(2);
+        oss << "CPU work: " << m_cpuWorkTimeMs << " ms\n";
+    } else {
+        oss << "CPU work: warming up\n";
+    }
     if (m_hasPresentTime) {
         oss << std::setprecision(2);
         oss << "Present: " << m_presentTimeMs << " ms\n";
@@ -1212,6 +1306,9 @@ void Application::render() {
             oss << "\nCapture complete [F10 rerun]";
             if (!m_benchmarkReportStatus.empty()) {
                 oss << "\n" << m_benchmarkReportStatus;
+            }
+            if (!m_benchmarkComparisonStatus.empty()) {
+                oss << "\n" << m_benchmarkComparisonStatus;
             }
         }
     }

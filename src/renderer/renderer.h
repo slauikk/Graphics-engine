@@ -18,6 +18,13 @@ class Mesh;
 struct DirectionalLight;
 struct PointLight;
 
+struct GpuBenchmarkSample {
+    float drawMs = 0.0f;
+    float totalMs = 0.0f;
+    float sceneMs = 0.0f;
+    float uiMs = 0.0f;
+};
+
 class Renderer {
 public:
     Renderer() = default;
@@ -52,7 +59,9 @@ public:
     float gpuBenchmarkTimeMs() const { return m_gpuBenchmarkTimeMs; }
     bool gpuBenchmarkCaptureActive() const { return m_gpuBenchmarkCaptureActive; }
     std::size_t gpuBenchmarkCaptureTarget() const { return m_gpuBenchmarkCaptureTarget; }
-    const std::vector<float>& gpuBenchmarkCaptureSamples() const { return m_gpuBenchmarkCaptureSamples; }
+    const std::vector<GpuBenchmarkSample>& gpuBenchmarkCaptureSamples() const {
+        return m_gpuBenchmarkCaptureSamples;
+    }
 
 private:
     static constexpr std::size_t kGpuQueryCount = 8;
@@ -87,7 +96,7 @@ private:
     float m_gpuUiTimeMs = 0.0f;
     bool m_hasGpuBenchmarkTime = false;
     float m_gpuBenchmarkTimeMs = 0.0f;
-    std::vector<float> m_gpuBenchmarkCaptureSamples;
+    std::vector<GpuBenchmarkSample> m_gpuBenchmarkCaptureSamples;
     std::size_t m_gpuBenchmarkCaptureTarget = 0;
     bool m_gpuBenchmarkCaptureActive = false;
 };
