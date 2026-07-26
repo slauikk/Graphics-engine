@@ -4,8 +4,10 @@
 #include <GLFW/glfw3.h>
 #include <filesystem>
 #include <algorithm>
+#include <cctype>
 #include <sstream>
 #include <iomanip>
+#include <iostream>
 
 namespace {
 
@@ -133,7 +135,9 @@ void Menu::scanTextures() {
             for (const auto& entry : std::filesystem::directory_iterator(texturesDir)) {
                 if (entry.is_regular_file()) {
                     std::string ext = entry.path().extension().string();
-                    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char character) {
+                        return static_cast<char>(std::tolower(character));
+                    });
                     
                     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg") {
                         TextureOption option;
@@ -145,15 +149,8 @@ void Menu::scanTextures() {
                 }
             }
         }
-    } catch (const std::exception& e) {
-    }
-    
-    if (m_textures.empty()) {
-        TextureOption gridOption;
-        gridOption.name = "Grid (Generated)";
-        gridOption.path = "textures/generated_grid";
-        gridOption.isGenerated = true;
-        m_textures.push_back(gridOption);
+    } catch (const std::exception& error) {
+        std::cerr << "[Menu] Failed to scan textures: " << error.what() << "\n";
     }
     
     if (m_selectedIndex >= static_cast<int>(m_textures.size())) {

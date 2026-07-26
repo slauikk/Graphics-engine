@@ -10,7 +10,7 @@ class Shader;
 
 class UIText {
 public:
-    static void init(int windowWidth, int height);
+    static void init(int width, int height);
     static void beginFrame();
     static void flush();
     static void renderText(const std::string& text, float x, float y, float scale = 1.0f);

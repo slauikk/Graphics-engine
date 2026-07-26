@@ -3,7 +3,7 @@
 
 #include <glad/glad.h>
 #include <cstdint>
-#include <string>
+#include <filesystem>
 
 class Texture2D {
 public:
@@ -12,7 +12,7 @@ public:
     int height;
     int channels;
     
-    Texture2D(const std::string& path, bool flipY = true);
+    explicit Texture2D(const std::filesystem::path& path, bool flipY = true);
     Texture2D();
     ~Texture2D();
 
@@ -21,7 +21,7 @@ public:
     Texture2D(Texture2D&& other) noexcept;
     Texture2D& operator=(Texture2D&& other) noexcept;
     
-    void loadFromFile(const std::string& path, bool flipY = true);
+    void loadFromFile(const std::filesystem::path& path, bool flipY = true);
     void loadGeneratedGrid();
     void bind(uint32_t slot = 0) const;
     

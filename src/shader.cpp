@@ -3,52 +3,61 @@
 #include <vector>
 #include <fstream>
 #include <sstream>
-#include <filesystem>
-#include <cctype>
-#include <cstring>
 #include <utility>
 #include <glm/gtc/type_ptr.hpp>
+
+namespace {
+
+std::string shaderInfoLog(GLuint shader) {
+    GLint logLength = 0;
+    glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLength);
+    if (logLength <= 0) {
+        return {};
+    }
+
+    std::vector<GLchar> log(static_cast<std::size_t>(logLength), '\0');
+    GLsizei written = 0;
+    glGetShaderInfoLog(shader, logLength, &written, log.data());
+    return std::string(log.data(), static_cast<std::size_t>(written > 0 ? written : 0));
+}
+
+std::string programInfoLog(GLuint program) {
+    GLint logLength = 0;
+    glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logLength);
+    if (logLength <= 0) {
+        return {};
+    }
+
+    std::vector<GLchar> log(static_cast<std::size_t>(logLength), '\0');
+    GLsizei written = 0;
+    glGetProgramInfoLog(program, logLength, &written, log.data());
+    return std::string(log.data(), static_cast<std::size_t>(written > 0 ? written : 0));
+}
+
+} // namespace
 
 GLuint Shader::compile(GLenum type, const char* source) {
     if (source == nullptr) {
         std::cerr << "[Shader] compile() called with null source\n";
         return 0;
     }
-    
-    // Check if source looks like a file path (contains '/' or '\') but only if it's short
-    // Long shader code might contain '/' in comments, so check length first
-    size_t len = strlen(source);
-    if (len < 50 && (strchr(source, '/') != nullptr || strchr(source, '\\') != nullptr)) {
-        // Check if it looks like a path (no newlines, starts with letter or dot)
-        bool looksLikePath = true;
-        for (size_t i = 0; i < len; i++) {
-            if (source[i] == '\n' || source[i] == '\r') {
-                looksLikePath = false;
-                break;
-            }
-        }
-        if (looksLikePath && (std::isalpha(static_cast<unsigned char>(source[0])) || source[0] == '.' || source[0] == '/')) {
-            std::cerr << "[Shader] ERROR: compile() received what looks like a file path instead of shader source!\n";
-            std::cerr << "[Shader] Received: " << source << "\n";
-            std::cerr << "[Shader] This means readTextFile() failed to read the file!\n";
-            return 0;
-        }
-    }
-    
+
     GLuint shader = glCreateShader(type);
+    if (shader == 0) {
+        std::cerr << "[Shader] Failed to allocate shader object\n";
+        return 0;
+    }
+
     glShaderSource(shader, 1, &source, nullptr);
     glCompileShader(shader);
-    
-    GLint success;
+
+    GLint success = GL_FALSE;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-    if (!success) {
-        GLint logLength;
-        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLength);
-        std::vector<char> log(logLength);
-        glGetShaderInfoLog(shader, logLength, nullptr, log.data());
-        std::cerr << "Shader Compile error: " << log.data() << "\n";
-        
-        // Debug: print first 100 chars of source
+    if (success == GL_FALSE) {
+        const std::string log = shaderInfoLog(shader);
+        std::cerr << "Shader compile error: "
+                  << (log.empty() ? "<no driver log>" : log) << "\n";
+
         std::cerr << "[Shader] Source preview (first 100 chars):\n";
         for (int i = 0; i < 100 && source[i] != '\0'; i++) {
             char c = source[i];
@@ -63,76 +72,37 @@ GLuint Shader::compile(GLenum type, const char* source) {
             }
         }
         std::cerr << "\n";
-        
+
         glDeleteShader(shader);
         return 0;
     }
-    
+
     return shader;
 }
 
 bool Shader::checkLink(GLuint program) {
-    GLint success;
+    if (program == 0) {
+        return false;
+    }
+
+    GLint success = GL_FALSE;
     glGetProgramiv(program, GL_LINK_STATUS, &success);
-    if (!success) {
-        GLint logLength;
-        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logLength);
-        std::vector<char> log(logLength);
-        glGetProgramInfoLog(program, logLength, nullptr, log.data());
-        std::cerr << "Link error: " << log.data() << "\n";
+    if (success == GL_FALSE) {
+        const std::string log = programInfoLog(program);
+        std::cerr << "Link error: " << (log.empty() ? "<no driver log>" : log) << "\n";
         return false;
     }
     return true;
 }
 
-Shader::Shader(const std::string& vertexPath, const std::string& fragmentPath) 
+Shader::Shader(const std::filesystem::path& vertexPath,
+               const std::filesystem::path& fragmentPath)
     : m_id(0), m_vertexPath(vertexPath), m_fragmentPath(fragmentPath) {
     loadFromFiles(vertexPath, fragmentPath);
 }
 
 Shader::Shader(const char* vertexSource, const char* fragmentSource) : m_id(0) {
-    // Check if these look like file paths (not shader code)
-    if (vertexSource != nullptr && fragmentSource != nullptr) {
-        size_t vlen = strlen(vertexSource);
-        size_t flen = strlen(fragmentSource);
-        
-        // If both are short and contain path separators, they're probably file paths
-        if ((vlen < 50 && (strchr(vertexSource, '/') != nullptr || strchr(vertexSource, '\\') != nullptr)) &&
-            (flen < 50 && (strchr(fragmentSource, '/') != nullptr || strchr(fragmentSource, '\\') != nullptr))) {
-            // Check if they don't contain shader keywords
-            if (strstr(vertexSource, "#version") == nullptr && strstr(fragmentSource, "#version") == nullptr) {
-                // These look like file paths, not shader code - convert to file-based loading
-                m_vertexPath = vertexSource;
-                m_fragmentPath = fragmentSource;
-                loadFromFiles(m_vertexPath, m_fragmentPath);
-                return;
-            }
-        }
-    }
-    
-    GLuint vertexShader = compile(GL_VERTEX_SHADER, vertexSource);
-    if (vertexShader == 0) {
-        return;
-    }
-    
-    GLuint fragmentShader = compile(GL_FRAGMENT_SHADER, fragmentSource);
-    if (fragmentShader == 0) {
-        glDeleteShader(vertexShader);
-        return;
-    }
-    
-    m_id = glCreateProgram();
-    glAttachShader(m_id, vertexShader);
-    glAttachShader(m_id, fragmentShader);
-    glLinkProgram(m_id);
-    
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);
-    
-    if (!checkLink(m_id)) {
-        glDeleteProgram(m_id);
-        m_id = 0;
-    }
+    loadFromSource(vertexSource, fragmentSource);
 }
 
 Shader::~Shader() {
@@ -153,6 +123,11 @@ Shader::Shader(Shader&& other) noexcept
 Shader& Shader::operator=(Shader&& other) noexcept {
     if (this != &other) {
         if (m_id != 0) {
+            GLint currentProgram = 0;
+            glGetIntegerv(GL_CURRENT_PROGRAM, &currentProgram);
+            if (static_cast<GLuint>(currentProgram) == m_id) {
+                glUseProgram(other.m_id);
+            }
             glDeleteProgram(m_id);
         }
 
@@ -222,28 +197,28 @@ void Shader::setFloat(const char* name, float value) const {
     }
 }
 
-std::string Shader::readTextFile(const std::string& path) {
-    if (!std::filesystem::exists(path) || !std::filesystem::is_regular_file(path)) {
+std::string Shader::readTextFile(const std::filesystem::path& path) {
+    std::error_code filesystemError;
+    const bool isRegularFile = std::filesystem::is_regular_file(path, filesystemError);
+    if (filesystemError || !isRegularFile) {
         std::cerr << "[Shader] Failed to read file: " << path << "\n";
         return "";
     }
-    
+
     std::ifstream file(path, std::ios::in | std::ios::binary);
     if (!file.is_open()) {
         std::cerr << "[Shader] Failed to open file: " << path << "\n";
         return "";
     }
-    
-    file.seekg(0, std::ios::end);
-    size_t size = file.tellg();
-    file.seekg(0, std::ios::beg);
 
-    if (size == 0) {
+    std::ostringstream buffer;
+    buffer << file.rdbuf();
+    if (file.bad()) {
+        std::cerr << "[Shader] Failed while reading file: " << path << "\n";
         return "";
     }
-    std::string content(size, '\0');
-    file.read(&content[0], size);
-    file.close();
+
+    std::string content = buffer.str();
 
     // Remove BOM if present (UTF-8 BOM: EF BB BF)
     if (content.size() >= 3 &&
@@ -251,7 +226,7 @@ std::string Shader::readTextFile(const std::string& path) {
         static_cast<unsigned char>(content[1]) == 0xBB &&
         static_cast<unsigned char>(content[2]) == 0xBF) {
         content = content.substr(3);
-        }
+    }
 
     // Remove null terminators that might be at the end
     while (!content.empty() && content.back() == '\0') {
@@ -265,78 +240,98 @@ std::string Shader::readTextFile(const std::string& path) {
     return content;
 }
 
-bool Shader::loadFromFiles(const std::string& vertexPath, const std::string& fragmentPath) {
+GLuint Shader::buildProgram(const char* vertexSource, const char* fragmentSource) {
+    GLuint vertexShader = compile(GL_VERTEX_SHADER, vertexSource);
+    if (vertexShader == 0) {
+        return 0;
+    }
+
+    GLuint fragmentShader = compile(GL_FRAGMENT_SHADER, fragmentSource);
+    if (fragmentShader == 0) {
+        glDeleteShader(vertexShader);
+        return 0;
+    }
+
+    GLuint program = glCreateProgram();
+    if (program == 0) {
+        std::cerr << "[Shader] Failed to allocate program object\n";
+        glDeleteShader(vertexShader);
+        glDeleteShader(fragmentShader);
+        return 0;
+    }
+
+    glAttachShader(program, vertexShader);
+    glAttachShader(program, fragmentShader);
+    glLinkProgram(program);
+
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    if (!checkLink(program)) {
+        glDeleteProgram(program);
+        return 0;
+    }
+
+    return program;
+}
+
+bool Shader::replaceProgram(GLuint newProgram) {
+    if (newProgram == 0) {
+        return false;
+    }
+
+    const GLuint oldProgram = m_id;
+    if (oldProgram == newProgram) {
+        return true;
+    }
+
+    if (oldProgram != 0) {
+        GLint currentProgram = 0;
+        glGetIntegerv(GL_CURRENT_PROGRAM, &currentProgram);
+        if (static_cast<GLuint>(currentProgram) == oldProgram) {
+            glUseProgram(newProgram);
+        }
+    }
+
+    m_id = newProgram;
+    if (oldProgram != 0) {
+        glDeleteProgram(oldProgram);
+    }
+
+    m_uniformCache.clear();
+    m_uniformWarned.clear();
+    return true;
+}
+
+bool Shader::loadFromSource(const char* vertexSource, const char* fragmentSource) {
+    return replaceProgram(buildProgram(vertexSource, fragmentSource));
+}
+
+bool Shader::loadFromFiles(const std::filesystem::path& vertexPath,
+                           const std::filesystem::path& fragmentPath) {
     std::string vertexSource = readTextFile(vertexPath);
     std::string fragmentSource = readTextFile(fragmentPath);
-    
+
     if (vertexSource.empty() || fragmentSource.empty()) {
-        std::cerr << "[Shader] Failed to load shader files. Vertex empty: " << vertexSource.empty() 
+        std::cerr << "[Shader] Failed to load shader files. Vertex empty: " << vertexSource.empty()
                   << ", Fragment empty: " << fragmentSource.empty() << "\n";
         std::cerr << "[Shader] Vertex path: " << vertexPath << "\n";
         std::cerr << "[Shader] Fragment path: " << fragmentPath << "\n";
         return false;
     }
-    
-    // Debug: verify we got actual shader code, not paths
-    if (vertexSource.find("#version") == std::string::npos) {
-        std::cerr << "[Shader] ERROR: Vertex source doesn't contain '#version'! First 100 chars:\n";
-        std::cerr << vertexSource.substr(0, 100) << "\n";
+
+    if (vertexSource.find('\0') != std::string::npos ||
+        fragmentSource.find('\0') != std::string::npos) {
+        std::cerr << "[Shader] Shader file contains an embedded null byte\n";
         return false;
     }
-    if (fragmentSource.find("#version") == std::string::npos) {
-        std::cerr << "[Shader] ERROR: Fragment source doesn't contain '#version'! First 100 chars:\n";
-        std::cerr << fragmentSource.substr(0, 100) << "\n";
+
+    if (!loadFromSource(vertexSource.c_str(), fragmentSource.c_str())) {
+        std::cerr << "[Shader] Failed to build program from " << vertexPath
+                  << " and " << fragmentPath << "\n";
         return false;
     }
-    
-    // Debug: check if source is valid
-    if (vertexSource.size() < 10) {
-        std::cerr << "[Shader] Vertex source too short: " << vertexSource.size() << " bytes\n";
-        return false;
-    }
-    if (fragmentSource.size() < 10) {
-        std::cerr << "[Shader] Fragment source too short: " << fragmentSource.size() << " bytes\n";
-        return false;
-    }
-    
-    // Don't add null terminator - c_str() already provides it
-    // But ensure the string doesn't have embedded nulls that would break c_str()
-    
-    GLuint vertexShader = compile(GL_VERTEX_SHADER, vertexSource.c_str());
-    if (vertexShader == 0) {
-        std::cerr << "[Shader] Vertex shader compilation failed for: " << vertexPath << "\n";
-        return false;
-    }
-    
-    GLuint fragmentShader = compile(GL_FRAGMENT_SHADER, fragmentSource.c_str());
-    if (fragmentShader == 0) {
-        std::cerr << "[Shader] Fragment shader compilation failed for: " << fragmentPath << "\n";
-        glDeleteShader(vertexShader);
-        return false;
-    }
-    
-    GLuint newProgram = glCreateProgram();
-    glAttachShader(newProgram, vertexShader);
-    glAttachShader(newProgram, fragmentShader);
-    glLinkProgram(newProgram);
-    
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);
-    
-    if (!checkLink(newProgram)) {
-        std::cerr << "[Shader] Program linking failed\n";
-        glDeleteProgram(newProgram);
-        return false;
-    }
-    
-    if (m_id != 0) {
-        glDeleteProgram(m_id);
-    }
-    
-    m_id = newProgram;
-    m_uniformCache.clear();
-    m_uniformWarned.clear();
-    
+
     return true;
 }
 

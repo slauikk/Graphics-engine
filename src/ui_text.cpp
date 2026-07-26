@@ -10,8 +10,74 @@
 #include <vector>
 #include <sstream>
 #include <iomanip>
+#include <cstdint>
+#include <string_view>
 
 namespace {
+
+constexpr std::uint32_t kReplacementCodePoint = 0xfffd;
+
+bool isUtf8Continuation(unsigned char byte) {
+    return (byte & 0xc0U) == 0x80U;
+}
+
+std::uint32_t decodeNextUtf8(std::string_view text, std::size_t& offset) {
+    const auto byte = [&text](std::size_t index) {
+        return static_cast<unsigned char>(text[index]);
+    };
+
+    const unsigned char lead = byte(offset);
+    if (lead <= 0x7fU) {
+        ++offset;
+        return lead;
+    }
+
+    if (lead >= 0xc2U && lead <= 0xdfU && offset + 1 < text.size() &&
+        isUtf8Continuation(byte(offset + 1))) {
+        const std::uint32_t codePoint =
+            (static_cast<std::uint32_t>(lead & 0x1fU) << 6U) |
+            static_cast<std::uint32_t>(byte(offset + 1) & 0x3fU);
+        offset += 2;
+        return codePoint;
+    }
+
+    if (lead >= 0xe0U && lead <= 0xefU && offset + 2 < text.size()) {
+        const unsigned char second = byte(offset + 1);
+        const unsigned char third = byte(offset + 2);
+        const bool validSecond = isUtf8Continuation(second) &&
+            (lead != 0xe0U || second >= 0xa0U) &&
+            (lead != 0xedU || second <= 0x9fU);
+        if (validSecond && isUtf8Continuation(third)) {
+            const std::uint32_t codePoint =
+                (static_cast<std::uint32_t>(lead & 0x0fU) << 12U) |
+                (static_cast<std::uint32_t>(second & 0x3fU) << 6U) |
+                static_cast<std::uint32_t>(third & 0x3fU);
+            offset += 3;
+            return codePoint;
+        }
+    }
+
+    if (lead >= 0xf0U && lead <= 0xf4U && offset + 3 < text.size()) {
+        const unsigned char second = byte(offset + 1);
+        const unsigned char third = byte(offset + 2);
+        const unsigned char fourth = byte(offset + 3);
+        const bool validSecond = isUtf8Continuation(second) &&
+            (lead != 0xf0U || second >= 0x90U) &&
+            (lead != 0xf4U || second <= 0x8fU);
+        if (validSecond && isUtf8Continuation(third) && isUtf8Continuation(fourth)) {
+            const std::uint32_t codePoint =
+                (static_cast<std::uint32_t>(lead & 0x07U) << 18U) |
+                (static_cast<std::uint32_t>(second & 0x3fU) << 12U) |
+                (static_cast<std::uint32_t>(third & 0x3fU) << 6U) |
+                static_cast<std::uint32_t>(fourth & 0x3fU);
+            offset += 4;
+            return codePoint;
+        }
+    }
+
+    ++offset;
+    return kReplacementCodePoint;
+}
 
 class ScopedTextRenderState {
 public:
@@ -136,11 +202,11 @@ bool UIText::createFontAtlas() {
     return true;
 }
 
-void UIText::init(int windowWidth, int windowHeight) {
+void UIText::init(int width, int height) {
     if (initialized) return;
     
-    UIText::windowWidth = windowWidth;
-    UIText::windowHeight = windowHeight;
+    UIText::windowWidth = width;
+    UIText::windowHeight = height;
     
     if (!createTextShader()) {
         std::cerr << "[UIText] Failed to create shader\n";
@@ -243,14 +309,18 @@ void UIText::appendTextVertices(std::vector<float>& vertices, const std::string&
     float currentX = x;
     float currentY = y;
 
-    for (char c : text) {
-        if (c == '\n') {
+    std::size_t offset = 0;
+    while (offset < text.size()) {
+        const std::uint32_t codePoint = decodeNextUtf8(text, offset);
+        if (codePoint == '\n') {
             currentY += 14.0f * scale;
             currentX = x;
             continue;
         }
 
-        appendCharVertices(vertices, c, currentX + offsetX, currentY + offsetY, scale, r, g, b);
+        const char glyph = codePoint <= 0x7fU ? static_cast<char>(codePoint) : '?';
+        appendCharVertices(vertices, glyph, currentX + offsetX, currentY + offsetY,
+                           scale, r, g, b);
         currentX += charWidth;
     }
 }
@@ -332,6 +402,6 @@ void UIText::cleanup() {
 
 bool UIText::reloadShaders() {
     if (!initialized) return false;
-    ResourceManager::reloadAllShaders();
-    return shader && shader->m_id != 0;
+    const bool reloaded = ResourceManager::reloadAllShaders();
+    return reloaded && shader && shader->m_id != 0;
 }
