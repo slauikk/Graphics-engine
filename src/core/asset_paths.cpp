@@ -23,7 +23,26 @@ bool isAssetsRoot(const std::filesystem::path& candidate) {
     }
 
     const bool hasShaders = std::filesystem::is_directory(candidate / "shaders", error);
-    return !error && hasTextures && hasShaders;
+    if (error || !hasTextures || !hasShaders) {
+        return false;
+    }
+
+    const std::filesystem::path shaders = candidate / "shaders";
+    const std::filesystem::path requiredShaders[] = {
+        shaders / "textured.vert",
+        shaders / "textured.frag",
+        shaders / "post_process.vert",
+        shaders / "post_process.frag",
+        shaders / "ui_text.vert",
+        shaders / "ui_text.frag"
+    };
+    for (const auto& shader : requiredShaders) {
+        error.clear();
+        if (!std::filesystem::is_regular_file(shader, error) || error) {
+            return false;
+        }
+    }
+    return true;
 }
 
 std::filesystem::path normalizedPath(const std::filesystem::path& path) {

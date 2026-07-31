@@ -7,6 +7,7 @@ saved-scenes/
 
 # CLion
 .idea/
+CMakeUserPresets.json
 
 # Compiled
 *.o

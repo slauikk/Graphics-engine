@@ -1,0 +1,89 @@
+name: Windows CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VCPKG_ROOT: ${{ github.workspace }}\out\vcpkg
+  VCPKG_DISABLE_METRICS: 1
+
+jobs:
+  build-test-package:
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Install CMake and Ninja
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check cmake==3.31.6 ninja
+          cmake --version
+          ninja --version
+
+      - name: Bootstrap pinned vcpkg
+        shell: pwsh
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "$env:VCPKG_ROOT"
+          git -C "$env:VCPKG_ROOT" checkout fafcc0e93bfba303e5e48790def745d27e6d449b
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+
+      - name: Configure, build, test, and package
+        shell: cmd
+        run: |
+          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALL=%%i"
+          if not defined VSINSTALL exit /b 1
+          call "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
+          if errorlevel 1 exit /b 1
+          cmake --preset release -DGRAPHICS_ENGINE_WARNINGS_AS_ERRORS=ON
+          if errorlevel 1 exit /b 1
+          cmake --build --preset release --parallel
+          if errorlevel 1 exit /b 1
+          ctest --preset release
+          if errorlevel 1 exit /b 1
+          cpack --preset release
+          if errorlevel 1 exit /b 1
+
+      - name: Verify package contents
+        shell: pwsh
+        run: |
+          $archive = Get-ChildItem out/build/release/packages/*.zip | Select-Object -First 1
+          if ($null -eq $archive) { throw "CPack did not produce a ZIP archive" }
+
+          $destination = "out/package-check"
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath $destination
+          $executable = Get-ChildItem $destination -Recurse -Filter Graphics_engine.exe | Select-Object -First 1
+          if ($null -eq $executable) { throw "Package is missing Graphics_engine.exe" }
+
+          $runtime = $executable.Directory.FullName
+          $requiredAssets = @(
+            "assets/shaders/textured.vert",
+            "assets/shaders/textured.frag",
+            "assets/shaders/post_process.frag",
+            "assets/models/sample_pyramid.obj",
+            "assets/models/sample_pyramid.gltf"
+          )
+          foreach ($asset in $requiredAssets) {
+            if (-not (Test-Path -LiteralPath (Join-Path $runtime $asset))) {
+              throw "Package is missing $asset"
+            }
+          }
+          if (@(Get-ChildItem $runtime -Filter *.dll).Count -lt 2) {
+            throw "Package is missing runtime DLL dependencies"
+          }
+
+      - name: Upload Release ZIP
+        uses: actions/upload-artifact@v7
+        with:
+          name: Graphics-engine-windows-x64
+          path: |
+            out/build/release/packages/*.zip
+            out/build/release/packages/*.sha256
+          if-no-files-found: error

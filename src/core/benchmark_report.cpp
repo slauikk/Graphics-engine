@@ -103,15 +103,32 @@ bool metricIsValid(const core::BenchmarkMetric& metric) {
     const bool samplesAreFinite = std::all_of(
         metric.samplesMs.begin(), metric.samplesMs.end(),
         [](float sample) { return std::isfinite(sample) && sample >= 0.0f; });
+    if (!samplesAreFinite) {
+        return false;
+    }
+
+    const auto almostEqual = [](double left, double right) {
+        const double scale = std::max({1.0, std::abs(left), std::abs(right)});
+        return std::abs(left - right) <= 0.000001 * scale;
+    };
     const auto& statistics = metric.statistics;
-    return samplesAreFinite && std::isfinite(statistics.medianMs) &&
+    const core::BenchmarkStatistics expected =
+        core::calculateBenchmarkStatistics(metric.samplesMs);
+    return std::isfinite(statistics.medianMs) &&
            std::isfinite(statistics.p95Ms) && std::isfinite(statistics.meanMs) &&
-           std::isfinite(statistics.minMs) && std::isfinite(statistics.maxMs);
+           std::isfinite(statistics.minMs) && std::isfinite(statistics.maxMs) &&
+           almostEqual(statistics.medianMs, expected.medianMs) &&
+           almostEqual(statistics.p95Ms, expected.p95Ms) &&
+           almostEqual(statistics.meanMs, expected.meanMs) &&
+           almostEqual(statistics.minMs, expected.minMs) &&
+           almostEqual(statistics.maxMs, expected.maxMs);
 }
 
 bool reportIsValid(const core::BenchmarkReport& report) {
     if (report.targetWidth <= 0 || report.targetHeight <= 0 ||
-        report.instances <= 0 || report.shaderIterations <= 0) {
+        report.displayWidth <= 0 || report.displayHeight <= 0 ||
+        report.instances <= 0 || report.shaderIterations <= 0 ||
+        !std::isfinite(report.warmupSeconds) || report.warmupSeconds < 0.0) {
         return false;
     }
 
@@ -332,6 +349,27 @@ std::optional<std::vector<std::string>> parseCsvLine(std::string_view line) {
     return fields;
 }
 
+bool readCsvRecord(std::istream& input, std::string& record) {
+    record.clear();
+    bool quoted = false;
+    char character = '\0';
+    while (input.get(character)) {
+        if (character == '"') {
+            record.push_back(character);
+            if (quoted && input.peek() == '"') {
+                record.push_back(static_cast<char>(input.get()));
+            } else {
+                quoted = !quoted;
+            }
+        } else if (character == '\n' && !quoted) {
+            return true;
+        } else if (character != '\r' || quoted) {
+            record.push_back(character);
+        }
+    }
+    return !record.empty();
+}
+
 template <typename Number>
 bool parseNumber(std::string_view value, Number& result) {
     const char* begin = value.data();
@@ -374,6 +412,20 @@ std::optional<core::BenchmarkComparison> comparisonFromFields(
         !parseNumber(fields[16], comparison.cpuWork.medianMs) ||
         !parseNumber(fields[17], comparison.present.medianMs) ||
         !parseNumber(fields[18], comparison.gpuTotal.medianMs)) {
+        return std::nullopt;
+    }
+    const double parsedStatistics[] = {
+        comparison.draw.medianMs,
+        comparison.draw.p95Ms,
+        comparison.frameInterval.medianMs,
+        comparison.cpuWork.medianMs,
+        comparison.present.medianMs,
+        comparison.gpuTotal.medianMs
+    };
+    if (!std::all_of(std::begin(parsedStatistics), std::end(parsedStatistics),
+                     [](double value) {
+                         return std::isfinite(value) && value >= 0.0;
+                     })) {
         return std::nullopt;
     }
     return comparison;
@@ -460,7 +512,7 @@ std::optional<BenchmarkComparison> findLatestCompatibleGpuComparison(
 
     std::optional<BenchmarkComparison> latest;
     std::string line;
-    while (std::getline(input, line)) {
+    while (readCsvRecord(input, line)) {
         const auto fields = parseCsvLine(line);
         if (!fields || !summaryIsCompatible(*fields, currentReport) ||
             (*fields)[0] == currentResult.timestampUtc) {
