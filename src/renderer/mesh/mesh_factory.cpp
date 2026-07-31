@@ -7,6 +7,46 @@
 #include <vector>
 #include <memory>
 #include <cstdint>
+#include <limits>
+
+std::shared_ptr<Mesh> MeshFactory::CreateInterleaved(
+    const std::vector<float>& vertices,
+    const std::vector<std::uint32_t>& indices) {
+    constexpr std::size_t floatsPerVertex = 8;
+    if (vertices.empty() || indices.empty() || vertices.size() % floatsPerVertex != 0 ||
+        vertices.size() / floatsPerVertex >
+            static_cast<std::size_t>((std::numeric_limits<GLsizei>::max)()) ||
+        indices.size() > static_cast<std::size_t>((std::numeric_limits<GLsizei>::max)()) ||
+        indices.size() > static_cast<std::size_t>((std::numeric_limits<std::uint32_t>::max)())) {
+        return nullptr;
+    }
+
+    auto mesh = std::make_shared<Mesh>();
+    auto vbo = std::make_unique<VertexBuffer>(
+        vertices.data(), vertices.size() * sizeof(float), GL_STATIC_DRAW);
+    auto ebo = std::make_unique<IndexBuffer>(
+        indices.data(), static_cast<std::uint32_t>(indices.size()));
+    if (vbo->getId() == 0 || ebo->getId() == 0) {
+        return nullptr;
+    }
+
+    VertexArray vao;
+    BufferLayout layout({
+        { ShaderDataType::Float3, "aPos" },
+        { ShaderDataType::Float3, "aNormal" },
+        { ShaderDataType::Float2, "aTexCoord" }
+    });
+    vao.addVertexBuffer(*vbo, layout);
+    vao.setIndexBuffer(*ebo);
+
+    mesh->setVertexBuffer(std::move(vbo));
+    mesh->setIndexBuffer(std::move(ebo));
+    mesh->setVertexArray(std::move(vao));
+    mesh->setVertexCount(static_cast<GLsizei>(vertices.size() / floatsPerVertex));
+    mesh->setIndexCount(static_cast<GLsizei>(indices.size()));
+    mesh->setPrimitive(GL_TRIANGLES);
+    return mesh;
+}
 
 std::shared_ptr<Mesh> MeshFactory::CreateCube() {
     // 24 unique vertices (4 per face, with correct normals and UVs)
@@ -65,43 +105,5 @@ std::shared_ptr<Mesh> MeshFactory::CreateCube() {
         20, 21, 22,  22, 23, 20
     };
     
-    // Create mesh
-    auto mesh = std::make_shared<Mesh>();
-    
-    // Create vertex buffer
-    auto vbo = std::make_unique<VertexBuffer>(
-        vertices.data(),
-        vertices.size() * sizeof(float),
-        GL_STATIC_DRAW
-    );
-    
-    // Create index buffer
-    auto ebo = std::make_unique<IndexBuffer>(
-        indices.data(),
-        static_cast<uint32_t>(indices.size())
-    );
-    
-    // Create vertex array
-    VertexArray vao;
-    
-    // Define layout: pos(3), normal(3), uv(2)
-    BufferLayout layout({
-        { ShaderDataType::Float3, "aPos" },
-        { ShaderDataType::Float3, "aNormal" },
-        { ShaderDataType::Float2, "aTexCoord" }
-    });
-    
-    // Setup VAO
-    vao.addVertexBuffer(*vbo, layout);
-    vao.setIndexBuffer(*ebo);
-    
-    // Set mesh properties
-    mesh->setVertexBuffer(std::move(vbo));
-    mesh->setIndexBuffer(std::move(ebo));
-    mesh->setVertexArray(std::move(vao));
-    mesh->setVertexCount(24);
-    mesh->setIndexCount(36);
-    mesh->setPrimitive(GL_TRIANGLES);
-    
-    return mesh;
+    return CreateInterleaved(vertices, indices);
 }

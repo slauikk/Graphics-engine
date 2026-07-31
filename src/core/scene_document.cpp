@@ -18,7 +18,7 @@ namespace {
 
 using Json = nlohmann::json;
 
-constexpr std::size_t kMaxMaterials = 4'096;
+constexpr std::size_t kMaxMaterials = 32'768;
 constexpr std::size_t kMaxObjects = 100'000;
 constexpr std::size_t kMaxIdLength = 128;
 constexpr std::size_t kMaxAssetReferenceLength = 1'024;
@@ -192,7 +192,8 @@ Json sceneToJson(const core::SceneDocument& scene) {
         }},
         {"render_settings", {
             {"post_process_effect", scene.renderSettings.postProcessEffect},
-            {"shader_view_mode", scene.renderSettings.shaderViewMode}
+            {"shader_view_mode", scene.renderSettings.shaderViewMode},
+            {"coordinate_grid", scene.renderSettings.coordinateGrid}
         }},
         {"materials", std::move(materials)},
         {"objects", std::move(objects)},
@@ -230,6 +231,7 @@ core::SceneDocument sceneFromJson(const Json& value) {
     scene.renderSettings.postProcessEffect =
         renderSettings.at("post_process_effect").get<int>();
     scene.renderSettings.shaderViewMode = renderSettings.at("shader_view_mode").get<int>();
+    scene.renderSettings.coordinateGrid = renderSettings.value("coordinate_grid", true);
 
     const Json& materials = value.at("materials");
     if (!materials.is_array() || materials.size() > kMaxMaterials) {
@@ -342,9 +344,13 @@ bool validateSceneDocument(const SceneDocument& scene, std::string& error) {
     }
 
     for (const SceneObject& object : scene.objects) {
+        const bool isBuiltInMesh = object.mesh.starts_with("builtin:");
         if (!isValidText(object.name, kMaxIdLength, true) ||
             !isSafeAssetReference(object.mesh, false) ||
-            materialIds.find(object.material) == materialIds.end()) {
+            (isBuiltInMesh && object.mesh != "builtin:cube") ||
+            (object.mesh == "builtin:cube" && object.material.empty()) ||
+            (!object.material.empty() &&
+             materialIds.find(object.material) == materialIds.end())) {
             return setValidationError(error, "object contains invalid asset references");
         }
         if (!coordinatesInRange(object.position) || !coordinatesInRange(object.rotationDeg) ||
@@ -375,6 +381,18 @@ SceneIoResult saveSceneDocument(const SceneDocument& scene,
         return result;
     }
 
+    std::string serialized;
+    try {
+        serialized = sceneToJson(scene).dump(2);
+    } catch (const std::exception& exception) {
+        result.error = std::string("failed to serialize scene: ") + exception.what();
+        return result;
+    }
+    if (serialized.size() > kMaxSceneFileSize - 1U) {
+        result.error = "scene file would exceed the 32 MiB limit";
+        return result;
+    }
+
     std::error_code filesystemError;
     if (!path.parent_path().empty()) {
         std::filesystem::create_directories(path.parent_path(), filesystemError);
@@ -386,21 +404,16 @@ SceneIoResult saveSceneDocument(const SceneDocument& scene,
 
     std::filesystem::path temporary = path;
     temporary += ".tmp";
-    try {
-        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-        if (!output) {
-            result.error = "failed to open temporary scene file";
-            return result;
-        }
-        output << sceneToJson(scene).dump(2) << '\n';
-        output.close();
-        if (!output) {
-            result.error = "failed to write temporary scene file";
-            std::filesystem::remove(temporary, filesystemError);
-            return result;
-        }
-    } catch (const std::exception& exception) {
-        result.error = std::string("failed to serialize scene: ") + exception.what();
+    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+    if (!output) {
+        result.error = "failed to open temporary scene file";
+        return result;
+    }
+    output.write(serialized.data(), static_cast<std::streamsize>(serialized.size()));
+    output.put('\n');
+    output.close();
+    if (!output) {
+        result.error = "failed to write temporary scene file";
         std::filesystem::remove(temporary, filesystemError);
         return result;
     }

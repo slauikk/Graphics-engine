@@ -60,6 +60,7 @@ struct ScenePointLight {
 struct SceneRenderSettings {
     int postProcessEffect = 0;
     int shaderViewMode = 0;
+    bool coordinateGrid = true;
 };
 
 struct SceneDocument {

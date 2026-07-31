@@ -8,9 +8,12 @@
 #include "../menu.h"
 #include "../gl_debug.h"
 #include "../renderer/renderer.h"
+#include "../renderer/coordinate_grid.h"
 #include "../renderer/framebuffer.h"
 #include "../renderer/post_processor.h"
 #include "../renderer/material.h"
+#include "../renderer/model.h"
+#include "../renderer/model_loader.h"
 #include "../renderer/mesh/mesh_factory.h"
 #include "../renderer/light.h"
 #include "resource_manager.h"
@@ -24,6 +27,7 @@
 #include <cmath>
 #include <algorithm>
 #include <numeric>
+#include <unordered_set>
 #include <utility>
 
 namespace {
@@ -140,7 +144,7 @@ bool Application::init() {
     UIText::init(m_width, m_height);
 
     // Camera
-    m_camera = new Camera(glm::vec3(0.0f, 0.0f, 3.0f));
+    m_camera = new Camera(glm::vec3(0.0f, 3.0f, 8.0f), -90.0f, -20.0f);
 
     // Mouse callbacks
     glfwSetCursorPosCallback(m_window, mouseCallback);
@@ -168,15 +172,15 @@ bool Application::init() {
     
     // Create objects (5 cubes in a row)
     m_objects = {
-        {"Cube 0", "builtin:cube", m_cubeMesh, glm::vec3(-4.0f, 0.0f, 0.0f),
+        {"Cube 0", "builtin:cube", m_cubeMesh, nullptr, glm::vec3(-4.0f, 0.0f, 0.0f),
          glm::vec3(0.0f), glm::vec3(1.0f), matJager, false},
-        {"Cube 1", "builtin:cube", m_cubeMesh, glm::vec3(-2.0f, 0.0f, 0.0f),
+        {"Cube 1", "builtin:cube", m_cubeMesh, nullptr, glm::vec3(-2.0f, 0.0f, 0.0f),
          glm::vec3(0.0f), glm::vec3(1.0f), matZelya, false},
-        {"Cube 2", "builtin:cube", m_cubeMesh, glm::vec3(0.0f),
+        {"Cube 2", "builtin:cube", m_cubeMesh, nullptr, glm::vec3(0.0f),
          glm::vec3(0.0f), glm::vec3(1.0f), matGrid, false},
-        {"Cube 3", "builtin:cube", m_cubeMesh, glm::vec3(2.0f, 0.0f, 0.0f),
+        {"Cube 3", "builtin:cube", m_cubeMesh, nullptr, glm::vec3(2.0f, 0.0f, 0.0f),
          glm::vec3(0.0f), glm::vec3(1.0f), matJager, false},
-        {"Cube 4", "builtin:cube", m_cubeMesh, glm::vec3(4.0f, 0.0f, 0.0f),
+        {"Cube 4", "builtin:cube", m_cubeMesh, nullptr, glm::vec3(4.0f, 0.0f, 0.0f),
          glm::vec3(0.0f), glm::vec3(1.0f), matZelya, false}
     };
 
@@ -283,6 +287,12 @@ void main() {
     // Renderer
     m_renderer = new Renderer();
     m_renderer->init();
+
+    m_coordinateGrid = std::make_unique<CoordinateGrid>();
+    if (!m_coordinateGrid->init()) {
+        std::cerr << "Failed to create coordinate grid\n";
+        return false;
+    }
 
     m_sceneFramebuffer = std::make_unique<Framebuffer>();
     if (!m_sceneFramebuffer->init(m_width, m_height)) {
@@ -408,12 +418,110 @@ Material* Application::getOrCreateMaterial(const std::string& relativeTexturePat
     return materialPtr;
 }
 
+std::shared_ptr<Model> Application::loadModelAsset(
+    const std::string& assetReference,
+    MaterialCache& materials,
+    TextureCache& textures,
+    ModelCache& models,
+    std::string& error) {
+    const std::string normalizedReference = normalizedAssetReference(assetReference);
+    if (const auto existing = models.find(normalizedReference); existing != models.end()) {
+        return existing->second;
+    }
+
+    ModelLoadResult loaded = ModelLoader::load(normalizedReference);
+    if (!loaded.success()) {
+        error = loaded.error;
+        return nullptr;
+    }
+
+    for (const ImportedMaterial& imported : loaded.materials) {
+        if (materials.contains(imported.id)) {
+            continue;
+        }
+
+        std::shared_ptr<Texture2D> texture;
+        if (!imported.albedoTexture.empty()) {
+            if (const auto existingTexture = textures.find(imported.albedoTexture);
+                existingTexture != textures.end()) {
+                texture = existingTexture->second;
+            } else {
+                texture = ResourceManager::getTexture(imported.albedoTexture);
+                if (texture) {
+                    textures.emplace(imported.albedoTexture, texture);
+                } else {
+                    loaded.warnings.push_back(
+                        "failed to load material texture; using color fallback: " +
+                        imported.albedoTexture);
+                }
+            }
+        }
+
+        auto material = std::make_unique<Material>(
+            m_shader.get(), texture.get(), imported.id, imported.albedoTexture);
+        material->albedoColor = imported.albedoColor;
+        material->specularColor = imported.specularColor;
+        material->emissiveColor = imported.emissiveColor;
+        material->shininess = imported.shininess;
+        material->metallic = imported.metallic;
+        material->roughness = imported.roughness;
+        materials.emplace(imported.id, std::move(material));
+    }
+
+    for (const std::string& warning : loaded.warnings) {
+        std::cerr << "[ModelLoader] " << normalizedReference << ": " << warning << "\n";
+    }
+    std::shared_ptr<Model> model = std::move(loaded.model);
+    models.emplace(normalizedReference, model);
+    return model;
+}
+
+void Application::loadSelectedModel(const std::string& assetReference) {
+    m_sceneMessageTime = 3.0f;
+    if (m_selectedObject < 0 ||
+        m_selectedObject >= static_cast<int>(m_objects.size())) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Model load failed: no selected object";
+        return;
+    }
+
+    std::string error;
+    std::shared_ptr<Model> model = loadModelAsset(
+        assetReference, m_materials, m_textures, m_models, error);
+    if (!model) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Model load failed";
+        std::cerr << "Failed to load model " << assetReference << ": " << error << "\n";
+        return;
+    }
+
+    RenderObject& object = m_objects[static_cast<std::size_t>(m_selectedObject)];
+    object.meshAsset = normalizedAssetReference(assetReference);
+    object.mesh.reset();
+    object.model = std::move(model);
+    object.material = nullptr;
+    m_sceneOperationSucceeded = true;
+    m_sceneMessage = "Model loaded: " + std::filesystem::path(assetReference).filename().string();
+    std::cout << m_sceneMessage << " | vertices: " << object.model->vertexCount()
+              << " | indices: " << object.model->indexCount() << "\n";
+}
+
 Material* Application::selectedMaterial() {
     if (m_selectedObject < 0 ||
         m_selectedObject >= static_cast<int>(m_objects.size())) {
         return nullptr;
     }
-    return m_objects[static_cast<std::size_t>(m_selectedObject)].material;
+    const RenderObject& object = m_objects[static_cast<std::size_t>(m_selectedObject)];
+    if (object.material != nullptr) {
+        return object.material;
+    }
+    if (object.model != nullptr && !object.model->parts().empty()) {
+        const auto material = m_materials.find(object.model->parts().front().materialId);
+        if (material != m_materials.end()) {
+            return material->second.get();
+        }
+    }
+    return nullptr;
 }
 
 const Material* Application::selectedMaterial() const {
@@ -421,7 +529,17 @@ const Material* Application::selectedMaterial() const {
         m_selectedObject >= static_cast<int>(m_objects.size())) {
         return nullptr;
     }
-    return m_objects[static_cast<std::size_t>(m_selectedObject)].material;
+    const RenderObject& object = m_objects[static_cast<std::size_t>(m_selectedObject)];
+    if (object.material != nullptr) {
+        return object.material;
+    }
+    if (object.model != nullptr && !object.model->parts().empty()) {
+        const auto material = m_materials.find(object.model->parts().front().materialId);
+        if (material != m_materials.end()) {
+            return material->second.get();
+        }
+    }
+    return nullptr;
 }
 
 core::SceneDocument Application::captureScene() const {
@@ -447,15 +565,22 @@ core::SceneDocument Application::captureScene() const {
     scene.pointLight.spinning = m_pointLightSpinning;
     scene.renderSettings.postProcessEffect = static_cast<int>(m_postProcessEffect);
     scene.renderSettings.shaderViewMode = m_shaderViewMode;
+    scene.renderSettings.coordinateGrid = m_showCoordinateGrid;
     scene.selectedObject = m_objects.empty() ? -1 : m_selectedObject;
 
-    std::vector<std::string> materialIds;
-    materialIds.reserve(m_materials.size());
-    for (const auto& [id, material] : m_materials) {
-        if (material) {
-            materialIds.push_back(id);
+    std::unordered_set<std::string> usedMaterialIds;
+    for (const RenderObject& object : m_objects) {
+        if (object.material != nullptr) {
+            usedMaterialIds.insert(object.material->id);
+        } else if (object.model != nullptr) {
+            for (const ModelPart& part : object.model->parts()) {
+                usedMaterialIds.insert(part.materialId);
+            }
         }
     }
+
+    std::vector<std::string> materialIds(
+        usedMaterialIds.begin(), usedMaterialIds.end());
     std::sort(materialIds.begin(), materialIds.end());
     scene.materials.reserve(materialIds.size());
     for (const std::string& id : materialIds) {
@@ -495,15 +620,9 @@ bool Application::applyScene(const core::SceneDocument& scene, std::string& erro
     if (!core::validateSceneDocument(scene, error)) {
         return false;
     }
-    for (const core::SceneObject& object : scene.objects) {
-        if (object.mesh != "builtin:cube") {
-            error = "mesh is not supported yet: " + object.mesh;
-            return false;
-        }
-    }
-
-    std::unordered_map<std::string, std::unique_ptr<Material>> newMaterials;
-    std::unordered_map<std::string, std::shared_ptr<Texture2D>> newTextures;
+    MaterialCache newMaterials;
+    TextureCache newTextures;
+    ModelCache newModels;
     newMaterials.reserve(scene.materials.size());
     newTextures.reserve(scene.materials.size());
     for (const core::SceneMaterial& saved : scene.materials) {
@@ -531,14 +650,35 @@ bool Application::applyScene(const core::SceneDocument& scene, std::string& erro
     std::vector<RenderObject> newObjects;
     newObjects.reserve(scene.objects.size());
     for (const core::SceneObject& saved : scene.objects) {
-        const auto material = newMaterials.find(saved.material);
-        if (material == newMaterials.end()) {
-            error = "object references a missing material: " + saved.material;
-            return false;
+        Material* materialOverride = nullptr;
+        if (!saved.material.empty()) {
+            const auto material = newMaterials.find(saved.material);
+            if (material == newMaterials.end()) {
+                error = "object references a missing material: " + saved.material;
+                return false;
+            }
+            materialOverride = material->second.get();
+        }
+
+        std::shared_ptr<Mesh> mesh;
+        std::shared_ptr<Model> model;
+        if (saved.mesh == "builtin:cube") {
+            if (materialOverride == nullptr) {
+                error = "built-in cube requires a material";
+                return false;
+            }
+            mesh = m_cubeMesh;
+        } else {
+            model = loadModelAsset(
+                saved.mesh, newMaterials, newTextures, newModels, error);
+            if (!model) {
+                error = "failed to load " + saved.mesh + ": " + error;
+                return false;
+            }
         }
         newObjects.push_back({
-            saved.name, saved.mesh, m_cubeMesh, saved.position, saved.rotationDeg,
-            saved.scale, material->second.get(), saved.spinning
+            saved.name, saved.mesh, std::move(mesh), std::move(model), saved.position,
+            saved.rotationDeg, saved.scale, materialOverride, saved.spinning
         });
     }
 
@@ -550,6 +690,7 @@ bool Application::applyScene(const core::SceneDocument& scene, std::string& erro
     m_objects = std::move(newObjects);
     m_materials = std::move(newMaterials);
     m_textures = std::move(newTextures);
+    m_models = std::move(newModels);
     *m_camera = loadedCamera;
     m_dirLight.direction = glm::normalize(scene.directionalLight.direction);
     m_dirLight.color = scene.directionalLight.color;
@@ -565,6 +706,7 @@ bool Application::applyScene(const core::SceneDocument& scene, std::string& erro
     m_postProcessEffect = static_cast<PostProcessEffect>(
         scene.renderSettings.postProcessEffect);
     m_shaderViewMode = scene.renderSettings.shaderViewMode;
+    m_showCoordinateGrid = scene.renderSettings.coordinateGrid;
     m_selectedObject = scene.selectedObject;
     m_firstMouse = true;
 
@@ -823,12 +965,14 @@ void Application::shutdown() {
     }
 
     m_postProcessor.reset();
+    m_coordinateGrid.reset();
     m_benchmarkFramebuffer.reset();
     m_sceneFramebuffer.reset();
     m_benchmarkInstanceCount = 0;
     m_benchmarkMaterial.reset();
 
     m_objects.clear();
+    m_models.clear();
     m_materials.clear();
     m_cubeMesh.reset();
     m_textures.clear();
@@ -971,76 +1115,11 @@ void Application::processInput(float dt) {
     }
 
     if (m_benchmarkEnabled) {
-        if (glfwGetKey(m_window, GLFW_KEY_ESCAPE) == GLFW_PRESS && !m_escPressed) {
-            glfwSetWindowShouldClose(m_window, true);
-            m_escPressed = true;
-        }
-        if (glfwGetKey(m_window, GLFW_KEY_ESCAPE) == GLFW_RELEASE) {
-            m_escPressed = false;
-        }
         return;
     }
-
-    // F9 — toggle GPU info
-    if (glfwGetKey(m_window, GLFW_KEY_F9) == GLFW_PRESS && !m_f9Pressed) {
-        m_showGPUInfo = !m_showGPUInfo;
-        m_f9Pressed = true;
-    }
-    if (glfwGetKey(m_window, GLFW_KEY_F9) == GLFW_RELEASE) {
-        m_f9Pressed = false;
-    }
     
-    // F8 — toggle texture menu
-    if (glfwGetKey(m_window, GLFW_KEY_F8) == GLFW_PRESS && !m_f8Pressed) {
-        Menu::toggle();
-        m_f8Pressed = true;
-    }
-    if (glfwGetKey(m_window, GLFW_KEY_F8) == GLFW_RELEASE) {
-        m_f8Pressed = false;
-    }
-    
-    if (Menu::isOpen()) {
-        if (glfwGetKey(m_window, GLFW_KEY_UP) == GLFW_PRESS && !m_upPressed) {
-            Menu::processKey(GLFW_KEY_UP);
-            m_upPressed = true;
-        }
-        if (glfwGetKey(m_window, GLFW_KEY_UP) == GLFW_RELEASE) {
-            m_upPressed = false;
-        }
-        if (glfwGetKey(m_window, GLFW_KEY_DOWN) == GLFW_PRESS && !m_downPressed) {
-            Menu::processKey(GLFW_KEY_DOWN);
-            m_downPressed = true;
-        }
-        if (glfwGetKey(m_window, GLFW_KEY_DOWN) == GLFW_RELEASE) {
-            m_downPressed = false;
-        }
-        if (glfwGetKey(m_window, GLFW_KEY_ENTER) == GLFW_PRESS && !m_enterPressed) {
-            Menu::processKey(GLFW_KEY_ENTER);
-            m_enterPressed = true;
-        }
-        if (glfwGetKey(m_window, GLFW_KEY_ENTER) == GLFW_RELEASE) {
-            m_enterPressed = false;
-        }
-        if (glfwGetKey(m_window, GLFW_KEY_ESCAPE) == GLFW_PRESS && !m_escPressed) {
-            Menu::processKey(GLFW_KEY_ESCAPE);
-            m_escPressed = true;
-        }
-        if (glfwGetKey(m_window, GLFW_KEY_ESCAPE) == GLFW_RELEASE) {
-            m_escPressed = false;
-        }
-    } else {
-        // ESC — exit (only if menu is closed)
-        if (glfwGetKey(m_window, GLFW_KEY_ESCAPE) == GLFW_PRESS && !m_escPressed) {
-            glfwSetWindowShouldClose(m_window, true);
-            m_escPressed = true;
-        }
-        if (glfwGetKey(m_window, GLFW_KEY_ESCAPE) == GLFW_RELEASE) {
-            m_escPressed = false;
-        }
-    }
-    
-    // Camera movement is frozen while the benchmark uses its fixed view.
-    if (!m_benchmarkEnabled) {
+    // Keep menu navigation from moving the camera behind the overlay.
+    if (!Menu::isOpen()) {
         if (glfwGetKey(m_window, GLFW_KEY_W) == GLFW_PRESS)
             m_camera->processKeyboard(FORWARD, dt);
         if (glfwGetKey(m_window, GLFW_KEY_S) == GLFW_PRESS)
@@ -1163,6 +1242,11 @@ void Application::update(float dt) {
         }
         
         Menu::markReloaded();
+    }
+
+    if (Menu::needsModelLoad()) {
+        loadSelectedModel(Menu::getSelectedModelPath());
+        Menu::markModelLoaded();
     }
     
     if (Menu::needsLightUpdate()) {
@@ -1368,19 +1452,42 @@ void Application::render() {
             const glm::mat4 view = m_camera->getViewMatrix();
             const glm::mat4 projection = glm::perspective(glm::radians(m_camera->fov), aspect, 0.1f, 100.0f);
 
-            if (m_cubeMesh) {
-                for (const RenderObject& obj : m_objects) {
-                    if (!obj.material || !obj.mesh) continue;
+            if (m_showCoordinateGrid && m_coordinateGrid != nullptr) {
+                m_coordinateGrid->draw(view, projection, m_camera->position);
+            }
 
-                    glm::mat4 model = glm::mat4(1.0f);
-                    model = glm::translate(model, obj.position);
-                    model = glm::rotate(model, glm::radians(obj.rotationDeg.x), glm::vec3(1.0f, 0.0f, 0.0f));
-                    model = glm::rotate(model, glm::radians(obj.rotationDeg.y), glm::vec3(0.0f, 1.0f, 0.0f));
-                    model = glm::rotate(model, glm::radians(obj.rotationDeg.z), glm::vec3(0.0f, 0.0f, 1.0f));
-                    model = glm::scale(model, obj.scale);
+            for (const RenderObject& obj : m_objects) {
+                glm::mat4 model = glm::mat4(1.0f);
+                model = glm::translate(model, obj.position);
+                model = glm::rotate(
+                    model, glm::radians(obj.rotationDeg.x), glm::vec3(1.0f, 0.0f, 0.0f));
+                model = glm::rotate(
+                    model, glm::radians(obj.rotationDeg.y), glm::vec3(0.0f, 1.0f, 0.0f));
+                model = glm::rotate(
+                    model, glm::radians(obj.rotationDeg.z), glm::vec3(0.0f, 0.0f, 1.0f));
+                model = glm::scale(model, obj.scale);
 
-                    m_renderer->drawMesh(*obj.mesh, *obj.material, model, view, projection,
-                                         m_camera->position, m_dirLight, m_pointLight, m_shaderViewMode);
+                if (obj.model != nullptr) {
+                    for (const ModelPart& part : obj.model->parts()) {
+                        const Material* material = obj.material;
+                        if (material == nullptr) {
+                            const auto importedMaterial = m_materials.find(part.materialId);
+                            if (importedMaterial != m_materials.end()) {
+                                material = importedMaterial->second.get();
+                            }
+                        }
+                        if (part.mesh != nullptr && material != nullptr) {
+                            m_renderer->drawMesh(
+                                *part.mesh, *material, model, view, projection,
+                                m_camera->position, m_dirLight, m_pointLight,
+                                m_shaderViewMode);
+                        }
+                    }
+                } else if (obj.mesh != nullptr && obj.material != nullptr) {
+                    m_renderer->drawMesh(
+                        *obj.mesh, *obj.material, model, view, projection,
+                        m_camera->position, m_dirLight, m_pointLight,
+                        m_shaderViewMode);
                 }
             }
 
@@ -1453,6 +1560,9 @@ void Application::render() {
         oss << " (fixed)";
     }
     oss << "\nBenchmark: " << (m_benchmarkEnabled ? "ON" : "OFF") << " [F7]";
+    if (!m_benchmarkEnabled) {
+        oss << "\nGrid: " << (m_showCoordinateGrid ? "ON" : "OFF") << " [G]";
+    }
     if (m_benchmarkEnabled) {
         oss << "\nTarget: " << kBenchmarkWidth << "x" << kBenchmarkHeight;
         oss << "\nDisplay: " << width << "x" << height;
@@ -1535,7 +1645,17 @@ void Application::render() {
         UIText::renderText(lightOss.str(), 10.0f, 290.0f, 1.2f);
 
         std::ostringstream cubeOss;
-        cubeOss << "Selected Cube: " << m_selectedObject;
+        cubeOss << "Selected Object: " << m_selectedObject;
+        if (m_selectedObject >= 0 &&
+            m_selectedObject < static_cast<int>(m_objects.size())) {
+            const RenderObject& object =
+                m_objects[static_cast<std::size_t>(m_selectedObject)];
+            cubeOss << "\nMesh: " << object.meshAsset;
+            if (object.model != nullptr) {
+                cubeOss << "\nGeometry: " << object.model->vertexCount() << " vertices, "
+                        << object.model->indexCount() << " indices";
+            }
+        }
         UIText::renderText(cubeOss.str(), 10.0f, 430.0f, 1.2f);
     }
     UIText::flush();
@@ -1582,7 +1702,46 @@ void Application::onKey(int key, int action) {
         return;
     }
 
+    if (key == GLFW_KEY_F8 && !m_benchmarkEnabled) {
+        Menu::toggle();
+        return;
+    }
+    if (key == GLFW_KEY_F9 && !m_benchmarkEnabled) {
+        m_showGPUInfo = !m_showGPUInfo;
+        return;
+    }
+    if (m_benchmarkEnabled && key == GLFW_KEY_ESCAPE) {
+        glfwSetWindowShouldClose(m_window, true);
+        return;
+    }
+    if (!m_benchmarkEnabled && Menu::isOpen()) {
+        int menuKey = key;
+        if (key == GLFW_KEY_W || key == GLFW_KEY_KP_8) {
+            menuKey = GLFW_KEY_UP;
+        } else if (key == GLFW_KEY_S || key == GLFW_KEY_KP_2) {
+            menuKey = GLFW_KEY_DOWN;
+        } else if (key == GLFW_KEY_KP_ENTER) {
+            menuKey = GLFW_KEY_ENTER;
+        } else if (key == GLFW_KEY_BACKSPACE) {
+            menuKey = GLFW_KEY_ESCAPE;
+        }
+
+        if (menuKey == GLFW_KEY_UP || menuKey == GLFW_KEY_DOWN ||
+            menuKey == GLFW_KEY_ENTER || menuKey == GLFW_KEY_ESCAPE) {
+            Menu::processKey(menuKey);
+            return;
+        }
+    }
+    if (!m_benchmarkEnabled && !Menu::isOpen() && key == GLFW_KEY_ESCAPE) {
+        glfwSetWindowShouldClose(m_window, true);
+        return;
+    }
+
     if (!m_benchmarkEnabled && !Menu::isOpen()) {
+        if (key == GLFW_KEY_G) {
+            m_showCoordinateGrid = !m_showCoordinateGrid;
+            return;
+        }
         Material* material = selectedMaterial();
         if (key == GLFW_KEY_L) {
             m_pointLight.enabled = !m_pointLight.enabled;

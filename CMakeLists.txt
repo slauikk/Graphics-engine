@@ -14,9 +14,11 @@ add_executable(Graphics_engine
         src/core/scene_document.cpp
         src/core/resource_manager.cpp
         src/renderer/renderer.cpp
+        src/renderer/coordinate_grid.cpp
         src/renderer/framebuffer.cpp
         src/renderer/post_processor.cpp
         src/renderer/material.cpp
+        src/renderer/model_loader.cpp
         src/renderer/mesh/vertex_buffer.cpp
         src/renderer/mesh/index_buffer.cpp
         src/renderer/mesh/vertex_array.cpp
@@ -35,6 +37,7 @@ find_package(glfw3 CONFIG REQUIRED)
 find_package(glad CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(assimp CONFIG REQUIRED)
 
 target_link_libraries(Graphics_engine
         PRIVATE
@@ -42,6 +45,7 @@ target_link_libraries(Graphics_engine
         glad::glad
         glm::glm
         nlohmann_json::nlohmann_json
+        assimp::assimp
 )
 
 target_compile_definitions(Graphics_engine PRIVATE
@@ -58,3 +62,12 @@ add_custom_command(TARGET Graphics_engine POST_BUILD
     $<TARGET_FILE_DIR:Graphics_engine>/assets
     COMMENT "Copying assets to build directory"
 )
+
+if(WIN32)
+    add_custom_command(TARGET Graphics_engine POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:assimp::assimp>
+        $<TARGET_FILE_DIR:Graphics_engine>
+        COMMENT "Copying Assimp runtime"
+    )
+endif()

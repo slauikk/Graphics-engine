@@ -17,14 +17,17 @@ class Camera;
 class Shader;
 class Texture2D;
 class Renderer;
+class CoordinateGrid;
 class Framebuffer;
 class Material;
 class Mesh;
+class Model;
 
 struct RenderObject {
     std::string name;
     std::string meshAsset;
     std::shared_ptr<Mesh> mesh;
+    std::shared_ptr<Model> model;
     glm::vec3 position;
     glm::vec3 rotationDeg;   // Euler degrees
     glm::vec3 scale;
@@ -39,6 +42,10 @@ public:
     int run();
 
 private:
+    using MaterialCache = std::unordered_map<std::string, std::unique_ptr<Material>>;
+    using TextureCache = std::unordered_map<std::string, std::shared_ptr<Texture2D>>;
+    using ModelCache = std::unordered_map<std::string, std::shared_ptr<Model>>;
+
     enum class BenchmarkCaptureState {
         Idle,
         WarmingUp,
@@ -57,6 +64,13 @@ private:
     bool applyScene(const core::SceneDocument& scene, std::string& error);
     void saveQuickScene();
     void loadQuickScene();
+    std::shared_ptr<Model> loadModelAsset(
+        const std::string& assetReference,
+        MaterialCache& materials,
+        TextureCache& textures,
+        ModelCache& models,
+        std::string& error);
+    void loadSelectedModel(const std::string& assetReference);
     void resetFrameStatistics();
     void restartBenchmarkCapture();
     void updateBenchmarkCapture();
@@ -107,14 +121,6 @@ private:
     std::string m_gpuRenderer;
     std::string m_openGlVersion;
     
-    // Key debounce flags
-    bool m_f9Pressed = false;
-    bool m_f8Pressed = false;
-    bool m_upPressed = false;
-    bool m_downPressed = false;
-    bool m_enterPressed = false;
-    bool m_escPressed = false;
-    
     // Shader reload message
     float m_reloadMessageTime = 0.0f;
     std::string m_reloadMessage;
@@ -141,6 +147,8 @@ private:
     std::shared_ptr<Mesh> m_cubeMesh = nullptr;
     std::shared_ptr<Shader> m_shader = nullptr;
     Renderer* m_renderer = nullptr;
+    std::unique_ptr<CoordinateGrid> m_coordinateGrid;
+    bool m_showCoordinateGrid = true;
     std::unique_ptr<Framebuffer> m_sceneFramebuffer;
     std::unique_ptr<Framebuffer> m_benchmarkFramebuffer;
     std::unique_ptr<PostProcessor> m_postProcessor;
@@ -161,8 +169,9 @@ private:
     std::vector<float> m_benchmarkPresentSamples;
     
     // Cached ownership; RenderObject keeps non-owning Material pointers.
-    std::unordered_map<std::string, std::unique_ptr<Material>> m_materials;
-    std::unordered_map<std::string, std::shared_ptr<Texture2D>> m_textures;
+    MaterialCache m_materials;
+    TextureCache m_textures;
+    ModelCache m_models;
     
     // Lighting
     DirectionalLight m_dirLight;

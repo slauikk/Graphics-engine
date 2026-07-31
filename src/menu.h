@@ -9,6 +9,7 @@ public:
     enum MenuState {
         MAIN_MENU,
         TEXTURES,
+        MODELS,
         MOVEMENT_ROOT,
         MOVEMENT_CUBE,
         MOVEMENT_LIGHT,
@@ -77,6 +78,11 @@ public:
         std::string path;
         bool isGenerated;
     };
+
+    struct ModelOption {
+        std::string name;
+        std::string path;
+    };
     
     static void init();
     static void update();
@@ -87,6 +93,9 @@ public:
     static std::string getSelectedTexturePath();
     static bool needsReload();
     static void markReloaded();
+    static std::string getSelectedModelPath();
+    static bool needsModelLoad();
+    static void markModelLoaded();
     static MovementState getMovementState();
     static bool needsMovementUpdate();
     static void markMovementUpdated();
@@ -114,8 +123,11 @@ private:
     static MenuState m_currentState;
     static int m_selectedIndex;
     static std::vector<TextureOption> m_textures;
+    static std::vector<ModelOption> m_models;
     static bool m_needsReload;
     static std::string m_lastSelectedPath;
+    static bool m_needsModelLoad;
+    static std::string m_lastSelectedModelPath;
     static MovementState m_movementState;
     static bool m_needsMovementUpdate;
 
@@ -132,8 +144,10 @@ private:
     static bool m_needsDirLightUpdate;
     
     static void scanTextures();
+    static void scanModels();
     static void renderMainMenu();
     static void renderTexturesMenu();
+    static void renderModelsMenu();
     static void renderMovementRootMenu();
     static void renderCubeMenu();
     static void renderLightMenu();

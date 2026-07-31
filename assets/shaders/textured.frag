@@ -36,7 +36,9 @@ uniform int u_DebugViewMode;
 uniform int u_BenchmarkIterations;
 
 void main() {
-    vec3 albedo = u_UseAlbedoTex != 0 ? texture(u_AlbedoTex, TexCoord).rgb : u_AlbedoColor;
+    vec3 albedo = u_UseAlbedoTex != 0
+        ? texture(u_AlbedoTex, TexCoord).rgb * u_AlbedoColor
+        : u_AlbedoColor;
     vec3 norm = normalize(Normal);
     vec3 viewDir = normalize(u_CameraPos - FragPos);
     float materialShininess = max(2.0, u_Shininess * mix(1.0, 0.0625, u_Roughness));

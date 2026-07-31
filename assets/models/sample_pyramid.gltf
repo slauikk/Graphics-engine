@@ -1,0 +1,68 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "Graphics_engine sample asset"
+  },
+  "scene": 0,
+  "scenes": [
+    { "nodes": [0] }
+  ],
+  "nodes": [
+    { "mesh": 0, "name": "SamplePyramid" }
+  ],
+  "meshes": [
+    {
+      "name": "SamplePyramid",
+      "primitives": [
+        {
+          "attributes": { "POSITION": 0, "TEXCOORD_0": 1 },
+          "indices": 2,
+          "material": 0
+        }
+      ]
+    }
+  ],
+  "materials": [
+    {
+      "name": "CoolBlue",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [0.10, 0.45, 0.90, 1.0],
+        "metallicFactor": 0.35,
+        "roughnessFactor": 0.50
+      }
+    }
+  ],
+  "buffers": [
+    {
+      "uri": "data:application/octet-stream;base64,AACAvwAAgL8AAAAAAACAPwAAgL8AAAAAAACAPwAAgD8AAAAAAACAvwAAgD8AAAAAAAAAAAAAAAAAAMA/AAAAAAAAAAAAAIA/AAAAAAAAgD8AAIA/AAAAAAAAgD8AAAA/AAAAPwAAAgABAAAAAwACAAAAAQAEAAEAAgAEAAIAAwAEAAMAAAAEAA==",
+      "byteLength": 136
+    }
+  ],
+  "bufferViews": [
+    { "buffer": 0, "byteOffset": 0, "byteLength": 60, "target": 34962 },
+    { "buffer": 0, "byteOffset": 60, "byteLength": 40, "target": 34962 },
+    { "buffer": 0, "byteOffset": 100, "byteLength": 36, "target": 34963 }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 5,
+      "type": "VEC3",
+      "min": [-1.0, -1.0, 0.0],
+      "max": [1.0, 1.0, 1.5]
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 5,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5123,
+      "count": 18,
+      "type": "SCALAR"
+    }
+  ]
+}

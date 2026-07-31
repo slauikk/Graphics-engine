@@ -11,6 +11,7 @@ saved-scenes/
 # Compiled
 *.o
 *.obj
+!assets/models/*.obj
 *.exe
 *.dll
 *.so

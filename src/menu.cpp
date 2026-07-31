@@ -8,11 +8,12 @@
 #include <sstream>
 #include <iomanip>
 #include <iostream>
+#include <utility>
 
 namespace {
 
 const std::vector<std::string> MAIN_MENU_ITEMS = {
-    "Textures", "Movement", "Lighting"
+    "Textures", "Models", "Movement", "Lighting"
 };
 
 const std::vector<std::string> MOVEMENT_ROOT_ITEMS = {
@@ -72,12 +73,15 @@ const std::vector<std::string> LIGHTING_MENU_ITEMS = {
     "Toggle Point"
 };
 
-int itemCountForState(Menu::MenuState state, int textureCount) {
+constexpr std::size_t kVisibleModelRows = 12;
+
+int itemCountForState(Menu::MenuState state, int optionCount) {
     switch (state) {
         case Menu::MAIN_MENU:
             return static_cast<int>(MAIN_MENU_ITEMS.size());
         case Menu::TEXTURES:
-            return textureCount;
+        case Menu::MODELS:
+            return optionCount;
         case Menu::MOVEMENT_ROOT:
             return static_cast<int>(MOVEMENT_ROOT_ITEMS.size());
         case Menu::MOVEMENT_CUBE:
@@ -97,8 +101,11 @@ bool Menu::m_isOpen = false;
 Menu::MenuState Menu::m_currentState = MAIN_MENU;
 int Menu::m_selectedIndex = 0;
 std::vector<Menu::TextureOption> Menu::m_textures;
+std::vector<Menu::ModelOption> Menu::m_models;
 bool Menu::m_needsReload = false;
 std::string Menu::m_lastSelectedPath = "";
+bool Menu::m_needsModelLoad = false;
+std::string Menu::m_lastSelectedModelPath = "";
 Menu::MovementState Menu::m_movementState = MOVEMENT_STOPPED;
 bool Menu::m_needsMovementUpdate = false;
 Menu::CubeControlAction Menu::m_cubeControlAction = CUBE_NONE;
@@ -117,6 +124,7 @@ bool Menu::m_needsDirLightUpdate = false;
 
 void Menu::init() {
     scanTextures();
+    scanModels();
 }
 
 void Menu::scanTextures() {
@@ -158,9 +166,54 @@ void Menu::scanTextures() {
     }
 }
 
+void Menu::scanModels() {
+    m_models.clear();
+
+    const std::filesystem::path modelsDirectory = core::assetPath("models");
+    try {
+        if (std::filesystem::exists(modelsDirectory) &&
+            std::filesystem::is_directory(modelsDirectory)) {
+            for (const auto& entry : std::filesystem::directory_iterator(modelsDirectory)) {
+                if (!entry.is_regular_file()) {
+                    continue;
+                }
+
+                std::string extension = entry.path().extension().string();
+                std::transform(
+                    extension.begin(), extension.end(), extension.begin(),
+                    [](unsigned char character) {
+                        return static_cast<char>(std::tolower(character));
+                    });
+                if (extension != ".obj" && extension != ".gltf" && extension != ".glb") {
+                    continue;
+                }
+
+                ModelOption option;
+                option.name = entry.path().filename().string();
+                option.path = "models/" + option.name;
+                m_models.push_back(std::move(option));
+            }
+
+            std::sort(
+                m_models.begin(), m_models.end(),
+                [](const ModelOption& left, const ModelOption& right) {
+                    return left.name < right.name;
+                });
+        }
+    } catch (const std::exception& error) {
+        std::cerr << "[Menu] Failed to scan models: " << error.what() << "\n";
+    }
+
+    if (m_selectedIndex >= static_cast<int>(m_models.size())) {
+        m_selectedIndex = 0;
+    }
+}
+
 void Menu::update() {
-    if (m_isOpen && m_textures.empty()) {
-        scanTextures();
+    if (m_isOpen) {
+        if (m_textures.empty()) {
+            scanTextures();
+        }
     }
 }
 
@@ -173,6 +226,9 @@ void Menu::render() {
             break;
         case TEXTURES:
             renderTexturesMenu();
+            break;
+        case MODELS:
+            renderModelsMenu();
             break;
         case MOVEMENT_ROOT:
             renderMovementRootMenu();
@@ -211,7 +267,7 @@ void Menu::renderMainMenu() {
     }
     
     y += lineHeight;
-    std::string instructions = "\nArrow Keys: Navigate\nEnter: Select\nESC: Back/Close\nF8: Close";
+    std::string instructions = "\nArrows/W/S: Navigate\nEnter: Select\nESC: Back/Close\nF8: Close";
     UIText::renderText(instructions, x, y, 1.5f);
 }
 
@@ -237,8 +293,59 @@ void Menu::renderTexturesMenu() {
     }
     
     y += lineHeight;
-    std::string instructions = "\nArrow Keys: Navigate\nEnter: Select\nESC: Back\nF8: Close";
+    std::string instructions = "\nArrows/W/S: Navigate\nEnter: Select\nESC: Back\nF8: Close";
     UIText::renderText(instructions, x, y, 1.5f);
+}
+
+void Menu::renderModelsMenu() {
+    float x = 200.0f;
+    float y = 200.0f;
+    const float lineHeight = 14.0f * 1.5f;
+
+    UIText::renderText("Model Selection:\n\n", x, y, 1.5f);
+    y += lineHeight * 2;
+
+    if (m_models.empty()) {
+        UIText::renderText("  No .obj/.gltf/.glb models found", x, y, 1.5f);
+        y += lineHeight;
+    } else {
+        std::size_t firstVisible = 0;
+        if (m_models.size() > kVisibleModelRows) {
+            const std::size_t selected = static_cast<std::size_t>(std::clamp(
+                m_selectedIndex, 0, static_cast<int>(m_models.size() - 1)));
+            if (selected > kVisibleModelRows / 2) {
+                firstVisible = selected - kVisibleModelRows / 2;
+            }
+            firstVisible = std::min(
+                firstVisible, m_models.size() - kVisibleModelRows);
+        }
+        const std::size_t lastVisible = std::min(
+            firstVisible + kVisibleModelRows, m_models.size());
+
+        if (firstVisible > 0) {
+            UIText::renderText("  ...", x, y, 1.5f);
+            y += lineHeight;
+        }
+        for (std::size_t index = firstVisible; index < lastVisible; ++index) {
+            const bool selected = static_cast<int>(index) == m_selectedIndex;
+            const std::string itemText = (selected ? "> " : "  ") + m_models[index].name;
+            if (selected) {
+                UIText::renderTextWithColor(
+                    itemText, x, y, 1.5f, 1.0f, 1.0f, 0.0f);
+            } else {
+                UIText::renderText(itemText, x, y, 1.5f);
+            }
+            y += lineHeight;
+        }
+        if (lastVisible < m_models.size()) {
+            UIText::renderText("  ...", x, y, 1.5f);
+            y += lineHeight;
+        }
+    }
+
+    y += lineHeight;
+    UIText::renderText("\nArrows/W/S: Navigate\nEnter: Load\nESC: Back\nF8: Close",
+                       x, y, 1.5f);
 }
 
 void Menu::renderMovementRootMenu() {
@@ -263,7 +370,7 @@ void Menu::renderMovementRootMenu() {
     }
     
     y += lineHeight;
-    std::string instructions = "\nArrow Keys: Navigate\nEnter: Select\nESC: Back\nF8: Close";
+    std::string instructions = "\nArrows/W/S: Navigate\nEnter: Select\nESC: Back\nF8: Close";
     UIText::renderText(instructions, x, y, 1.5f);
 }
 
@@ -300,7 +407,7 @@ void Menu::renderCubeMenu() {
     UIText::renderText(posStr.str(), x, y, 1.5f);
     y += lineHeight * 2;
     
-    std::string instructions = "\nArrow Keys: Navigate\nEnter: Select\nESC: Back\nF8: Close";
+    std::string instructions = "\nArrows/W/S: Navigate\nEnter: Select\nESC: Back\nF8: Close";
     UIText::renderText(instructions, x, y, 1.5f);
 }
 
@@ -332,7 +439,7 @@ void Menu::renderLightMenu() {
     UIText::renderText(lightPosStr.str(), x, y, 1.5f);
     y += lineHeight * 2;
     
-    std::string instructions = "\nArrow Keys: Navigate\nEnter: Select\nESC: Back\nF8: Close";
+    std::string instructions = "\nArrows/W/S: Navigate\nEnter: Select\nESC: Back\nF8: Close";
     UIText::renderText(instructions, x, y, 1.5f);
 }
 
@@ -346,13 +453,17 @@ void Menu::toggle() {
         m_currentState = MAIN_MENU;
         m_selectedIndex = 0;
         scanTextures();
+        scanModels();
     }
 }
 
 void Menu::processKey(int key) {
     if (!m_isOpen) return;
     
-    const int maxItems = itemCountForState(m_currentState, static_cast<int>(m_textures.size()));
+    const int optionCount = m_currentState == MODELS
+        ? static_cast<int>(m_models.size())
+        : static_cast<int>(m_textures.size());
+    const int maxItems = itemCountForState(m_currentState, optionCount);
 
     if (key == GLFW_KEY_UP && maxItems > 0) {
         m_selectedIndex--;
@@ -370,9 +481,12 @@ void Menu::processKey(int key) {
                 m_currentState = TEXTURES;
                 m_selectedIndex = 0;
             } else if (m_selectedIndex == 1) {
-                m_currentState = MOVEMENT_ROOT;
+                m_currentState = MODELS;
                 m_selectedIndex = 0;
             } else if (m_selectedIndex == 2) {
+                m_currentState = MOVEMENT_ROOT;
+                m_selectedIndex = 0;
+            } else if (m_selectedIndex == 3) {
                 m_currentState = LIGHTING;
                 m_selectedIndex = 0;
             }
@@ -380,6 +494,12 @@ void Menu::processKey(int key) {
             if (m_selectedIndex >= 0 && m_selectedIndex < static_cast<int>(m_textures.size())) {
                 m_lastSelectedPath = m_textures[m_selectedIndex].path;
                 m_needsReload = true;
+            }
+        } else if (m_currentState == MODELS) {
+            if (m_selectedIndex >= 0 &&
+                m_selectedIndex < static_cast<int>(m_models.size())) {
+                m_lastSelectedModelPath = m_models[m_selectedIndex].path;
+                m_needsModelLoad = true;
             }
         } else if (m_currentState == MOVEMENT_ROOT) {
             if (m_selectedIndex == 0) {
@@ -514,7 +634,8 @@ void Menu::processKey(int key) {
     } else if (key == GLFW_KEY_ESCAPE) {
         if (m_currentState == MAIN_MENU) {
             m_isOpen = false;
-        } else if (m_currentState == TEXTURES || m_currentState == MOVEMENT_ROOT) {
+        } else if (m_currentState == TEXTURES || m_currentState == MODELS ||
+                   m_currentState == MOVEMENT_ROOT) {
             m_currentState = MAIN_MENU;
             m_selectedIndex = 0;
         } else if (m_currentState == MOVEMENT_CUBE || m_currentState == MOVEMENT_LIGHT) {
@@ -537,6 +658,18 @@ bool Menu::needsReload() {
 
 void Menu::markReloaded() {
     m_needsReload = false;
+}
+
+std::string Menu::getSelectedModelPath() {
+    return m_lastSelectedModelPath;
+}
+
+bool Menu::needsModelLoad() {
+    return m_needsModelLoad;
+}
+
+void Menu::markModelLoaded() {
+    m_needsModelLoad = false;
 }
 
 Menu::MovementState Menu::getMovementState() {
@@ -611,7 +744,7 @@ void Menu::renderLightingMenu() {
     }
     
     y += lineHeight;
-    std::string instructions = "\nArrow Keys: Navigate\nEnter: Select\nESC: Back\nF8: Close";
+    std::string instructions = "\nArrows/W/S: Navigate\nEnter: Select\nESC: Back\nF8: Close";
     UIText::renderText(instructions, x, y, 1.5f);
 }
 
