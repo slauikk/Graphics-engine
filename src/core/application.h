@@ -12,6 +12,7 @@
 #include "renderer/light.h"
 #include "renderer/post_processor.h"
 #include "scene_document.h"
+#include "scene_history.h"
 
 class Camera;
 class Shader;
@@ -76,6 +77,8 @@ private:
     void duplicateSelectedObject();
     void deleteSelectedObject();
     void syncSelectedObjectToMenu();
+    void checkpointScene();
+    void restoreSceneHistory(bool redo);
     void resetFrameStatistics();
     void restartBenchmarkCapture();
     void updateBenchmarkCapture();
@@ -147,6 +150,7 @@ private:
     // Objects
     std::vector<RenderObject> m_objects;
     int m_selectedObject = 0;
+    core::SceneHistory m_sceneHistory;
     
     // Rendering resources
     std::shared_ptr<Mesh> m_cubeMesh = nullptr;

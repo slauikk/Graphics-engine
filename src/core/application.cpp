@@ -522,7 +522,16 @@ void Application::loadSelectedModel(const std::string& assetReference) {
     }
 
     RenderObject& object = m_objects[static_cast<std::size_t>(m_selectedObject)];
-    object.meshAsset = normalizedAssetReference(assetReference);
+    const std::string normalizedReference = normalizedAssetReference(assetReference);
+    if (object.model == model && object.meshAsset == normalizedReference) {
+        m_sceneOperationSucceeded = true;
+        m_sceneMessage = "Model already loaded: " +
+                         std::filesystem::path(assetReference).filename().string();
+        return;
+    }
+
+    checkpointScene();
+    object.meshAsset = normalizedReference;
     object.mesh.reset();
     object.model = std::move(model);
     object.material = nullptr;
@@ -563,6 +572,7 @@ void Application::duplicateSelectedObject() {
         return;
     }
 
+    checkpointScene();
     RenderObject duplicate = m_objects[static_cast<std::size_t>(m_selectedObject)];
     duplicate.name = duplicateObjectName(duplicate.name);
     duplicate.position += glm::vec3(0.75f, 0.0f, 0.75f);
@@ -586,6 +596,7 @@ void Application::deleteSelectedObject() {
         return;
     }
 
+    checkpointScene();
     const std::string deletedName =
         m_objects[static_cast<std::size_t>(m_selectedObject)].name;
     m_objects.erase(m_objects.begin() + m_selectedObject);
@@ -615,6 +626,41 @@ void Application::syncSelectedObjectToMenu() {
     } else {
         Menu::setCubePosition(0.0f, 0.0f, 0.0f);
     }
+}
+
+void Application::checkpointScene() {
+    m_sceneHistory.record(captureScene());
+}
+
+void Application::restoreSceneHistory(bool redo) {
+    m_sceneMessageTime = 2.0f;
+    const core::SceneDocument* target =
+        redo ? m_sceneHistory.redoTarget() : m_sceneHistory.undoTarget();
+    if (target == nullptr) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = redo ? "Nothing to redo" : "Nothing to undo";
+        return;
+    }
+
+    core::SceneDocument current = captureScene();
+    core::SceneDocument restored = *target;
+    restored.camera = current.camera;
+
+    std::string error;
+    if (!applyScene(restored, error)) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = redo ? "Redo failed" : "Undo failed";
+        std::cerr << m_sceneMessage << ": " << error << "\n";
+        return;
+    }
+
+    const bool committed = redo
+        ? m_sceneHistory.commitRedo(std::move(current))
+        : m_sceneHistory.commitUndo(std::move(current));
+    m_sceneOperationSucceeded = committed;
+    m_sceneMessage = committed
+        ? (redo ? "Scene change redone" : "Scene change undone")
+        : (redo ? "Redo failed" : "Undo failed");
 }
 
 Material* Application::selectedMaterial() {
@@ -846,10 +892,16 @@ void Application::loadQuickScene() {
     const std::filesystem::path path = core::quickSaveScenePath();
     core::SceneDocument scene;
     core::SceneIoResult result = core::loadSceneDocument(path, scene);
+    core::SceneDocument previousScene;
     std::string applyError;
-    if (result.success && !applyScene(scene, applyError)) {
-        result.success = false;
-        result.error = std::move(applyError);
+    if (result.success) {
+        previousScene = captureScene();
+        if (!applyScene(scene, applyError)) {
+            result.success = false;
+            result.error = std::move(applyError);
+        } else {
+            m_sceneHistory.record(std::move(previousScene));
+        }
     }
 
     m_sceneOperationSucceeded = result.success;
@@ -1080,6 +1132,7 @@ void Application::shutdown() {
     m_benchmarkMaterial.reset();
 
     m_objects.clear();
+    m_sceneHistory.clear();
     m_models.clear();
     m_materials.clear();
     m_cubeMesh.reset();
@@ -1236,6 +1289,9 @@ void Application::processInput(float dt) {
             glfwGetKey(m_window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
         const bool duplicateShortcutHeld = controlPressed &&
             glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS;
+        const bool historyShortcutHeld = controlPressed &&
+            (glfwGetKey(m_window, GLFW_KEY_Z) == GLFW_PRESS ||
+             glfwGetKey(m_window, GLFW_KEY_Y) == GLFW_PRESS);
         const bool selectionShortcutHeld =
             glfwGetKey(m_window, GLFW_KEY_TAB) == GLFW_PRESS;
 
@@ -1248,9 +1304,9 @@ void Application::processInput(float dt) {
         if (glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS &&
             !duplicateShortcutHeld)
             m_camera->processKeyboard(RIGHT, dt);
-        if (shiftPressed && !selectionShortcutHeld)
+        if (shiftPressed && !selectionShortcutHeld && !historyShortcutHeld)
             m_camera->processKeyboard(UP, dt);
-        if (controlPressed && !duplicateShortcutHeld)
+        if (controlPressed && !duplicateShortcutHeld && !historyShortcutHeld)
             m_camera->processKeyboard(DOWN, dt);
     }
 }
@@ -1279,6 +1335,11 @@ void Application::update(float dt) {
         }
         
         if (m_selectedObject >= 0 && m_selectedObject < static_cast<int>(m_objects.size())) {
+            const bool changesObject = action != Menu::CUBE_NONE &&
+                action != Menu::CUBE_PREV && action != Menu::CUBE_NEXT;
+            if (changesObject) {
+                checkpointScene();
+            }
             RenderObject& obj = m_objects[m_selectedObject];
             
             switch (action) {
@@ -1355,7 +1416,10 @@ void Application::update(float dt) {
         if (m_selectedObject >= 0 && m_selectedObject < static_cast<int>(m_objects.size())) {
             RenderObject& obj = m_objects[m_selectedObject];
             if (Material* newMaterial = getOrCreateMaterial(selectedPath)) {
-                obj.material = newMaterial;
+                if (obj.material != newMaterial) {
+                    checkpointScene();
+                    obj.material = newMaterial;
+                }
             }
         }
         
@@ -1370,6 +1434,9 @@ void Application::update(float dt) {
     if (Menu::needsLightUpdate()) {
         Menu::LightControlAction action = Menu::getLightControlAction();
         const float step = 0.5f;
+        if (action != Menu::LIGHT_NONE) {
+            checkpointScene();
+        }
         
         switch (action) {
             case Menu::LIGHT_X_INC:
@@ -1455,6 +1522,9 @@ void Application::update(float dt) {
     if (Menu::needsDirLightUpdate()) {
         Menu::DirLightControlAction action = Menu::getDirLightControlAction();
         const float angleStep = 0.1f;
+        if (action != Menu::DIRLIGHT_NONE) {
+            checkpointScene();
+        }
         
         switch (action) {
             case Menu::DIRLIGHT_TOGGLE:
@@ -1805,7 +1875,10 @@ void Application::render() {
             cubeOss << "\nSelected: none";
         }
         cubeOss << "\nSelect: Tab / Shift+Tab"
-                << "\nDuplicate: Ctrl+D | Delete: Del";
+                << "\nDuplicate: Ctrl+D | Delete: Del"
+                << "\nUndo: Ctrl+Z | Redo: Ctrl+Y"
+                << "\nHistory: " << m_sceneHistory.undoDepth() << " undo, "
+                << m_sceneHistory.redoDepth() << " redo";
         UIText::renderText(cubeOss.str(), 10.0f, 430.0f, 1.2f);
     }
     UIText::flush();
@@ -1887,6 +1960,15 @@ void Application::onKey(int key, int action, int mods) {
     }
 
     if (!m_benchmarkEnabled && !Menu::isOpen()) {
+        const bool controlPressed = (mods & GLFW_MOD_CONTROL) != 0;
+        if (controlPressed && key == GLFW_KEY_Z) {
+            restoreSceneHistory((mods & GLFW_MOD_SHIFT) != 0);
+            return;
+        }
+        if (controlPressed && key == GLFW_KEY_Y) {
+            restoreSceneHistory(true);
+            return;
+        }
         if (key == GLFW_KEY_TAB) {
             selectObject((mods & GLFW_MOD_SHIFT) != 0 ? -1 : 1);
             return;
@@ -1900,58 +1982,104 @@ void Application::onKey(int key, int action, int mods) {
             return;
         }
         if (key == GLFW_KEY_G) {
+            checkpointScene();
             m_showCoordinateGrid = !m_showCoordinateGrid;
             return;
         }
         Material* material = selectedMaterial();
         if (key == GLFW_KEY_L) {
+            checkpointScene();
             m_pointLight.enabled = !m_pointLight.enabled;
             return;
         }
         if (key == GLFW_KEY_O) {
+            checkpointScene();
             m_dirLight.enabled = !m_dirLight.enabled;
             return;
         }
         if (material != nullptr) {
             if (key == GLFW_KEY_J) {
-                material->shininess = glm::max(2.0f, material->shininess - 8.0f);
+                const float value = glm::max(2.0f, material->shininess - 8.0f);
+                if (value != material->shininess) {
+                    checkpointScene();
+                    material->shininess = value;
+                }
                 return;
             }
             if (key == GLFW_KEY_K) {
-                material->shininess = glm::min(256.0f, material->shininess + 8.0f);
+                const float value = glm::min(256.0f, material->shininess + 8.0f);
+                if (value != material->shininess) {
+                    checkpointScene();
+                    material->shininess = value;
+                }
                 return;
             }
             if (key == GLFW_KEY_N) {
-                material->metallic = glm::max(0.0f, material->metallic - 0.1f);
+                const float value = glm::max(0.0f, material->metallic - 0.1f);
+                if (value != material->metallic) {
+                    checkpointScene();
+                    material->metallic = value;
+                }
                 return;
             }
             if (key == GLFW_KEY_M) {
-                material->metallic = glm::min(1.0f, material->metallic + 0.1f);
+                const float value = glm::min(1.0f, material->metallic + 0.1f);
+                if (value != material->metallic) {
+                    checkpointScene();
+                    material->metallic = value;
+                }
                 return;
             }
             if (key == GLFW_KEY_U) {
-                material->roughness = glm::max(0.0f, material->roughness - 0.1f);
+                const float value = glm::max(0.0f, material->roughness - 0.1f);
+                if (value != material->roughness) {
+                    checkpointScene();
+                    material->roughness = value;
+                }
                 return;
             }
             if (key == GLFW_KEY_I) {
-                material->roughness = glm::min(1.0f, material->roughness + 0.1f);
+                const float value = glm::min(1.0f, material->roughness + 0.1f);
+                if (value != material->roughness) {
+                    checkpointScene();
+                    material->roughness = value;
+                }
                 return;
             }
         }
     }
 
     if (key >= GLFW_KEY_1 && key <= GLFW_KEY_6) {
-        m_postProcessEffect = static_cast<PostProcessEffect>(key - GLFW_KEY_1);
+        const auto effect = static_cast<PostProcessEffect>(key - GLFW_KEY_1);
+        if (effect != m_postProcessEffect) {
+            checkpointScene();
+            m_postProcessEffect = effect;
+        }
     } else if (key == GLFW_KEY_F1) {
-        m_shaderViewMode = 0;
+        if (m_shaderViewMode != 0) {
+            checkpointScene();
+            m_shaderViewMode = 0;
+        }
     } else if (key == GLFW_KEY_F2) {
-        m_shaderViewMode = 1;
+        if (m_shaderViewMode != 1) {
+            checkpointScene();
+            m_shaderViewMode = 1;
+        }
     } else if (key == GLFW_KEY_F3) {
-        m_shaderViewMode = 2;
+        if (m_shaderViewMode != 2) {
+            checkpointScene();
+            m_shaderViewMode = 2;
+        }
     } else if (key == GLFW_KEY_F4) {
-        m_shaderViewMode = 3;
+        if (m_shaderViewMode != 3) {
+            checkpointScene();
+            m_shaderViewMode = 3;
+        }
     } else if (key == GLFW_KEY_F6) {
-        m_shaderViewMode = 4;
+        if (m_shaderViewMode != 4) {
+            checkpointScene();
+            m_shaderViewMode = 4;
+        }
     } else if (key == GLFW_KEY_F5) {
         m_reloadSucceeded = ResourceManager::reloadAllShaders();
         m_reloadMessage = m_reloadSucceeded ? "Shaders reloaded" : "Shader reload failed";

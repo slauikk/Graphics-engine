@@ -1,5 +1,6 @@
 #include "core/benchmark_report.h"
 #include "core/scene_document.h"
+#include "core/scene_history.h"
 
 #include <algorithm>
 #include <chrono>
@@ -324,6 +325,71 @@ void testOversizedSceneIsNotSaved() {
             "oversized scene left a destination file behind");
 }
 
+void testSceneHistoryTransactions() {
+    core::SceneDocument sceneA = validScene();
+    sceneA.objects[0].name = "A";
+    core::SceneDocument sceneB = sceneA;
+    sceneB.objects[0].name = "B";
+    core::SceneDocument sceneC = sceneA;
+    sceneC.objects[0].name = "C";
+
+    core::SceneHistory history(2);
+    history.record(sceneA);
+    history.record(sceneB);
+    require(history.undoDepth() == 2 && history.redoDepth() == 0,
+            "history did not record snapshots");
+
+    const core::SceneDocument* target = history.undoTarget();
+    require(target != nullptr && target->objects[0].name == "B",
+            "undo target is incorrect");
+    require(history.undoDepth() == 2,
+            "reading an undo target committed the transaction early");
+    require(history.commitUndo(sceneC), "undo transaction did not commit");
+    require(history.undoDepth() == 1 && history.redoDepth() == 1,
+            "undo transaction updated the wrong stacks");
+
+    target = history.undoTarget();
+    require(target != nullptr && target->objects[0].name == "A",
+            "second undo target is incorrect");
+    require(history.commitUndo(sceneB), "second undo transaction did not commit");
+    require(!history.canUndo() && history.redoDepth() == 2,
+            "history did not reach its oldest state");
+
+    target = history.redoTarget();
+    require(target != nullptr && target->objects[0].name == "B",
+            "redo target is incorrect");
+    require(history.commitRedo(sceneA), "redo transaction did not commit");
+    target = history.redoTarget();
+    require(target != nullptr && target->objects[0].name == "C",
+            "second redo target is incorrect");
+
+    history.record(sceneB);
+    require(!history.canRedo(), "new edit did not clear the redo branch");
+
+    core::SceneHistory bounded(2);
+    bounded.record(sceneA);
+    bounded.record(sceneB);
+    bounded.record(sceneC);
+    require(bounded.undoDepth() == 2, "bounded history exceeded its capacity");
+    target = bounded.undoTarget();
+    require(target != nullptr && target->objects[0].name == "C",
+            "bounded history lost the newest snapshot");
+    require(bounded.commitUndo(sceneA), "bounded undo did not commit");
+    target = bounded.undoTarget();
+    require(target != nullptr && target->objects[0].name == "B",
+            "bounded history did not evict the oldest snapshot");
+
+    core::SceneHistory disabled(0);
+    disabled.record(sceneA);
+    require(!disabled.canUndo() && !disabled.commitUndo(sceneB),
+            "zero-capacity history accepted a snapshot");
+
+    core::SceneHistory byteLimited(64, 1);
+    byteLimited.record(sceneA);
+    require(!byteLimited.canUndo(),
+            "history retained a snapshot larger than its byte budget");
+}
+
 } // namespace
 
 int main() {
@@ -334,7 +400,8 @@ int main() {
         {"benchmark invalid comparison rejection", testBenchmarkRejectsInvalidComparison},
         {"scene validation matrix", testSceneValidationMatrix},
         {"scene I/O round-trip", testSceneIoRoundTrip},
-        {"oversized scene rejection", testOversizedSceneIsNotSaved}
+        {"oversized scene rejection", testOversizedSceneIsNotSaved},
+        {"scene history transactions", testSceneHistoryTransactions}
     };
 
     int failures = 0;

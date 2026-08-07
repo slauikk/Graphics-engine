@@ -37,6 +37,7 @@ executable, assets, third-party DLLs, and the MSVC runtime libraries.
 - `Tab` / `Shift+Tab`: select the next / previous scene object.
 - `Ctrl+D`: duplicate the selected object with a small position offset.
 - `Delete`: remove the selected object.
+- `Ctrl+Z` / `Ctrl+Y`: undo / redo scene edits without moving the camera.
 - `G`: toggle the coordinate grid.
 - `1`-`6`: select a post-processing effect.
 - `F1`-`F4`, `F6`: select a material debug view.

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.31)
 
-project(Graphics_engine VERSION 0.5.0 LANGUAGES CXX)
+project(Graphics_engine VERSION 0.6.0 LANGUAGES CXX)
 
 include(CTest)
 
@@ -17,6 +17,7 @@ set(GRAPHICS_ENGINE_SOURCES
         src/core/asset_paths.cpp
         src/core/benchmark_report.cpp
         src/core/scene_document.cpp
+        src/core/scene_history.cpp
         src/core/resource_manager.cpp
         src/renderer/renderer.cpp
         src/renderer/coordinate_grid.cpp
@@ -119,6 +120,7 @@ if(BUILD_TESTING)
         tests/core_unit_tests.cpp
         src/core/benchmark_report.cpp
         src/core/scene_document.cpp
+        src/core/scene_history.cpp
     )
     target_include_directories(Graphics_engine_core_tests PRIVATE
         ${CMAKE_SOURCE_DIR}/src
