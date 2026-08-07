@@ -67,6 +67,8 @@ jobs:
             "assets/shaders/textured.vert",
             "assets/shaders/textured.frag",
             "assets/shaders/post_process.frag",
+            "assets/shaders/selection_outline.vert",
+            "assets/shaders/selection_outline.frag",
             "assets/models/sample_pyramid.obj",
             "assets/models/sample_pyramid.gltf"
           )

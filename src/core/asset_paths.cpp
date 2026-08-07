@@ -33,6 +33,8 @@ bool isAssetsRoot(const std::filesystem::path& candidate) {
         shaders / "textured.frag",
         shaders / "post_process.vert",
         shaders / "post_process.frag",
+        shaders / "selection_outline.vert",
+        shaders / "selection_outline.frag",
         shaders / "ui_text.vert",
         shaders / "ui_text.frag"
     };

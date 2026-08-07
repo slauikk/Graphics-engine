@@ -19,7 +19,6 @@ namespace {
 using Json = nlohmann::json;
 
 constexpr std::size_t kMaxMaterials = 32'768;
-constexpr std::size_t kMaxObjects = 100'000;
 constexpr std::size_t kMaxIdLength = 128;
 constexpr std::size_t kMaxAssetReferenceLength = 1'024;
 constexpr std::uintmax_t kMaxSceneFileSize = 32U * 1024U * 1024U;
@@ -243,7 +242,7 @@ core::SceneDocument sceneFromJson(const Json& value) {
     }
 
     const Json& objects = value.at("objects");
-    if (!objects.is_array() || objects.size() > kMaxObjects) {
+    if (!objects.is_array() || objects.size() > core::kMaxSceneObjectCount) {
         throw Json::out_of_range::create(401, "invalid objects array size", &objects);
     }
     scene.objects.reserve(objects.size());
@@ -285,7 +284,8 @@ bool validateSceneDocument(const SceneDocument& scene, std::string& error) {
     if (scene.schemaVersion != kCurrentSceneSchemaVersion) {
         return setValidationError(error, "unsupported scene schema version");
     }
-    if (scene.materials.size() > kMaxMaterials || scene.objects.size() > kMaxObjects) {
+    if (scene.materials.size() > kMaxMaterials ||
+        scene.objects.size() > core::kMaxSceneObjectCount) {
         return setValidationError(error, "scene exceeds supported object limits");
     }
 
@@ -345,7 +345,7 @@ bool validateSceneDocument(const SceneDocument& scene, std::string& error) {
 
     for (const SceneObject& object : scene.objects) {
         const bool isBuiltInMesh = object.mesh.starts_with("builtin:");
-        if (!isValidText(object.name, kMaxIdLength, true) ||
+        if (!isValidText(object.name, core::kMaxSceneObjectNameLength, true) ||
             !isSafeAssetReference(object.mesh, false) ||
             (isBuiltInMesh && object.mesh != "builtin:cube") ||
             (object.mesh == "builtin:cube" && object.material.empty()) ||

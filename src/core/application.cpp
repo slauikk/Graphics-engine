@@ -9,6 +9,7 @@
 #include "../gl_debug.h"
 #include "../renderer/renderer.h"
 #include "../renderer/coordinate_grid.h"
+#include "../renderer/selection_outline.h"
 #include "../renderer/framebuffer.h"
 #include "../renderer/post_processor.h"
 #include "../renderer/material.h"
@@ -41,6 +42,28 @@ constexpr GLsizei kBenchmarkWidth = 1600;
 constexpr GLsizei kBenchmarkHeight = 900;
 constexpr double kBenchmarkWarmupSeconds = 2.0;
 constexpr std::size_t kBenchmarkCaptureSamples = 300;
+
+glm::mat4 objectTransform(const RenderObject& object) {
+    glm::mat4 model(1.0f);
+    model = glm::translate(model, object.position);
+    model = glm::rotate(
+        model, glm::radians(object.rotationDeg.x), glm::vec3(1.0f, 0.0f, 0.0f));
+    model = glm::rotate(
+        model, glm::radians(object.rotationDeg.y), glm::vec3(0.0f, 1.0f, 0.0f));
+    model = glm::rotate(
+        model, glm::radians(object.rotationDeg.z), glm::vec3(0.0f, 0.0f, 1.0f));
+    return glm::scale(model, object.scale);
+}
+
+std::string duplicateObjectName(const std::string& name) {
+    constexpr const char* suffix = " copy";
+    constexpr std::size_t suffixLength = 5;
+    if (name.empty() ||
+        name.size() + suffixLength > core::kMaxSceneObjectNameLength) {
+        return "Object copy";
+    }
+    return name + suffix;
+}
 
 const char* shaderViewModeName(int mode) {
     switch (mode) {
@@ -88,6 +111,7 @@ bool Application::init() {
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 #endif
     glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
+    glfwWindowHint(GLFW_STENCIL_BITS, 8);
 
     GLFWmonitor* monitor = glfwGetPrimaryMonitor();
     if (!monitor) {
@@ -294,6 +318,12 @@ void main() {
         return false;
     }
 
+    m_selectionOutline = std::make_unique<SelectionOutline>();
+    if (!m_selectionOutline->init()) {
+        std::cerr << "Selection outline is unavailable\n";
+        m_selectionOutline.reset();
+    }
+
     m_sceneFramebuffer = std::make_unique<Framebuffer>();
     if (!m_sceneFramebuffer->init(m_width, m_height)) {
         std::cerr << "Failed to create scene framebuffer\n";
@@ -316,13 +346,9 @@ void main() {
     Menu::init();
     
     // Sync initial light position with menu
-    Menu::setLightPosition(m_pointLight.position.x, m_pointLight.position.y, m_pointLight.position.z);
-    if (!m_objects.empty()) {
-        Menu::setSelectedCubeIndex(m_selectedObject);
-        Menu::setCubePosition(m_objects[m_selectedObject].position.x, 
-                             m_objects[m_selectedObject].position.y, 
-                             m_objects[m_selectedObject].position.z);
-    }
+    Menu::setLightPosition(m_pointLight.position.x, m_pointLight.position.y,
+                           m_pointLight.position.z);
+    syncSelectedObjectToMenu();
 
     return true;
 }
@@ -504,6 +530,91 @@ void Application::loadSelectedModel(const std::string& assetReference) {
     m_sceneMessage = "Model loaded: " + std::filesystem::path(assetReference).filename().string();
     std::cout << m_sceneMessage << " | vertices: " << object.model->vertexCount()
               << " | indices: " << object.model->indexCount() << "\n";
+}
+
+void Application::selectObject(int direction) {
+    if (m_objects.empty()) {
+        m_selectedObject = -1;
+        syncSelectedObjectToMenu();
+        return;
+    }
+
+    const int objectCount = static_cast<int>(m_objects.size());
+    if (m_selectedObject < 0 || m_selectedObject >= objectCount) {
+        m_selectedObject = direction < 0 ? objectCount - 1 : 0;
+    } else {
+        m_selectedObject = (m_selectedObject + (direction < 0 ? -1 : 1) +
+                            objectCount) % objectCount;
+    }
+    syncSelectedObjectToMenu();
+}
+
+void Application::duplicateSelectedObject() {
+    m_sceneMessageTime = 2.0f;
+    if (m_selectedObject < 0 ||
+        m_selectedObject >= static_cast<int>(m_objects.size())) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Duplicate failed: no selected object";
+        return;
+    }
+    if (m_objects.size() >= core::kMaxSceneObjectCount) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Duplicate failed: object limit reached";
+        return;
+    }
+
+    RenderObject duplicate = m_objects[static_cast<std::size_t>(m_selectedObject)];
+    duplicate.name = duplicateObjectName(duplicate.name);
+    duplicate.position += glm::vec3(0.75f, 0.0f, 0.75f);
+
+    const auto insertion = m_objects.begin() + m_selectedObject + 1;
+    m_objects.insert(insertion, std::move(duplicate));
+    ++m_selectedObject;
+    syncSelectedObjectToMenu();
+
+    m_sceneOperationSucceeded = true;
+    m_sceneMessage = "Object duplicated: " +
+                     m_objects[static_cast<std::size_t>(m_selectedObject)].name;
+}
+
+void Application::deleteSelectedObject() {
+    m_sceneMessageTime = 2.0f;
+    if (m_selectedObject < 0 ||
+        m_selectedObject >= static_cast<int>(m_objects.size())) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Delete failed: no selected object";
+        return;
+    }
+
+    const std::string deletedName =
+        m_objects[static_cast<std::size_t>(m_selectedObject)].name;
+    m_objects.erase(m_objects.begin() + m_selectedObject);
+    if (m_objects.empty()) {
+        m_selectedObject = -1;
+    } else if (m_selectedObject >= static_cast<int>(m_objects.size())) {
+        m_selectedObject = static_cast<int>(m_objects.size()) - 1;
+    }
+    syncSelectedObjectToMenu();
+
+    m_sceneOperationSucceeded = true;
+    m_sceneMessage = "Object deleted: " + deletedName;
+}
+
+void Application::syncSelectedObjectToMenu() {
+    if (m_selectedObject < 0 ||
+        m_selectedObject >= static_cast<int>(m_objects.size())) {
+        m_selectedObject = m_objects.empty() ? -1 : 0;
+    }
+
+    Menu::setSelectedCubeIndex(m_selectedObject);
+    if (m_selectedObject >= 0) {
+        const RenderObject& selected =
+            m_objects[static_cast<std::size_t>(m_selectedObject)];
+        Menu::setCubePosition(
+            selected.position.x, selected.position.y, selected.position.z);
+    } else {
+        Menu::setCubePosition(0.0f, 0.0f, 0.0f);
+    }
 }
 
 Material* Application::selectedMaterial() {
@@ -710,13 +821,9 @@ bool Application::applyScene(const core::SceneDocument& scene, std::string& erro
     m_selectedObject = scene.selectedObject;
     m_firstMouse = true;
 
-    Menu::setSelectedCubeIndex(m_selectedObject);
     Menu::setLightPosition(
         m_pointLight.position.x, m_pointLight.position.y, m_pointLight.position.z);
-    if (m_selectedObject >= 0) {
-        const RenderObject& selected = m_objects[static_cast<std::size_t>(m_selectedObject)];
-        Menu::setCubePosition(selected.position.x, selected.position.y, selected.position.z);
-    }
+    syncSelectedObjectToMenu();
     resetFrameStatistics();
     return true;
 }
@@ -965,6 +1072,7 @@ void Application::shutdown() {
     }
 
     m_postProcessor.reset();
+    m_selectionOutline.reset();
     m_coordinateGrid.reset();
     m_benchmarkFramebuffer.reset();
     m_sceneFramebuffer.reset();
@@ -1120,19 +1228,29 @@ void Application::processInput(float dt) {
     
     // Keep menu navigation from moving the camera behind the overlay.
     if (!Menu::isOpen()) {
+        const bool controlPressed =
+            glfwGetKey(m_window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+            glfwGetKey(m_window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
+        const bool shiftPressed =
+            glfwGetKey(m_window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+            glfwGetKey(m_window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+        const bool duplicateShortcutHeld = controlPressed &&
+            glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS;
+        const bool selectionShortcutHeld =
+            glfwGetKey(m_window, GLFW_KEY_TAB) == GLFW_PRESS;
+
         if (glfwGetKey(m_window, GLFW_KEY_W) == GLFW_PRESS)
             m_camera->processKeyboard(FORWARD, dt);
         if (glfwGetKey(m_window, GLFW_KEY_S) == GLFW_PRESS)
             m_camera->processKeyboard(BACKWARD, dt);
         if (glfwGetKey(m_window, GLFW_KEY_A) == GLFW_PRESS)
             m_camera->processKeyboard(LEFT, dt);
-        if (glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS)
+        if (glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS &&
+            !duplicateShortcutHeld)
             m_camera->processKeyboard(RIGHT, dt);
-        if (glfwGetKey(m_window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
-            glfwGetKey(m_window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS)
+        if (shiftPressed && !selectionShortcutHeld)
             m_camera->processKeyboard(UP, dt);
-        if (glfwGetKey(m_window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
-            glfwGetKey(m_window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS)
+        if (controlPressed && !duplicateShortcutHeld)
             m_camera->processKeyboard(DOWN, dt);
     }
 }
@@ -1456,16 +1574,19 @@ void Application::render() {
                 m_coordinateGrid->draw(view, projection, m_camera->position);
             }
 
-            for (const RenderObject& obj : m_objects) {
-                glm::mat4 model = glm::mat4(1.0f);
-                model = glm::translate(model, obj.position);
-                model = glm::rotate(
-                    model, glm::radians(obj.rotationDeg.x), glm::vec3(1.0f, 0.0f, 0.0f));
-                model = glm::rotate(
-                    model, glm::radians(obj.rotationDeg.y), glm::vec3(0.0f, 1.0f, 0.0f));
-                model = glm::rotate(
-                    model, glm::radians(obj.rotationDeg.z), glm::vec3(0.0f, 0.0f, 1.0f));
-                model = glm::scale(model, obj.scale);
+            const bool hasSelectedObject = m_selectedObject >= 0 &&
+                m_selectedObject < static_cast<int>(m_objects.size());
+            const bool outlinePassActive = hasSelectedObject &&
+                m_selectionOutline != nullptr && m_selectionOutline->beginMask();
+
+            for (std::size_t objectIndex = 0;
+                 objectIndex < m_objects.size(); ++objectIndex) {
+                const RenderObject& obj = m_objects[objectIndex];
+                const glm::mat4 model = objectTransform(obj);
+                if (outlinePassActive) {
+                    m_selectionOutline->maskObject(
+                        objectIndex == static_cast<std::size_t>(m_selectedObject));
+                }
 
                 if (obj.model != nullptr) {
                     for (const ModelPart& part : obj.model->parts()) {
@@ -1489,6 +1610,25 @@ void Application::render() {
                         m_camera->position, m_dirLight, m_pointLight,
                         m_shaderViewMode);
                 }
+            }
+
+            if (outlinePassActive) {
+                const RenderObject& selected =
+                    m_objects[static_cast<std::size_t>(m_selectedObject)];
+                const glm::mat4 selectedModel = objectTransform(selected);
+                m_selectionOutline->beginOutline();
+                if (selected.model != nullptr) {
+                    for (const ModelPart& part : selected.model->parts()) {
+                        if (part.mesh != nullptr) {
+                            m_selectionOutline->drawMesh(
+                                *part.mesh, selectedModel, view, projection);
+                        }
+                    }
+                } else if (selected.mesh != nullptr) {
+                    m_selectionOutline->drawMesh(
+                        *selected.mesh, selectedModel, view, projection);
+                }
+                m_selectionOutline->end();
             }
 
             if (m_pointLight.enabled && m_lightShader != nullptr && m_lightShader->m_id != 0) {
@@ -1645,17 +1785,27 @@ void Application::render() {
         UIText::renderText(lightOss.str(), 10.0f, 290.0f, 1.2f);
 
         std::ostringstream cubeOss;
-        cubeOss << "Selected Object: " << m_selectedObject;
+        cubeOss << "Objects: " << m_objects.size();
         if (m_selectedObject >= 0 &&
             m_selectedObject < static_cast<int>(m_objects.size())) {
             const RenderObject& object =
                 m_objects[static_cast<std::size_t>(m_selectedObject)];
-            cubeOss << "\nMesh: " << object.meshAsset;
+            std::string meshAsset = object.meshAsset;
+            if (meshAsset.length() > 42) {
+                meshAsset = meshAsset.substr(0, 39) + "...";
+            }
+            cubeOss << "\nSelected: " << (m_selectedObject + 1) << "/"
+                    << m_objects.size() << " " << object.name;
+            cubeOss << "\nMesh: " << meshAsset;
             if (object.model != nullptr) {
                 cubeOss << "\nGeometry: " << object.model->vertexCount() << " vertices, "
                         << object.model->indexCount() << " indices";
             }
+        } else {
+            cubeOss << "\nSelected: none";
         }
+        cubeOss << "\nSelect: Tab / Shift+Tab"
+                << "\nDuplicate: Ctrl+D | Delete: Del";
         UIText::renderText(cubeOss.str(), 10.0f, 430.0f, 1.2f);
     }
     UIText::flush();
@@ -1668,10 +1818,9 @@ void Application::framebufferSizeCallback(GLFWwindow* window, int width, int hei
 
 void Application::keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     (void)scancode;
-    (void)mods;
     auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
     if (app != nullptr) {
-        app->onKey(key, action);
+        app->onKey(key, action, mods);
     }
 }
 
@@ -1697,7 +1846,7 @@ void Application::onFramebufferResize(int width, int height) {
     m_height = height;
 }
 
-void Application::onKey(int key, int action) {
+void Application::onKey(int key, int action, int mods) {
     if (action != GLFW_PRESS) {
         return;
     }
@@ -1738,6 +1887,18 @@ void Application::onKey(int key, int action) {
     }
 
     if (!m_benchmarkEnabled && !Menu::isOpen()) {
+        if (key == GLFW_KEY_TAB) {
+            selectObject((mods & GLFW_MOD_SHIFT) != 0 ? -1 : 1);
+            return;
+        }
+        if (key == GLFW_KEY_D && (mods & GLFW_MOD_CONTROL) != 0) {
+            duplicateSelectedObject();
+            return;
+        }
+        if (key == GLFW_KEY_DELETE) {
+            deleteSelectedObject();
+            return;
+        }
         if (key == GLFW_KEY_G) {
             m_showCoordinateGrid = !m_showCoordinateGrid;
             return;

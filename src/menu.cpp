@@ -17,12 +17,12 @@ const std::vector<std::string> MAIN_MENU_ITEMS = {
 };
 
 const std::vector<std::string> MOVEMENT_ROOT_ITEMS = {
-    "Cube", "Light"
+    "Object", "Light"
 };
 
 const std::vector<std::string> CUBE_MENU_ITEMS = {
-    "Prev Cube",
-    "Next Cube",
+    "Previous Object",
+    "Next Object",
     "---",
     "Reset",
     "Spin",
@@ -379,12 +379,17 @@ void Menu::renderCubeMenu() {
     float y = 200.0f;
     float lineHeight = 14.0f * 1.5f;
     
-    std::string header = "Cube Control:\n\n";
+    std::string header = "Object Control:\n\n";
     UIText::renderText(header, x, y, 1.5f);
     y += lineHeight * 2;
     
     std::ostringstream cubeInfo;
-    cubeInfo << "Selected Cube: " << m_selectedCubeIndex;
+    cubeInfo << "Selected Object: ";
+    if (m_selectedCubeIndex >= 0) {
+        cubeInfo << (m_selectedCubeIndex + 1);
+    } else {
+        cubeInfo << "none";
+    }
     UIText::renderText(cubeInfo.str(), x, y, 1.5f);
     y += lineHeight * 2;
     
@@ -403,7 +408,8 @@ void Menu::renderCubeMenu() {
     y += lineHeight;
     std::ostringstream posStr;
     posStr << std::fixed << std::setprecision(1);
-    posStr << "\nCube Pos: (" << m_cubePosX << ", " << m_cubePosY << ", " << m_cubePosZ << ")";
+    posStr << "\nObject Pos: (" << m_cubePosX << ", " << m_cubePosY << ", "
+           << m_cubePosZ << ")";
     UIText::renderText(posStr.str(), x, y, 1.5f);
     y += lineHeight * 2;
     

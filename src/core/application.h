@@ -18,6 +18,7 @@ class Shader;
 class Texture2D;
 class Renderer;
 class CoordinateGrid;
+class SelectionOutline;
 class Framebuffer;
 class Material;
 class Mesh;
@@ -71,6 +72,10 @@ private:
         ModelCache& models,
         std::string& error);
     void loadSelectedModel(const std::string& assetReference);
+    void selectObject(int direction);
+    void duplicateSelectedObject();
+    void deleteSelectedObject();
+    void syncSelectedObjectToMenu();
     void resetFrameStatistics();
     void restartBenchmarkCapture();
     void updateBenchmarkCapture();
@@ -89,7 +94,7 @@ private:
     
     // Instance callbacks
     void onFramebufferResize(int width, int height);
-    void onKey(int key, int action);
+    void onKey(int key, int action, int mods);
     void onMouseMove(double xpos, double ypos);
     void onScroll(double xoffset, double yoffset);
     
@@ -148,6 +153,7 @@ private:
     std::shared_ptr<Shader> m_shader = nullptr;
     Renderer* m_renderer = nullptr;
     std::unique_ptr<CoordinateGrid> m_coordinateGrid;
+    std::unique_ptr<SelectionOutline> m_selectionOutline;
     bool m_showCoordinateGrid = true;
     std::unique_ptr<Framebuffer> m_sceneFramebuffer;
     std::unique_ptr<Framebuffer> m_benchmarkFramebuffer;

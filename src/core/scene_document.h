@@ -1,6 +1,7 @@
 #ifndef SCENE_DOCUMENT_H
 #define SCENE_DOCUMENT_H
 
+#include <cstddef>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -10,6 +11,8 @@
 namespace core {
 
 inline constexpr int kCurrentSceneSchemaVersion = 1;
+inline constexpr std::size_t kMaxSceneObjectCount = 100'000;
+inline constexpr std::size_t kMaxSceneObjectNameLength = 128;
 
 struct SceneMaterial {
     std::string id;

@@ -33,7 +33,10 @@ executable, assets, third-party DLLs, and the MSVC runtime libraries.
 
 - `W/A/S/D`, `Shift`, `Ctrl`: move the camera.
 - Mouse and wheel: look around and change field of view.
-- `F8`: open the texture, model, movement, and lighting menu.
+- `F8`: open the texture, model, object movement, and lighting menu.
+- `Tab` / `Shift+Tab`: select the next / previous scene object.
+- `Ctrl+D`: duplicate the selected object with a small position offset.
+- `Delete`: remove the selected object.
 - `G`: toggle the coordinate grid.
 - `1`-`6`: select a post-processing effect.
 - `F1`-`F4`, `F6`: select a material debug view.
