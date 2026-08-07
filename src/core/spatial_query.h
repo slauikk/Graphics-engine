@@ -16,6 +16,13 @@ std::optional<geometry::AxisAlignedBounds> calculateIndexedBounds(
     std::size_t componentsPerVertex,
     std::span<const std::uint32_t> indices);
 
+std::optional<geometry::AxisAlignedBounds> mergeBounds(
+    std::span<const geometry::AxisAlignedBounds> bounds);
+
+std::optional<geometry::AxisAlignedBounds> transformBounds(
+    const geometry::AxisAlignedBounds& localBounds,
+    const glm::mat4& localToWorld);
+
 std::optional<float> intersectRayAabb(
     const glm::vec3& origin,
     const glm::vec3& direction,

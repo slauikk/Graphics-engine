@@ -12,8 +12,10 @@
 namespace core {
 
 inline constexpr int kCurrentSceneSchemaVersion = 1;
+inline constexpr std::size_t kMaxSceneMaterialCount = 32'768;
 inline constexpr std::size_t kMaxSceneObjectCount = 100'000;
 inline constexpr std::size_t kMaxSceneObjectNameLength = 128;
+inline constexpr float kMaxSceneCoordinate = 1'000'000.0f;
 
 struct SceneMaterial {
     std::string id;

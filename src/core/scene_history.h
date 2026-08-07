@@ -10,6 +10,10 @@ namespace core {
 
 inline constexpr std::size_t kDefaultSceneHistoryBytes = 64U * 1024U * 1024U;
 
+int resolveSceneHistorySelection(
+    const SceneDocument& currentScene,
+    const SceneDocument& restoredScene);
+
 class SceneHistory {
 public:
     explicit SceneHistory(

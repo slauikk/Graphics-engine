@@ -77,6 +77,8 @@ private:
     void loadSelectedModel(const std::string& assetReference);
     void selectObject(int direction);
     void selectObjectUnderCrosshair();
+    void createCubeObject();
+    void focusSelectedObject();
     void duplicateSelectedObject();
     void deleteSelectedObject();
     void syncSelectedObjectToMenu();

@@ -1,9 +1,12 @@
 #include "core/benchmark_report.h"
+#include "core/editor_camera.h"
+#include "core/editor_placement.h"
 #include "core/scene_document.h"
 #include "core/scene_history.h"
 #include "core/spatial_query.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -31,6 +34,52 @@ void require(bool condition, const std::string& message) {
 bool almostEqual(double left, double right) {
     const double scale = std::max({1.0, std::abs(left), std::abs(right)});
     return std::abs(left - right) <= 0.000001 * scale;
+}
+
+std::array<glm::vec3, 8> boundsCorners(
+    const geometry::AxisAlignedBounds& bounds) {
+    return {
+        glm::vec3(bounds.minimum.x, bounds.minimum.y, bounds.minimum.z),
+        glm::vec3(bounds.maximum.x, bounds.minimum.y, bounds.minimum.z),
+        glm::vec3(bounds.minimum.x, bounds.maximum.y, bounds.minimum.z),
+        glm::vec3(bounds.maximum.x, bounds.maximum.y, bounds.minimum.z),
+        glm::vec3(bounds.minimum.x, bounds.minimum.y, bounds.maximum.z),
+        glm::vec3(bounds.maximum.x, bounds.minimum.y, bounds.maximum.z),
+        glm::vec3(bounds.minimum.x, bounds.maximum.y, bounds.maximum.z),
+        glm::vec3(bounds.maximum.x, bounds.maximum.y, bounds.maximum.z)};
+}
+
+void requireBoundsInsideFrustum(
+    const geometry::AxisAlignedBounds& bounds,
+    const glm::vec3& cameraPosition,
+    const glm::vec3& viewDirection,
+    float verticalFovDegrees,
+    float aspectRatio,
+    float nearPlane,
+    float farPlane,
+    float margin,
+    const std::string& message) {
+    const glm::vec3 direction = glm::normalize(viewDirection);
+    glm::vec3 right = glm::cross(direction, glm::vec3(0.0f, 1.0f, 0.0f));
+    if (glm::dot(right, right) <= 1.0e-12f) {
+        right = glm::cross(direction, glm::vec3(0.0f, 0.0f, 1.0f));
+    }
+    right = glm::normalize(right);
+    const glm::vec3 up = glm::normalize(glm::cross(right, direction));
+    const glm::mat4 view = glm::lookAt(
+        cameraPosition, cameraPosition + direction, up);
+    const glm::mat4 projection = glm::perspective(
+        glm::radians(verticalFovDegrees), aspectRatio, nearPlane, farPlane);
+    const float lateralLimit = 1.0f / margin + 0.0001f;
+    for (const glm::vec3& corner : boundsCorners(bounds)) {
+        const glm::vec4 clip = projection * view * glm::vec4(corner, 1.0f);
+        require(clip.w > 0.0f, message + ": corner is behind the camera");
+        const glm::vec3 normalized = glm::vec3(clip) / clip.w;
+        require(std::abs(normalized.x) <= lateralLimit &&
+                    std::abs(normalized.y) <= lateralLimit &&
+                    normalized.z >= -1.0001f && normalized.z <= 1.0001f,
+                message + ": corner is outside the clip volume");
+    }
 }
 
 class TemporaryDirectory {
@@ -393,6 +442,36 @@ void testSceneHistoryTransactions() {
     byteLimited.record(sceneA);
     require(!byteLimited.canUndo(),
             "history retained a snapshot larger than its byte budget");
+
+    core::SceneDocument currentSelection = validScene();
+    currentSelection.objects[0].runtimeId = 7;
+    core::SceneObject currentSecond = currentSelection.objects[0];
+    currentSecond.runtimeId = 11;
+    currentSelection.objects.push_back(currentSecond);
+    currentSelection.selectedObject = 0;
+
+    core::SceneDocument reorderedSelection = currentSelection;
+    std::swap(reorderedSelection.objects[0], reorderedSelection.objects[1]);
+    reorderedSelection.selectedObject = 0;
+    require(core::resolveSceneHistorySelection(
+                currentSelection, reorderedSelection) == 1,
+            "history did not preserve selection across a non-structural restore");
+
+    core::SceneDocument structuralRestore = currentSelection;
+    core::SceneObject createdObject = structuralRestore.objects[0];
+    createdObject.runtimeId = 13;
+    structuralRestore.objects.push_back(createdObject);
+    structuralRestore.selectedObject = 2;
+    require(core::resolveSceneHistorySelection(
+                currentSelection, structuralRestore) == 2,
+            "history overrode snapshot selection for a structural redo");
+
+    core::SceneDocument deletedRestore = currentSelection;
+    deletedRestore.objects.erase(deletedRestore.objects.begin());
+    deletedRestore.selectedObject = 0;
+    require(core::resolveSceneHistorySelection(
+                currentSelection, deletedRestore) == 0,
+            "history overrode snapshot selection for a structural undo");
 }
 
 void testRuntimeObjectLookup() {
@@ -510,6 +589,60 @@ void testSpatialQueries() {
                  .has_value(),
             "out-of-range bounds index was accepted");
 
+    geometry::AxisAlignedBounds secondBounds;
+    secondBounds.minimum = glm::vec3(-4.0f, 0.0f, -3.0f);
+    secondBounds.maximum = glm::vec3(-2.0f, 6.0f, 1.0f);
+    secondBounds.valid = true;
+    const std::vector<geometry::AxisAlignedBounds> boundsToMerge = {
+        *indexedBounds, secondBounds
+    };
+    const auto mergedBounds = core::mergeBounds(boundsToMerge);
+    require(mergedBounds.has_value() && mergedBounds->minimum.x == -4.0f &&
+                mergedBounds->minimum.y == -2.0f && mergedBounds->maximum.x == 3.0f &&
+                mergedBounds->maximum.y == 6.0f,
+            "mesh bounds were not merged correctly");
+
+    glm::mat4 boundsTransform(1.0f);
+    boundsTransform = glm::translate(boundsTransform, glm::vec3(3.0f, 4.0f, 5.0f));
+    boundsTransform = glm::scale(boundsTransform, glm::vec3(2.0f, 1.0f, 0.5f));
+    const auto worldBounds = core::transformBounds(unitBounds, boundsTransform);
+    require(worldBounds.has_value() && almostEqual(worldBounds->minimum.x, 2.0) &&
+                almostEqual(worldBounds->maximum.x, 4.0) &&
+                almostEqual(worldBounds->minimum.y, 3.5) &&
+                almostEqual(worldBounds->maximum.y, 4.5) &&
+                almostEqual(worldBounds->minimum.z, 4.75) &&
+                almostEqual(worldBounds->maximum.z, 5.25),
+            "affine bounds transform is incorrect");
+
+    geometry::AxisAlignedBounds firstPart;
+    firstPart.minimum = glm::vec3(-2.5f, -0.5f, -2.5f);
+    firstPart.maximum = glm::vec3(-1.5f, 0.5f, -1.5f);
+    firstPart.valid = true;
+    geometry::AxisAlignedBounds secondPart;
+    secondPart.minimum = glm::vec3(1.5f, -0.5f, 1.5f);
+    secondPart.maximum = glm::vec3(2.5f, 0.5f, 2.5f);
+    secondPart.valid = true;
+    const glm::mat4 multipartTransform = glm::rotate(
+        glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    const auto firstWorldPart = core::transformBounds(firstPart, multipartTransform);
+    const auto secondWorldPart = core::transformBounds(secondPart, multipartTransform);
+    require(firstWorldPart.has_value() && secondWorldPart.has_value(),
+            "valid multipart bounds could not be transformed");
+    const std::array<geometry::AxisAlignedBounds, 2> worldParts = {
+        *firstWorldPart, *secondWorldPart};
+    const auto preciseMultipartBounds = core::mergeBounds(worldParts);
+    const std::array<geometry::AxisAlignedBounds, 2> localParts = {
+        firstPart, secondPart};
+    const auto mergedLocalParts = core::mergeBounds(localParts);
+    require(mergedLocalParts.has_value(),
+            "valid multipart local bounds could not be merged");
+    const auto inflatedMultipartBounds =
+        core::transformBounds(*mergedLocalParts, multipartTransform);
+    require(preciseMultipartBounds.has_value() && inflatedMultipartBounds.has_value() &&
+                preciseMultipartBounds->maximum.z <
+                    inflatedMultipartBounds->maximum.z * 0.5f,
+            "multipart bounds were not tightened after per-part transforms");
+
     const std::vector<glm::vec3> trianglePositions = {
         {-1.0f, -1.0f, 0.0f},
         { 1.0f, -1.0f, 0.0f},
@@ -575,6 +708,157 @@ void testSpatialQueries() {
             "invalid bounds were accepted");
 }
 
+void testEditorCubePlacement() {
+    const auto pointBounds = [](float x, float z) {
+        geometry::AxisAlignedBounds bounds;
+        bounds.minimum = glm::vec3(x, 0.0f, z);
+        bounds.maximum = bounds.minimum;
+        bounds.valid = true;
+        return bounds;
+    };
+
+    const auto emptyPosition = core::findNearestFreeCubeGridPosition(
+        glm::vec3(0.2f, 5.0f, -0.4f), {}, 100.0f, 4, 0.0f);
+    require(emptyPosition.has_value() && *emptyPosition == glm::vec3(0.0f),
+            "empty grid did not use the rounded base position");
+
+    const std::array<geometry::AxisAlignedBounds, 4> occupiedNearest = {
+        pointBounds(0.0f, 0.0f), pointBounds(-1.0f, 0.0f),
+        pointBounds(0.0f, -1.0f), pointBounds(0.0f, 1.0f)};
+    const auto nearestPosition = core::findNearestFreeCubeGridPosition(
+        glm::vec3(0.0f), occupiedNearest, 100.0f, 4, 0.0f);
+    require(nearestPosition.has_value() &&
+                *nearestPosition == glm::vec3(1.0f, 0.0f, 0.0f),
+            "placement skipped the nearest free grid cell");
+
+    const std::array<geometry::AxisAlignedBounds, 1> occupiedBoundary = {
+        pointBounds(5.0f, 0.0f)};
+    const auto boundaryPosition = core::findNearestFreeCubeGridPosition(
+        glm::vec3(5.0f, 0.0f, 0.0f), occupiedBoundary, 5.0f, 2, 0.0f);
+    const glm::vec3 boundaryOffset = boundaryPosition.has_value()
+        ? *boundaryPosition - glm::vec3(5.0f, 0.0f, 0.0f)
+        : glm::vec3(0.0f);
+    require(boundaryPosition.has_value() &&
+                std::abs(boundaryPosition->x) <= 5.0f &&
+                std::abs(boundaryPosition->z) <= 5.0f &&
+                glm::dot(boundaryOffset, boundaryOffset) == 1.0f,
+            "placement stopped at an out-of-range boundary candidate");
+
+    geometry::AxisAlignedBounds blockedArea;
+    blockedArea.minimum = glm::vec3(-10.0f, -1.0f, -10.0f);
+    blockedArea.maximum = glm::vec3(10.0f, 1.0f, 10.0f);
+    blockedArea.valid = true;
+    const std::array<geometry::AxisAlignedBounds, 1> blockedBounds = {blockedArea};
+    require(!core::findNearestFreeCubeGridPosition(
+                 glm::vec3(0.0f), blockedBounds, 100.0f, 4, 0.1f)
+                 .has_value(),
+            "placement returned an occupied cell from a blocked search area");
+    require(!core::findNearestFreeCubeGridPosition(
+                 glm::vec3(1000.0f, 0.0f, 1000.0f), {}, 5.0f, 2)
+                 .has_value(),
+            "placement searched beyond its reachable coordinate range");
+}
+
+void testEditorCameraFraming() {
+    geometry::AxisAlignedBounds bounds;
+    bounds.minimum = glm::vec3(-1.0f);
+    bounds.maximum = glm::vec3(1.0f);
+    bounds.valid = true;
+
+    const auto widePosition = core::calculateFramedCameraPosition(
+        bounds, glm::vec3(0.0f, 0.0f, -1.0f), 45.0f, 16.0f / 9.0f,
+        0.1f, 100.0f);
+    require(widePosition.has_value() && almostEqual(widePosition->x, 0.0) &&
+                almostEqual(widePosition->y, 0.0) && widePosition->z > 3.0f &&
+                widePosition->z < 10.0f,
+            "wide camera framing returned an invalid position");
+    requireBoundsInsideFrustum(
+        bounds, *widePosition, glm::vec3(0.0f, 0.0f, -1.0f),
+        45.0f, 16.0f / 9.0f, 0.1f, 100.0f, 1.15f,
+        "wide camera framing");
+
+    const auto narrowPosition = core::calculateFramedCameraPosition(
+        bounds, glm::vec3(0.0f, 0.0f, -1.0f), 45.0f, 0.5f,
+        0.1f, 100.0f);
+    require(narrowPosition.has_value() && narrowPosition->z > widePosition->z,
+            "narrow viewport did not increase framing distance");
+    requireBoundsInsideFrustum(
+        bounds, *narrowPosition, glm::vec3(0.0f, 0.0f, -1.0f),
+        45.0f, 0.5f, 0.1f, 100.0f, 1.15f,
+        "narrow camera framing");
+
+    geometry::AxisAlignedBounds offsetBounds = bounds;
+    offsetBounds.minimum += glm::vec3(8.0f, 2.0f, -3.0f);
+    offsetBounds.maximum += glm::vec3(8.0f, 2.0f, -3.0f);
+    const auto offsetPosition = core::calculateFramedCameraPosition(
+        offsetBounds, glm::vec3(1.0f, 0.0f, 0.0f), 60.0f, 1.0f,
+        0.1f, 100.0f);
+    require(offsetPosition.has_value() && offsetPosition->x < 8.0f &&
+                almostEqual(offsetPosition->y, 2.0) &&
+                almostEqual(offsetPosition->z, -3.0),
+            "offset object was not framed along the view direction");
+    requireBoundsInsideFrustum(
+        offsetBounds, *offsetPosition, glm::vec3(1.0f, 0.0f, 0.0f),
+        60.0f, 1.0f, 0.1f, 100.0f, 1.15f,
+        "offset camera framing");
+
+    geometry::AxisAlignedBounds elongatedBounds;
+    elongatedBounds.minimum = glm::vec3(-0.5f, -0.5f, -40.0f);
+    elongatedBounds.maximum = glm::vec3(0.5f, 0.5f, 40.0f);
+    elongatedBounds.valid = true;
+    const auto elongatedPosition = core::calculateFramedCameraPosition(
+        elongatedBounds, glm::vec3(0.0f, 0.0f, -1.0f),
+        45.0f, 16.0f / 9.0f, 0.1f, 100.0f);
+    require(elongatedPosition.has_value(),
+            "valid elongated object was rejected by camera framing");
+    requireBoundsInsideFrustum(
+        elongatedBounds, *elongatedPosition, glm::vec3(0.0f, 0.0f, -1.0f),
+        45.0f, 16.0f / 9.0f, 0.1f, 100.0f, 1.15f,
+        "elongated camera framing");
+
+    geometry::AxisAlignedBounds arbitraryBounds;
+    arbitraryBounds.minimum = glm::vec3(6.0f, -3.0f, 2.0f);
+    arbitraryBounds.maximum = glm::vec3(11.0f, 4.0f, 8.0f);
+    arbitraryBounds.valid = true;
+    const glm::vec3 arbitraryDirection =
+        glm::normalize(glm::vec3(-1.0f, -0.4f, -0.5f));
+    const auto arbitraryPosition = core::calculateFramedCameraPosition(
+        arbitraryBounds, arbitraryDirection, 52.0f, 1.7f, 0.1f, 100.0f);
+    require(arbitraryPosition.has_value(),
+            "arbitrarily oriented camera could not frame valid bounds");
+    requireBoundsInsideFrustum(
+        arbitraryBounds, *arbitraryPosition, arbitraryDirection,
+        52.0f, 1.7f, 0.1f, 100.0f, 1.15f,
+        "arbitrary camera framing");
+
+    const glm::vec3 nearVerticalDirection = glm::normalize(
+        glm::vec3(0.01f, 0.9998f, -0.015f));
+    const auto nearVerticalPosition = core::calculateFramedCameraPosition(
+        bounds, nearVerticalDirection, 45.0f, 16.0f / 9.0f,
+        0.1f, 100.0f);
+    require(nearVerticalPosition.has_value(),
+            "near-vertical camera direction was rejected");
+    requireBoundsInsideFrustum(
+        bounds, *nearVerticalPosition, nearVerticalDirection,
+        45.0f, 16.0f / 9.0f, 0.1f, 100.0f, 1.15f,
+        "near-vertical camera framing");
+
+    require(!core::calculateFramedCameraPosition(
+                bounds, glm::vec3(0.0f), 45.0f, 1.0f, 0.1f, 100.0f)
+                 .has_value(),
+            "zero camera direction was accepted");
+
+    geometry::AxisAlignedBounds hugeBounds;
+    hugeBounds.minimum = glm::vec3(-50.0f);
+    hugeBounds.maximum = glm::vec3(50.0f);
+    hugeBounds.valid = true;
+    require(!core::calculateFramedCameraPosition(
+                hugeBounds, glm::vec3(0.0f, 0.0f, -1.0f),
+                45.0f, 1.0f, 0.1f, 100.0f)
+                 .has_value(),
+            "object larger than the camera range was accepted");
+}
+
 } // namespace
 
 int main() {
@@ -588,7 +872,9 @@ int main() {
         {"oversized scene rejection", testOversizedSceneIsNotSaved},
         {"scene history transactions", testSceneHistoryTransactions},
         {"runtime object lookup", testRuntimeObjectLookup},
-        {"spatial ray queries", testSpatialQueries}
+        {"spatial ray queries", testSpatialQueries},
+        {"editor cube placement", testEditorCubePlacement},
+        {"editor camera framing", testEditorCameraFraming}
     };
 
     int failures = 0;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <unordered_set>
 #include <utility>
 
 namespace {
@@ -19,6 +20,38 @@ void addElements(std::size_t& total, std::size_t count, std::size_t elementSize)
 } // namespace
 
 namespace core {
+
+int resolveSceneHistorySelection(
+    const SceneDocument& currentScene,
+    const SceneDocument& restoredScene) {
+    const int snapshotSelection = restoredScene.selectedObject;
+    if (currentScene.objects.size() != restoredScene.objects.size()) {
+        return snapshotSelection;
+    }
+
+    std::unordered_set<std::uint64_t> remainingRuntimeIds;
+    remainingRuntimeIds.reserve(restoredScene.objects.size());
+    for (const SceneObject& object : restoredScene.objects) {
+        if (object.runtimeId == 0 ||
+            !remainingRuntimeIds.insert(object.runtimeId).second) {
+            return snapshotSelection;
+        }
+    }
+    for (const SceneObject& object : currentScene.objects) {
+        if (object.runtimeId == 0 || remainingRuntimeIds.erase(object.runtimeId) != 1) {
+            return snapshotSelection;
+        }
+    }
+    if (!remainingRuntimeIds.empty() || currentScene.selectedObject < 0 ||
+        currentScene.selectedObject >= static_cast<int>(currentScene.objects.size())) {
+        return snapshotSelection;
+    }
+
+    return findSceneObjectByRuntimeId(
+        restoredScene,
+        currentScene.objects[static_cast<std::size_t>(currentScene.selectedObject)]
+            .runtimeId);
+}
 
 SceneHistory::SceneHistory(std::size_t maxEntries, std::size_t maxBytes)
     : m_maxEntries(maxEntries), m_maxBytes(maxBytes) {

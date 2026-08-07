@@ -100,6 +100,57 @@ std::optional<geometry::AxisAlignedBounds> calculateIndexedBounds(
     return bounds;
 }
 
+std::optional<geometry::AxisAlignedBounds> mergeBounds(
+    std::span<const geometry::AxisAlignedBounds> bounds) {
+    if (bounds.empty()) {
+        return std::nullopt;
+    }
+
+    geometry::AxisAlignedBounds merged;
+    merged.minimum = glm::vec3((std::numeric_limits<float>::max)());
+    merged.maximum = glm::vec3((std::numeric_limits<float>::lowest)());
+    for (const geometry::AxisAlignedBounds& current : bounds) {
+        if (!isValid(current)) {
+            return std::nullopt;
+        }
+        merged.minimum = glm::min(merged.minimum, current.minimum);
+        merged.maximum = glm::max(merged.maximum, current.maximum);
+    }
+    merged.valid = true;
+    return merged;
+}
+
+std::optional<geometry::AxisAlignedBounds> transformBounds(
+    const geometry::AxisAlignedBounds& localBounds,
+    const glm::mat4& localToWorld) {
+    if (!isValid(localBounds) || !isFinite(localToWorld) || !isAffine(localToWorld)) {
+        return std::nullopt;
+    }
+
+    geometry::AxisAlignedBounds transformed;
+    transformed.minimum = glm::vec3((std::numeric_limits<float>::max)());
+    transformed.maximum = glm::vec3((std::numeric_limits<float>::lowest)());
+    for (int x = 0; x < 2; ++x) {
+        for (int y = 0; y < 2; ++y) {
+            for (int z = 0; z < 2; ++z) {
+                const glm::vec3 corner(
+                    x == 0 ? localBounds.minimum.x : localBounds.maximum.x,
+                    y == 0 ? localBounds.minimum.y : localBounds.maximum.y,
+                    z == 0 ? localBounds.minimum.z : localBounds.maximum.z);
+                const glm::vec3 worldCorner =
+                    glm::vec3(localToWorld * glm::vec4(corner, 1.0f));
+                if (!isFinite(worldCorner)) {
+                    return std::nullopt;
+                }
+                transformed.minimum = glm::min(transformed.minimum, worldCorner);
+                transformed.maximum = glm::max(transformed.maximum, worldCorner);
+            }
+        }
+    }
+    transformed.valid = true;
+    return transformed;
+}
+
 std::optional<float> intersectRayAabb(
     const glm::vec3& origin,
     const glm::vec3& direction,

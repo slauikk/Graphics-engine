@@ -1,6 +1,8 @@
 #include "application.h"
 #include "asset_paths.h"
 #include "benchmark_report.h"
+#include "editor_camera.h"
+#include "editor_placement.h"
 #include "spatial_query.h"
 #include "../camera.h"
 #include "../shader.h"
@@ -58,6 +60,46 @@ glm::mat4 objectTransform(const RenderObject& object) {
     model = glm::rotate(
         model, glm::radians(object.rotationDeg.z), glm::vec3(0.0f, 0.0f, 1.0f));
     return glm::scale(model, object.scale);
+}
+
+std::optional<geometry::AxisAlignedBounds> objectWorldBounds(
+    const RenderObject& object) {
+    const glm::mat4 transform = objectTransform(object);
+    std::vector<geometry::AxisAlignedBounds> worldPartBounds;
+    if (object.model != nullptr) {
+        worldPartBounds.reserve(object.model->parts().size());
+        for (const ModelPart& part : object.model->parts()) {
+            if (part.mesh != nullptr) {
+                if (const auto bounds =
+                        core::transformBounds(part.mesh->bounds(), transform);
+                    bounds.has_value()) {
+                    worldPartBounds.push_back(*bounds);
+                }
+            }
+        }
+    } else if (object.mesh != nullptr) {
+        if (const auto bounds = core::transformBounds(object.mesh->bounds(), transform);
+            bounds.has_value()) {
+            worldPartBounds.push_back(*bounds);
+        }
+    }
+
+    return core::mergeBounds(worldPartBounds);
+}
+
+std::string nextCubeName(const std::vector<RenderObject>& objects) {
+    std::unordered_set<std::string> names;
+    names.reserve(objects.size());
+    for (const RenderObject& object : objects) {
+        names.insert(object.name);
+    }
+    for (std::size_t index = 0; index <= objects.size(); ++index) {
+        std::string candidate = "Cube " + std::to_string(index);
+        if (!names.contains(candidate)) {
+            return candidate;
+        }
+    }
+    return "Cube";
 }
 
 std::string duplicateObjectName(const std::string& name) {
@@ -625,6 +667,127 @@ void Application::selectObjectUnderCrosshair() {
                      m_objects[static_cast<std::size_t>(m_selectedObject)].name;
 }
 
+void Application::createCubeObject() {
+    m_sceneMessageTime = 2.0f;
+    if (m_camera == nullptr || m_cubeMesh == nullptr) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Create failed: renderer is not ready";
+        return;
+    }
+    if (m_objects.size() >= core::kMaxSceneObjectCount) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Create failed: object limit reached";
+        return;
+    }
+
+    const float directionLength = glm::length(m_camera->front);
+    if (!std::isfinite(directionLength) || directionLength <= 0.000001f) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Create failed: invalid camera direction";
+        return;
+    }
+
+    const glm::vec3 direction = m_camera->front / directionLength;
+    glm::vec3 basePosition = m_camera->position + direction * 5.0f;
+    if (std::abs(direction.y) > 0.000001f) {
+        const float groundDistance = -m_camera->position.y / direction.y;
+        if (std::isfinite(groundDistance) &&
+            groundDistance >= 1.0f && groundDistance <= 50.0f) {
+            basePosition = m_camera->position + direction * groundDistance;
+        }
+    }
+    basePosition.x = std::round(basePosition.x);
+    basePosition.y = 0.0f;
+    basePosition.z = std::round(basePosition.z);
+
+    std::vector<geometry::AxisAlignedBounds> occupiedBounds;
+    occupiedBounds.reserve(m_objects.size());
+    for (const RenderObject& object : m_objects) {
+        if (const auto bounds = objectWorldBounds(object); bounds.has_value()) {
+            occupiedBounds.push_back(*bounds);
+        }
+    }
+    const std::optional<glm::vec3> position =
+        core::findNearestFreeCubeGridPosition(
+            basePosition, occupiedBounds, core::kMaxSceneCoordinate - 0.5f);
+    if (!position.has_value()) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Create failed: no free position nearby";
+        return;
+    }
+
+    core::SceneDocument sceneBeforeCreation = captureScene();
+    const std::string defaultMaterialId =
+        materialIdForTexture("textures/generated_grid");
+    const bool defaultMaterialAlreadyUsed = std::any_of(
+        sceneBeforeCreation.materials.begin(), sceneBeforeCreation.materials.end(),
+        [&defaultMaterialId](const core::SceneMaterial& material) {
+            return material.id == defaultMaterialId;
+        });
+    if (sceneBeforeCreation.materials.size() >= core::kMaxSceneMaterialCount &&
+        !defaultMaterialAlreadyUsed) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Create failed: material limit reached";
+        return;
+    }
+
+    Material* material = getOrCreateMaterial("textures/generated_grid");
+    if (material == nullptr) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Create failed: default material is unavailable";
+        return;
+    }
+
+    m_sceneHistory.record(std::move(sceneBeforeCreation));
+    RenderObject object{
+        nextCubeName(m_objects), "builtin:cube", m_cubeMesh, nullptr, *position,
+        glm::vec3(0.0f), glm::vec3(1.0f), material, false, m_nextObjectId++
+    };
+    m_objects.push_back(std::move(object));
+    m_selectedObject = static_cast<int>(m_objects.size()) - 1;
+    syncSelectedObjectToMenu();
+
+    m_sceneOperationSucceeded = true;
+    m_sceneMessage = "Cube created: " +
+                     m_objects[static_cast<std::size_t>(m_selectedObject)].name;
+}
+
+void Application::focusSelectedObject() {
+    m_sceneMessageTime = 2.0f;
+    if (m_camera == nullptr || m_selectedObject < 0 ||
+        m_selectedObject >= static_cast<int>(m_objects.size())) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Focus failed: no selected object";
+        return;
+    }
+
+    const RenderObject& selected =
+        m_objects[static_cast<std::size_t>(m_selectedObject)];
+    const std::optional<geometry::AxisAlignedBounds> worldBounds =
+        objectWorldBounds(selected);
+    const float aspectRatio = m_height > 0
+        ? static_cast<float>(m_width) / static_cast<float>(m_height)
+        : 1.0f;
+    const std::optional<glm::vec3> framedPosition = worldBounds.has_value()
+        ? core::calculateFramedCameraPosition(
+              *worldBounds, m_camera->front, m_camera->fov, aspectRatio,
+              kCameraNearPlane, kCameraFarPlane)
+        : std::nullopt;
+    if (!framedPosition.has_value() ||
+        std::abs(framedPosition->x) > core::kMaxSceneCoordinate ||
+        std::abs(framedPosition->y) > core::kMaxSceneCoordinate ||
+        std::abs(framedPosition->z) > core::kMaxSceneCoordinate) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Focus failed: object cannot fit in the camera range";
+        return;
+    }
+
+    m_camera->position = *framedPosition;
+    m_firstMouse = true;
+    m_sceneOperationSucceeded = true;
+    m_sceneMessage = "Focused: " + selected.name;
+}
+
 void Application::duplicateSelectedObject() {
     m_sceneMessageTime = 2.0f;
     if (m_selectedObject < 0 ||
@@ -713,16 +876,8 @@ void Application::restoreSceneHistory(bool redo) {
     core::SceneDocument current = captureScene();
     core::SceneDocument restored = *target;
     restored.camera = current.camera;
-    if (m_selectedObject >= 0 &&
-        m_selectedObject < static_cast<int>(m_objects.size())) {
-        const std::uint64_t selectedRuntimeId =
-            m_objects[static_cast<std::size_t>(m_selectedObject)].runtimeId;
-        const int preservedSelection =
-            core::findSceneObjectByRuntimeId(restored, selectedRuntimeId);
-        if (preservedSelection >= 0) {
-            restored.selectedObject = preservedSelection;
-        }
-    }
+    restored.selectedObject =
+        core::resolveSceneHistorySelection(current, restored);
 
     std::string error;
     if (!applyScene(restored, error)) {
@@ -1973,6 +2128,7 @@ void Application::render() {
             cubeOss << "\nSelected: none";
         }
         cubeOss << "\nSelect: left click / Tab / Shift+Tab"
+                << "\nCreate cube: Insert/C | Focus: F"
                 << "\nDuplicate: Ctrl+D | Delete: Del"
                 << "\nUndo: Ctrl+Z | Redo: Ctrl+Y"
                 << "\nHistory: " << m_sceneHistory.undoDepth() << " undo, "
@@ -2074,6 +2230,16 @@ void Application::onKey(int key, int action, int mods) {
         }
         if (controlPressed && key == GLFW_KEY_Y) {
             restoreSceneHistory(true);
+            return;
+        }
+        if ((key == GLFW_KEY_INSERT || key == GLFW_KEY_C) &&
+            (mods & (GLFW_MOD_SHIFT | GLFW_MOD_CONTROL | GLFW_MOD_ALT | GLFW_MOD_SUPER)) == 0) {
+            createCubeObject();
+            return;
+        }
+        if (key == GLFW_KEY_F &&
+            (mods & (GLFW_MOD_SHIFT | GLFW_MOD_CONTROL | GLFW_MOD_ALT | GLFW_MOD_SUPER)) == 0) {
+            focusSelectedObject();
             return;
         }
         if (key == GLFW_KEY_TAB) {

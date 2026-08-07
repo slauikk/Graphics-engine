@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.31)
 
-project(Graphics_engine VERSION 0.7.0 LANGUAGES CXX)
+project(Graphics_engine VERSION 0.8.0 LANGUAGES CXX)
 
 include(CTest)
 
@@ -16,6 +16,8 @@ set(GRAPHICS_ENGINE_SOURCES
         src/core/application.cpp
         src/core/asset_paths.cpp
         src/core/benchmark_report.cpp
+        src/core/editor_camera.cpp
+        src/core/editor_placement.cpp
         src/core/scene_document.cpp
         src/core/scene_history.cpp
         src/core/spatial_query.cpp
@@ -120,6 +122,8 @@ if(BUILD_TESTING)
     add_executable(Graphics_engine_core_tests
         tests/core_unit_tests.cpp
         src/core/benchmark_report.cpp
+        src/core/editor_camera.cpp
+        src/core/editor_placement.cpp
         src/core/scene_document.cpp
         src/core/scene_history.cpp
         src/core/spatial_query.cpp

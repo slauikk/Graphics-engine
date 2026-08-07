@@ -18,11 +18,9 @@ namespace {
 
 using Json = nlohmann::json;
 
-constexpr std::size_t kMaxMaterials = 32'768;
 constexpr std::size_t kMaxIdLength = 128;
 constexpr std::size_t kMaxAssetReferenceLength = 1'024;
 constexpr std::uintmax_t kMaxSceneFileSize = 32U * 1024U * 1024U;
-constexpr float kMaxCoordinate = 1'000'000.0f;
 constexpr float kMaxColorComponent = 100.0f;
 
 Json vec3ToJson(const glm::vec3& value) {
@@ -54,7 +52,8 @@ bool componentsInRange(const glm::vec3& value, float minimum, float maximum) {
 }
 
 bool coordinatesInRange(const glm::vec3& value) {
-    return componentsInRange(value, -kMaxCoordinate, kMaxCoordinate);
+    return componentsInRange(
+        value, -core::kMaxSceneCoordinate, core::kMaxSceneCoordinate);
 }
 
 bool isValidText(std::string_view value, std::size_t maximumLength, bool allowEmpty) {
@@ -233,7 +232,7 @@ core::SceneDocument sceneFromJson(const Json& value) {
     scene.renderSettings.coordinateGrid = renderSettings.value("coordinate_grid", true);
 
     const Json& materials = value.at("materials");
-    if (!materials.is_array() || materials.size() > kMaxMaterials) {
+    if (!materials.is_array() || materials.size() > core::kMaxSceneMaterialCount) {
         throw Json::out_of_range::create(401, "invalid materials array size", &materials);
     }
     scene.materials.reserve(materials.size());
@@ -296,7 +295,7 @@ bool validateSceneDocument(const SceneDocument& scene, std::string& error) {
     if (scene.schemaVersion != kCurrentSceneSchemaVersion) {
         return setValidationError(error, "unsupported scene schema version");
     }
-    if (scene.materials.size() > kMaxMaterials ||
+    if (scene.materials.size() > core::kMaxSceneMaterialCount ||
         scene.objects.size() > core::kMaxSceneObjectCount) {
         return setValidationError(error, "scene exceeds supported object limits");
     }
