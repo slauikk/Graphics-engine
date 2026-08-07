@@ -36,10 +36,13 @@ executable, assets, third-party DLLs, and the MSVC runtime libraries.
 - Left mouse button: select the nearest object under the center crosshair.
 - `Insert` / `C`: create and select a cube on the nearest free grid position.
 - `F`: frame the selected object in the camera view.
+- Arrow keys and `PageUp` / `PageDown`: move the selected object on `X/Z` and `Y`.
+- `Q` / `E` and `-` / `=`: rotate around `Y` and scale the selected object.
+- `End` / `Home`: snap the selected position/rotation to editor steps or reset the transform.
 - `F8`: open the texture, model, object movement, and lighting menu.
 - `Tab` / `Shift+Tab`: select the next / previous scene object.
 - `Ctrl+D`: duplicate the selected object with a small position offset.
-- `Delete`: remove the selected object.
+- `Delete` / `X`: remove the selected object.
 - `Ctrl+Z` / `Ctrl+Y`: undo / redo scene edits without moving the camera.
 - `G`: toggle the coordinate grid.
 - `1`-`6`: select a post-processing effect.

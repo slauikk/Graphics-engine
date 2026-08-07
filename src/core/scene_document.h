@@ -16,6 +16,8 @@ inline constexpr std::size_t kMaxSceneMaterialCount = 32'768;
 inline constexpr std::size_t kMaxSceneObjectCount = 100'000;
 inline constexpr std::size_t kMaxSceneObjectNameLength = 128;
 inline constexpr float kMaxSceneCoordinate = 1'000'000.0f;
+inline constexpr float kMinSceneObjectScale = 0.0001f;
+inline constexpr float kMaxSceneObjectScale = 10'000.0f;
 
 struct SceneMaterial {
     std::string id;

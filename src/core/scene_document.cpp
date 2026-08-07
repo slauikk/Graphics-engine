@@ -365,7 +365,9 @@ bool validateSceneDocument(const SceneDocument& scene, std::string& error) {
             return setValidationError(error, "object contains invalid asset references");
         }
         if (!coordinatesInRange(object.position) || !coordinatesInRange(object.rotationDeg) ||
-            !componentsInRange(object.scale, 0.0001f, 10'000.0f)) {
+            !componentsInRange(
+                object.scale, core::kMinSceneObjectScale,
+                core::kMaxSceneObjectScale)) {
             return setValidationError(error, "object transform contains invalid values");
         }
     }

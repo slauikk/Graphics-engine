@@ -3,6 +3,7 @@
 #include "benchmark_report.h"
 #include "editor_camera.h"
 #include "editor_placement.h"
+#include "editor_transform.h"
 #include "spatial_query.h"
 #include "../camera.h"
 #include "../shader.h"
@@ -100,6 +101,122 @@ std::string nextCubeName(const std::vector<RenderObject>& objects) {
         }
     }
     return "Cube";
+}
+
+std::optional<core::ObjectTransformCommand> objectTransformCommandForKey(int key) {
+    switch (key) {
+        case GLFW_KEY_LEFT:
+        case GLFW_KEY_KP_4:
+            return core::ObjectTransformCommand::MoveNegativeX;
+        case GLFW_KEY_RIGHT:
+        case GLFW_KEY_KP_6:
+            return core::ObjectTransformCommand::MovePositiveX;
+        case GLFW_KEY_PAGE_DOWN:
+        case GLFW_KEY_KP_3:
+            return core::ObjectTransformCommand::MoveNegativeY;
+        case GLFW_KEY_PAGE_UP:
+        case GLFW_KEY_KP_9:
+            return core::ObjectTransformCommand::MovePositiveY;
+        case GLFW_KEY_UP:
+        case GLFW_KEY_KP_8:
+            return core::ObjectTransformCommand::MoveNegativeZ;
+        case GLFW_KEY_DOWN:
+        case GLFW_KEY_KP_2:
+            return core::ObjectTransformCommand::MovePositiveZ;
+        case GLFW_KEY_Q:
+            return core::ObjectTransformCommand::RotateNegativeY;
+        case GLFW_KEY_E:
+            return core::ObjectTransformCommand::RotatePositiveY;
+        case GLFW_KEY_MINUS:
+        case GLFW_KEY_KP_SUBTRACT:
+            return core::ObjectTransformCommand::ScaleDown;
+        case GLFW_KEY_EQUAL:
+        case GLFW_KEY_KP_ADD:
+            return core::ObjectTransformCommand::ScaleUp;
+        case GLFW_KEY_END:
+            return core::ObjectTransformCommand::Snap;
+        case GLFW_KEY_HOME:
+            return core::ObjectTransformCommand::Reset;
+        default:
+            return std::nullopt;
+    }
+}
+
+const char* objectTransformActionName(core::ObjectTransformCommand command) {
+    switch (command) {
+        case core::ObjectTransformCommand::MoveNegativeX:
+        case core::ObjectTransformCommand::MovePositiveX:
+        case core::ObjectTransformCommand::MoveNegativeY:
+        case core::ObjectTransformCommand::MovePositiveY:
+        case core::ObjectTransformCommand::MoveNegativeZ:
+        case core::ObjectTransformCommand::MovePositiveZ:
+            return "Object moved: ";
+        case core::ObjectTransformCommand::RotateNegativeY:
+        case core::ObjectTransformCommand::RotatePositiveY:
+            return "Object rotated: ";
+        case core::ObjectTransformCommand::ScaleDown:
+        case core::ObjectTransformCommand::ScaleUp:
+            return "Object scaled: ";
+        case core::ObjectTransformCommand::Snap:
+            return "Transform snapped: ";
+        case core::ObjectTransformCommand::Reset:
+            return "Transform reset: ";
+    }
+    return "Object transformed: ";
+}
+
+std::string formatScaleComponent(float value) {
+    std::ostringstream stream;
+    stream << std::fixed
+           << std::setprecision(std::abs(value) < 0.01f ? 4 : 2)
+           << value;
+    return stream.str();
+}
+
+std::string truncateHudText(std::string value, std::size_t maximumBytes) {
+    if (value.size() <= maximumBytes) {
+        return value;
+    }
+    if (maximumBytes <= 3) {
+        return std::string(maximumBytes, '.');
+    }
+
+    std::size_t end = maximumBytes - 3;
+    while (end > 0 &&
+           (static_cast<unsigned char>(value[end]) & 0xc0U) == 0x80U) {
+        --end;
+    }
+    return value.substr(0, end) + "...";
+}
+
+bool changesPointLightPosition(Menu::LightControlAction action) {
+    switch (action) {
+        case Menu::LIGHT_X_INC:
+        case Menu::LIGHT_X_DEC:
+        case Menu::LIGHT_Y_INC:
+        case Menu::LIGHT_Y_DEC:
+        case Menu::LIGHT_Z_INC:
+        case Menu::LIGHT_Z_DEC:
+        case Menu::LIGHT_RESET:
+        case Menu::LIGHT_XY_UP:
+        case Menu::LIGHT_XY_DOWN:
+        case Menu::LIGHT_XY_LEFT:
+        case Menu::LIGHT_XY_RIGHT:
+        case Menu::LIGHT_XZ_FORWARD:
+        case Menu::LIGHT_XZ_BACK:
+        case Menu::LIGHT_XZ_LEFT:
+        case Menu::LIGHT_XZ_RIGHT:
+        case Menu::LIGHT_YZ_UP:
+        case Menu::LIGHT_YZ_DOWN:
+        case Menu::LIGHT_YZ_FORWARD:
+        case Menu::LIGHT_YZ_BACK:
+            return true;
+        case Menu::LIGHT_SPIN:
+        case Menu::LIGHT_STOP:
+        case Menu::LIGHT_NONE:
+            return false;
+    }
+    return false;
 }
 
 std::string duplicateObjectName(const std::string& name) {
@@ -788,6 +905,53 @@ void Application::focusSelectedObject() {
     m_sceneMessage = "Focused: " + selected.name;
 }
 
+bool Application::transformSelectedObject(
+    core::ObjectTransformCommand command,
+    bool recordHistory) {
+    m_sceneMessageTime = 2.0f;
+    if (m_selectedObject < 0 ||
+        m_selectedObject >= static_cast<int>(m_objects.size())) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Transform failed: no selected object";
+        return false;
+    }
+
+    RenderObject& selected =
+        m_objects[static_cast<std::size_t>(m_selectedObject)];
+    const core::ObjectTransform current{
+        selected.position, selected.rotationDeg, selected.scale};
+    const std::optional<core::ObjectTransform> transformed =
+        core::calculateObjectTransform(current, command);
+    const bool changesRotation =
+        command == core::ObjectTransformCommand::RotateNegativeY ||
+        command == core::ObjectTransformCommand::RotatePositiveY ||
+        command == core::ObjectTransformCommand::Snap ||
+        command == core::ObjectTransformCommand::Reset;
+    const bool stopsSpinning = changesRotation && selected.spinning;
+    if (!transformed.has_value() && !stopsSpinning) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Transform unchanged or limit reached";
+        return false;
+    }
+
+    if (recordHistory) {
+        checkpointScene();
+    }
+    if (transformed.has_value()) {
+        selected.position = transformed->position;
+        selected.rotationDeg = transformed->rotationDeg;
+        selected.scale = transformed->scale;
+    }
+    if (changesRotation) {
+        selected.spinning = false;
+    }
+    syncSelectedObjectToMenu();
+
+    m_sceneOperationSucceeded = true;
+    m_sceneMessage = std::string(objectTransformActionName(command)) + selected.name;
+    return true;
+}
+
 void Application::duplicateSelectedObject() {
     m_sceneMessageTime = 2.0f;
     if (m_selectedObject < 0 ||
@@ -878,6 +1042,12 @@ void Application::restoreSceneHistory(bool redo) {
     restored.camera = current.camera;
     restored.selectedObject =
         core::resolveSceneHistorySelection(current, restored);
+    const bool preserveAnimationState = redo
+        ? m_sceneHistory.redoPreservesAnimationState()
+        : m_sceneHistory.undoPreservesAnimationState();
+    if (preserveAnimationState) {
+        core::preserveSceneAnimationState(current, restored);
+    }
 
     std::string error;
     if (!applyScene(restored, error)) {
@@ -1141,7 +1311,7 @@ void Application::loadQuickScene() {
             result.success = false;
             result.error = std::move(applyError);
         } else {
-            m_sceneHistory.record(std::move(previousScene));
+            m_sceneHistory.record(std::move(previousScene), false);
         }
     }
 
@@ -1565,58 +1735,82 @@ void Application::update(float dt) {
     }
     
     if (Menu::needsCubeUpdate()) {
-        Menu::CubeControlAction action = Menu::getCubeControlAction();
-        const float step = 0.5f;
-        
-        // Sync selected object index with menu
+        const Menu::CubeControlAction action = Menu::getCubeControlAction();
         m_selectedObject = Menu::getSelectedCubeIndex();
         if (m_selectedObject < 0) m_selectedObject = 0;
         if (m_selectedObject >= static_cast<int>(m_objects.size())) {
             m_selectedObject = static_cast<int>(m_objects.size()) - 1;
         }
-        
+
         if (m_selectedObject >= 0 && m_selectedObject < static_cast<int>(m_objects.size())) {
-            const bool changesObject = action != Menu::CUBE_NONE &&
-                action != Menu::CUBE_PREV && action != Menu::CUBE_NEXT;
-            if (changesObject) {
-                checkpointScene();
-            }
-            RenderObject& obj = m_objects[m_selectedObject];
-            
             switch (action) {
                 case Menu::CUBE_PREV:
-                    m_selectedObject--;
-                    if (m_selectedObject < 0) m_selectedObject = static_cast<int>(m_objects.size()) - 1;
-                    Menu::setSelectedCubeIndex(m_selectedObject);
+                    selectObject(-1);
                     break;
                 case Menu::CUBE_NEXT:
-                    m_selectedObject++;
-                    if (m_selectedObject >= static_cast<int>(m_objects.size())) m_selectedObject = 0;
-                    Menu::setSelectedCubeIndex(m_selectedObject);
+                    selectObject(1);
                     break;
                 case Menu::CUBE_RESET:
-                    obj.rotationDeg = glm::vec3(0.0f);
-                    obj.spinning = false;
-                    obj.position = glm::vec3(0.0f);
-                    obj.scale = glm::vec3(1.0f);
+                    transformSelectedObject(core::ObjectTransformCommand::Reset);
                     break;
-                case Menu::CUBE_SPIN:
-                    obj.spinning = true;
+                case Menu::CUBE_SPIN: {
+                    RenderObject& selected =
+                        m_objects[static_cast<std::size_t>(m_selectedObject)];
+                    if (!selected.spinning) {
+                        checkpointScene();
+                        selected.spinning = true;
+                        m_sceneOperationSucceeded = true;
+                        m_sceneMessage = "Object spin enabled: " + selected.name;
+                        m_sceneMessageTime = 2.0f;
+                    }
                     break;
-                case Menu::CUBE_STOP:
-                    obj.spinning = false;
+                }
+                case Menu::CUBE_STOP: {
+                    RenderObject& selected =
+                        m_objects[static_cast<std::size_t>(m_selectedObject)];
+                    if (selected.spinning) {
+                        checkpointScene();
+                        selected.spinning = false;
+                        m_sceneOperationSucceeded = true;
+                        m_sceneMessage = "Object spin stopped: " + selected.name;
+                        m_sceneMessageTime = 2.0f;
+                    }
                     break;
-                case Menu::CUBE_X_INC: obj.position.x += step; break;
-                case Menu::CUBE_X_DEC: obj.position.x -= step; break;
-                case Menu::CUBE_Y_INC: obj.position.y += step; break;
-                case Menu::CUBE_Y_DEC: obj.position.y -= step; break;
-                case Menu::CUBE_Z_INC: obj.position.z += step; break;
-                case Menu::CUBE_Z_DEC: obj.position.z -= step; break;
+                }
+                case Menu::CUBE_X_INC:
+                    transformSelectedObject(
+                        core::ObjectTransformCommand::MovePositiveX);
+                    break;
+                case Menu::CUBE_X_DEC:
+                    transformSelectedObject(
+                        core::ObjectTransformCommand::MoveNegativeX);
+                    break;
+                case Menu::CUBE_Y_INC:
+                    transformSelectedObject(
+                        core::ObjectTransformCommand::MovePositiveY);
+                    break;
+                case Menu::CUBE_Y_DEC:
+                    transformSelectedObject(
+                        core::ObjectTransformCommand::MoveNegativeY);
+                    break;
+                case Menu::CUBE_Z_INC:
+                    transformSelectedObject(
+                        core::ObjectTransformCommand::MovePositiveZ);
+                    break;
+                case Menu::CUBE_Z_DEC:
+                    transformSelectedObject(
+                        core::ObjectTransformCommand::MoveNegativeZ);
+                    break;
                 case Menu::CUBE_NONE: break;
             }
-            
-            const RenderObject& selectedObj = m_objects[m_selectedObject];
-            Menu::setCubePosition(selectedObj.position.x, selectedObj.position.y, selectedObj.position.z);
+
+            if (m_selectedObject >= 0 &&
+                m_selectedObject < static_cast<int>(m_objects.size())) {
+                const RenderObject& selected =
+                    m_objects[static_cast<std::size_t>(m_selectedObject)];
+                Menu::setCubePosition(
+                    selected.position.x, selected.position.y, selected.position.z);
+            }
         }
         Menu::markCubeUpdated();
     } else {
@@ -1637,9 +1831,9 @@ void Application::update(float dt) {
     // Update spinning for all objects
     for (RenderObject& obj : m_objects) {
         if (obj.spinning) {
-            obj.rotationDeg.x += dt * 50.0f;
-            obj.rotationDeg.y += dt * 50.0f;
-            obj.rotationDeg.z += dt * 50.0f;
+            const float rotationStep = dt * 50.0f;
+            obj.rotationDeg = core::wrapEulerDegrees(
+                obj.rotationDeg + glm::vec3(rotationStep));
         }
     }
 
@@ -1673,10 +1867,17 @@ void Application::update(float dt) {
     }
     
     if (Menu::needsLightUpdate()) {
-        Menu::LightControlAction action = Menu::getLightControlAction();
+        const Menu::LightControlAction action = Menu::getLightControlAction();
         const float step = 0.5f;
-        if (action != Menu::LIGHT_NONE) {
+        const bool positionChange = changesPointLightPosition(action);
+        const bool spinStateChange =
+            (action == Menu::LIGHT_SPIN && !m_pointLightSpinning) ||
+            (action == Menu::LIGHT_STOP && m_pointLightSpinning);
+        if (positionChange || spinStateChange) {
             checkpointScene();
+        }
+        if (positionChange) {
+            m_pointLightSpinning = false;
         }
         
         switch (action) {
@@ -1704,6 +1905,10 @@ void Application::update(float dt) {
                 m_pointLight.position = glm::vec3(2.0f, 2.0f, 2.0f);
                 break;
             case Menu::LIGHT_SPIN:
+                if (!m_pointLightSpinning) {
+                    m_pointLightSpinAngle = std::atan2(
+                        m_pointLight.position.z, m_pointLight.position.x);
+                }
                 m_pointLightSpinning = true;
                 break;
             case Menu::LIGHT_STOP:
@@ -2088,13 +2293,32 @@ void Application::render() {
     }
 
     if (!m_benchmarkEnabled) {
+        const float editorHudScale = m_width < 600
+            ? 0.8f
+            : (m_width < 900 ? 1.0f : 1.2f);
+        const float controlsX = std::max(
+            280.0f, static_cast<float>(m_width) * 0.52f);
+        const bool compactVerticalLayout = m_height < 600;
+        const float lightHudScale = compactVerticalLayout
+            ? editorHudScale
+            : 1.2f;
+        const float lightHudX = compactVerticalLayout ? controlsX : 10.0f;
+        const float lightHudY = compactVerticalLayout ? 10.0f : 290.0f;
+        const float lightHudWidth = std::max(
+            80.0f, static_cast<float>(m_width) - lightHudX - 10.0f);
+        const std::size_t lightHudCharacters =
+            (std::max<std::size_t>)(
+                12,
+                static_cast<std::size_t>(
+                    lightHudWidth / (8.0f * lightHudScale)));
+
         std::ostringstream lightOss;
         lightOss << std::fixed;
         if (const Material* material = selectedMaterial()) {
-            std::string materialId = material->id;
-            if (materialId.length() > 34) {
-                materialId = materialId.substr(0, 31) + "...";
-            }
+            const std::size_t materialCharacters =
+                lightHudCharacters > 10 ? lightHudCharacters - 10 : 3;
+            const std::string materialId = truncateHudText(
+                material->id, materialCharacters);
             lightOss << "Material: " << materialId << "\n";
             lightOss << std::setprecision(0)
                      << "Shininess: " << material->shininess << " [J/K]\n";
@@ -2105,35 +2329,75 @@ void Application::render() {
         lightOss << "DirLight: " << (m_dirLight.enabled ? "ON" : "OFF") << "\n";
         lightOss << "PointLight: " << (m_pointLight.enabled ? "ON" : "OFF") << "\n";
         lightOss << "Scene: save [F11] load [F12]";
-        UIText::renderText(lightOss.str(), 10.0f, 290.0f, 1.2f);
+        UIText::renderText(
+            lightOss.str(), lightHudX, lightHudY, lightHudScale);
 
-        std::ostringstream cubeOss;
-        cubeOss << "Objects: " << m_objects.size();
+        const float objectHudWidth = std::max(80.0f, controlsX - 20.0f);
+        const std::size_t objectHudCharacters =
+            (std::max<std::size_t>)(
+                12,
+                static_cast<std::size_t>(
+                    objectHudWidth / (8.0f * editorHudScale)));
+
+        std::ostringstream objectOss;
+        objectOss << "Objects: " << m_objects.size();
         if (m_selectedObject >= 0 &&
             m_selectedObject < static_cast<int>(m_objects.size())) {
             const RenderObject& object =
                 m_objects[static_cast<std::size_t>(m_selectedObject)];
-            std::string meshAsset = object.meshAsset;
-            if (meshAsset.length() > 42) {
-                meshAsset = meshAsset.substr(0, 39) + "...";
-            }
-            cubeOss << "\nSelected: " << (m_selectedObject + 1) << "/"
-                    << m_objects.size() << " " << object.name;
-            cubeOss << "\nMesh: " << meshAsset;
+            const std::string selectedPrefix =
+                "Selected: " + std::to_string(m_selectedObject + 1) + "/" +
+                std::to_string(m_objects.size()) + " ";
+            const std::size_t objectNameCharacters =
+                objectHudCharacters > selectedPrefix.size()
+                ? objectHudCharacters - selectedPrefix.size()
+                : 3;
+            const std::size_t meshCharacters = objectHudCharacters > 6
+                ? objectHudCharacters - 6
+                : 3;
+            const std::string objectName = truncateHudText(
+                object.name, objectNameCharacters);
+            const std::string meshAsset = truncateHudText(
+                object.meshAsset, meshCharacters);
+            objectOss << "\n" << selectedPrefix << objectName;
+            objectOss << "\nMesh: " << meshAsset;
             if (object.model != nullptr) {
-                cubeOss << "\nGeometry: " << object.model->vertexCount() << " vertices, "
-                        << object.model->indexCount() << " indices";
+                objectOss << "\nGeometry: " << object.model->vertexCount()
+                          << " vertices, " << object.model->indexCount()
+                          << " indices";
             }
+            objectOss << std::fixed << std::setprecision(2)
+                      << "\nPosition: " << object.position.x << ", "
+                      << object.position.y << ", " << object.position.z
+                      << "\nRotation: " << object.rotationDeg.x << ", "
+                      << object.rotationDeg.y << ", " << object.rotationDeg.z
+                      << "\nScale: " << formatScaleComponent(object.scale.x)
+                      << ", " << formatScaleComponent(object.scale.y)
+                      << ", " << formatScaleComponent(object.scale.z);
         } else {
-            cubeOss << "\nSelected: none";
+            objectOss << "\nSelected: none";
         }
-        cubeOss << "\nSelect: left click / Tab / Shift+Tab"
-                << "\nCreate cube: Insert/C | Focus: F"
-                << "\nDuplicate: Ctrl+D | Delete: Del"
-                << "\nUndo: Ctrl+Z | Redo: Ctrl+Y"
-                << "\nHistory: " << m_sceneHistory.undoDepth() << " undo, "
-                << m_sceneHistory.redoDepth() << " redo";
-        UIText::renderText(cubeOss.str(), 10.0f, 430.0f, 1.2f);
+        objectOss << "\nHistory: " << m_sceneHistory.undoDepth() << " undo, "
+                  << m_sceneHistory.redoDepth() << " redo";
+
+        std::ostringstream controlsOss;
+        controlsOss << "Select: click / Tab / Shift+Tab"
+                    << "\nCreate: Insert/C | Focus: F"
+                    << "\nMove: arrows / PgUp / PgDn"
+                    << "\nRotate Y: Q/E | Scale: -/="
+                    << "\nSnap pos/rot: End | Reset: Home"
+                    << "\nCopy: Ctrl+D | Delete: Del/X"
+                    << "\nUndo/Redo: Ctrl+Z / Ctrl+Y";
+
+        const float editorHudY = std::min(
+            430.0f,
+            std::max(
+                10.0f,
+                static_cast<float>(m_height) - 116.0f * editorHudScale));
+        UIText::renderText(
+            objectOss.str(), 10.0f, editorHudY, editorHudScale);
+        UIText::renderText(
+            controlsOss.str(), controlsX, editorHudY, editorHudScale);
     }
     UIText::flush();
 }
@@ -2183,9 +2447,37 @@ void Application::onFramebufferResize(int width, int height) {
 }
 
 void Application::onKey(int key, int action, int mods) {
+    if (action == GLFW_RELEASE) {
+        if (key == m_activeTransformKey) {
+            m_activeTransformKey = GLFW_KEY_UNKNOWN;
+            m_activeTransformObjectId = 0;
+        }
+        return;
+    }
+    if (action == GLFW_REPEAT) {
+        const bool noModifiers =
+            (mods & (GLFW_MOD_SHIFT | GLFW_MOD_CONTROL |
+                     GLFW_MOD_ALT | GLFW_MOD_SUPER)) == 0;
+        const bool repeatsSelectedObject =
+            m_activeTransformObjectId != 0 && m_selectedObject >= 0 &&
+            m_selectedObject < static_cast<int>(m_objects.size()) &&
+            m_objects[static_cast<std::size_t>(m_selectedObject)].runtimeId ==
+                m_activeTransformObjectId;
+        if (!m_benchmarkEnabled && !Menu::isOpen() && noModifiers &&
+            key == m_activeTransformKey && repeatsSelectedObject) {
+            if (const auto command = objectTransformCommandForKey(key);
+                command.has_value() &&
+                core::isRepeatableObjectTransform(*command)) {
+                transformSelectedObject(*command, false);
+            }
+        }
+        return;
+    }
     if (action != GLFW_PRESS) {
         return;
     }
+    m_activeTransformKey = GLFW_KEY_UNKNOWN;
+    m_activeTransformObjectId = 0;
 
     if (key == GLFW_KEY_F8 && !m_benchmarkEnabled) {
         Menu::toggle();
@@ -2224,6 +2516,9 @@ void Application::onKey(int key, int action, int mods) {
 
     if (!m_benchmarkEnabled && !Menu::isOpen()) {
         const bool controlPressed = (mods & GLFW_MOD_CONTROL) != 0;
+        const bool noModifiers =
+            (mods & (GLFW_MOD_SHIFT | GLFW_MOD_CONTROL |
+                     GLFW_MOD_ALT | GLFW_MOD_SUPER)) == 0;
         if (controlPressed && key == GLFW_KEY_Z) {
             restoreSceneHistory((mods & GLFW_MOD_SHIFT) != 0);
             return;
@@ -2232,15 +2527,26 @@ void Application::onKey(int key, int action, int mods) {
             restoreSceneHistory(true);
             return;
         }
-        if ((key == GLFW_KEY_INSERT || key == GLFW_KEY_C) &&
-            (mods & (GLFW_MOD_SHIFT | GLFW_MOD_CONTROL | GLFW_MOD_ALT | GLFW_MOD_SUPER)) == 0) {
+        if ((key == GLFW_KEY_INSERT || key == GLFW_KEY_C) && noModifiers) {
             createCubeObject();
             return;
         }
-        if (key == GLFW_KEY_F &&
-            (mods & (GLFW_MOD_SHIFT | GLFW_MOD_CONTROL | GLFW_MOD_ALT | GLFW_MOD_SUPER)) == 0) {
+        if (key == GLFW_KEY_F && noModifiers) {
             focusSelectedObject();
             return;
+        }
+        if (noModifiers) {
+            if (const auto command = objectTransformCommandForKey(key);
+                command.has_value()) {
+                if (transformSelectedObject(*command) &&
+                    core::isRepeatableObjectTransform(*command)) {
+                    m_activeTransformKey = key;
+                    m_activeTransformObjectId =
+                        m_objects[static_cast<std::size_t>(m_selectedObject)]
+                            .runtimeId;
+                }
+                return;
+            }
         }
         if (key == GLFW_KEY_TAB) {
             selectObject((mods & GLFW_MOD_SHIFT) != 0 ? -1 : 1);
@@ -2250,7 +2556,7 @@ void Application::onKey(int key, int action, int mods) {
             duplicateSelectedObject();
             return;
         }
-        if (key == GLFW_KEY_DELETE) {
+        if (key == GLFW_KEY_DELETE || (key == GLFW_KEY_X && noModifiers)) {
             deleteSelectedObject();
             return;
         }
@@ -2402,6 +2708,8 @@ void Application::onMouseButton(int button, int action, int mods) {
     (void)mods;
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS &&
         !m_benchmarkEnabled && !Menu::isOpen()) {
+        m_activeTransformKey = GLFW_KEY_UNKNOWN;
+        m_activeTransformObjectId = 0;
         selectObjectUnderCrosshair();
     }
 }

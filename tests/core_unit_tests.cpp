@@ -1,6 +1,7 @@
 #include "core/benchmark_report.h"
 #include "core/editor_camera.h"
 #include "core/editor_placement.h"
+#include "core/editor_transform.h"
 #include "core/scene_document.h"
 #include "core/scene_history.h"
 #include "core/spatial_query.h"
@@ -392,6 +393,8 @@ void testSceneHistoryTransactions() {
     history.record(sceneB);
     require(history.undoDepth() == 2 && history.redoDepth() == 0,
             "history did not record snapshots");
+    require(history.undoPreservesAnimationState(),
+            "ordinary history entry disabled animation preservation");
 
     const core::SceneDocument* target = history.undoTarget();
     require(target != nullptr && target->objects[0].name == "B",
@@ -443,6 +446,17 @@ void testSceneHistoryTransactions() {
     require(!byteLimited.canUndo(),
             "history retained a snapshot larger than its byte budget");
 
+    core::SceneHistory authoredStateHistory;
+    authoredStateHistory.record(sceneA, false);
+    require(!authoredStateHistory.undoPreservesAnimationState(),
+            "authored scene restore enabled animation preservation");
+    require(authoredStateHistory.commitUndo(sceneB) &&
+                !authoredStateHistory.redoPreservesAnimationState(),
+            "undo did not propagate authored-state history metadata");
+    require(authoredStateHistory.commitRedo(sceneC) &&
+                !authoredStateHistory.undoPreservesAnimationState(),
+            "redo did not propagate authored-state history metadata");
+
     core::SceneDocument currentSelection = validScene();
     currentSelection.objects[0].runtimeId = 7;
     core::SceneObject currentSecond = currentSelection.objects[0];
@@ -472,6 +486,38 @@ void testSceneHistoryTransactions() {
     require(core::resolveSceneHistorySelection(
                 currentSelection, deletedRestore) == 0,
             "history overrode snapshot selection for a structural undo");
+
+    core::SceneDocument currentAnimation = validScene();
+    currentAnimation.objects[0].runtimeId = 23;
+    currentAnimation.objects[0].spinning = true;
+    currentAnimation.objects[0].rotationDeg = {91.0f, 92.0f, 93.0f};
+    currentAnimation.pointLight.spinning = true;
+    currentAnimation.pointLight.position = {3.0f, 2.0f, -1.0f};
+
+    core::SceneDocument restoredAnimation = currentAnimation;
+    restoredAnimation.objects[0].position.x = -4.0f;
+    restoredAnimation.objects[0].rotationDeg = {1.0f, 2.0f, 3.0f};
+    restoredAnimation.pointLight.position = {-3.0f, 8.0f, 1.0f};
+    core::preserveSceneAnimationState(currentAnimation, restoredAnimation);
+    require(restoredAnimation.objects[0].rotationDeg ==
+                currentAnimation.objects[0].rotationDeg &&
+                restoredAnimation.objects[0].position.x == -4.0f,
+            "history restore rewound an active object animation");
+    require(restoredAnimation.pointLight.position ==
+                glm::vec3(3.0f, 8.0f, -1.0f),
+            "history restore did not isolate point-light orbit components");
+
+    core::SceneDocument intentionalRotation = restoredAnimation;
+    intentionalRotation.objects[0].spinning = false;
+    intentionalRotation.objects[0].rotationDeg = {15.0f, 30.0f, 45.0f};
+    intentionalRotation.pointLight.spinning = false;
+    intentionalRotation.pointLight.position = {7.0f, 8.0f, 9.0f};
+    core::preserveSceneAnimationState(currentAnimation, intentionalRotation);
+    require(intentionalRotation.objects[0].rotationDeg ==
+                glm::vec3(15.0f, 30.0f, 45.0f) &&
+                intentionalRotation.pointLight.position ==
+                    glm::vec3(7.0f, 8.0f, 9.0f),
+            "history restore overrode an intentional animation state change");
 }
 
 void testRuntimeObjectLookup() {
@@ -759,6 +805,171 @@ void testEditorCubePlacement() {
             "placement searched beyond its reachable coordinate range");
 }
 
+void testEditorObjectTransforms() {
+    core::ObjectTransform original;
+    original.position = glm::vec3(1.0f, 2.0f, 3.0f);
+    original.rotationDeg = glm::vec3(10.0f, 175.0f, -20.0f);
+    original.scale = glm::vec3(1.0f, 2.0f, 3.0f);
+
+    const std::array repeatableCommands = {
+        core::ObjectTransformCommand::MoveNegativeX,
+        core::ObjectTransformCommand::MovePositiveY,
+        core::ObjectTransformCommand::MoveNegativeZ,
+        core::ObjectTransformCommand::RotatePositiveY,
+        core::ObjectTransformCommand::ScaleDown};
+    for (const core::ObjectTransformCommand command : repeatableCommands) {
+        require(core::isRepeatableObjectTransform(command),
+                "continuous transform command was not repeatable");
+    }
+    require(!core::isRepeatableObjectTransform(
+                core::ObjectTransformCommand::Snap) &&
+                !core::isRepeatableObjectTransform(
+                    core::ObjectTransformCommand::Reset),
+            "one-shot transform command was marked repeatable");
+
+    const auto movedX = core::calculateObjectTransform(
+        original, core::ObjectTransformCommand::MovePositiveX);
+    require(movedX.has_value() && almostEqual(movedX->position.x, 1.5) &&
+                movedX->position.y == original.position.y &&
+                movedX->position.z == original.position.z,
+            "positive X nudge changed the wrong transform components");
+
+    const auto movedY = core::calculateObjectTransform(
+        original, core::ObjectTransformCommand::MoveNegativeY);
+    const auto movedZ = core::calculateObjectTransform(
+        original, core::ObjectTransformCommand::MoveNegativeZ);
+    require(movedY.has_value() && almostEqual(movedY->position.y, 1.5) &&
+                movedZ.has_value() && almostEqual(movedZ->position.z, 2.5),
+            "axis nudges used the wrong translation step");
+
+    core::ObjectTransform boundary = original;
+    boundary.position.x = core::kMaxSceneCoordinate;
+    require(!core::calculateObjectTransform(
+                 boundary, core::ObjectTransformCommand::MovePositiveX)
+                 .has_value() &&
+                core::calculateObjectTransform(
+                    boundary, core::ObjectTransformCommand::MoveNegativeX)
+                    .has_value(),
+            "translation did not enforce the scene coordinate limit");
+
+    const auto rotated = core::calculateObjectTransform(
+        original, core::ObjectTransformCommand::RotatePositiveY);
+    require(rotated.has_value() && almostEqual(rotated->rotationDeg.y, -170.0),
+            "rotation step did not wrap into a stable degree range");
+    const glm::vec3 wrapped = core::wrapEulerDegrees(
+        glm::vec3(370.0f, -370.0f, 720.0f));
+    require(almostEqual(wrapped.x, 10.0) && almostEqual(wrapped.y, -10.0) &&
+                almostEqual(wrapped.z, 0.0),
+            "Euler degree wrapping returned incorrect angles");
+
+    const auto scaledUp = core::calculateObjectTransform(
+        original, core::ObjectTransformCommand::ScaleUp);
+    const auto scaledDown = core::calculateObjectTransform(
+        original, core::ObjectTransformCommand::ScaleDown);
+    require(scaledUp.has_value() && almostEqual(scaledUp->scale.x, 1.1) &&
+                almostEqual(scaledUp->scale.y, 2.2) &&
+                almostEqual(scaledUp->scale.z, 3.3) &&
+                scaledDown.has_value() &&
+                almostEqual(scaledDown->scale.x, 1.0 / 1.1),
+            "uniform scale commands did not preserve component ratios");
+
+    core::ObjectTransform maximumScale = original;
+    maximumScale.scale = glm::vec3(core::kMaxSceneObjectScale);
+    require(!core::calculateObjectTransform(
+                 maximumScale, core::ObjectTransformCommand::ScaleUp)
+                 .has_value(),
+            "scale command exceeded the scene scale limit");
+
+    core::ObjectTransform anisotropicMaximum = original;
+    anisotropicMaximum.scale = glm::vec3(
+        core::kMaxSceneObjectScale / 1.05f, 1.0f, 2.0f);
+    const auto boundedScaleUp = core::calculateObjectTransform(
+        anisotropicMaximum, core::ObjectTransformCommand::ScaleUp);
+    require(boundedScaleUp.has_value() &&
+                almostEqual(boundedScaleUp->scale.x, core::kMaxSceneObjectScale) &&
+                almostEqual(
+                    boundedScaleUp->scale.x / anisotropicMaximum.scale.x,
+                    boundedScaleUp->scale.y / anisotropicMaximum.scale.y) &&
+                almostEqual(
+                    boundedScaleUp->scale.y / anisotropicMaximum.scale.y,
+                    boundedScaleUp->scale.z / anisotropicMaximum.scale.z),
+            "upper scale bound distorted a non-uniform object");
+
+    core::ObjectTransform roundedMaximum = original;
+    roundedMaximum.scale = glm::vec3(9090.998046875f, 1.0f, 2.0f);
+    const auto roundedScaleUp = core::calculateObjectTransform(
+        roundedMaximum, core::ObjectTransformCommand::ScaleUp);
+    require(roundedScaleUp.has_value() &&
+                roundedScaleUp->scale.x <= core::kMaxSceneObjectScale &&
+                almostEqual(
+                    roundedScaleUp->scale.x / roundedMaximum.scale.x,
+                    roundedScaleUp->scale.y / roundedMaximum.scale.y),
+            "float rounding rejected a valid bounded scale command");
+
+    core::ObjectTransform anisotropicMinimum = original;
+    anisotropicMinimum.scale = glm::vec3(
+        core::kMinSceneObjectScale * 1.05f, 1.0f, 2.0f);
+    const auto boundedScaleDown = core::calculateObjectTransform(
+        anisotropicMinimum, core::ObjectTransformCommand::ScaleDown);
+    require(boundedScaleDown.has_value() &&
+                almostEqual(
+                    boundedScaleDown->scale.x, core::kMinSceneObjectScale) &&
+                almostEqual(
+                    boundedScaleDown->scale.x / anisotropicMinimum.scale.x,
+                    boundedScaleDown->scale.y / anisotropicMinimum.scale.y) &&
+                almostEqual(
+                    boundedScaleDown->scale.y / anisotropicMinimum.scale.y,
+                    boundedScaleDown->scale.z / anisotropicMinimum.scale.z),
+            "lower scale bound distorted a non-uniform object");
+
+    core::ObjectTransform unsnapped = original;
+    unsnapped.position = glm::vec3(0.24f, 0.26f, -0.74f);
+    unsnapped.rotationDeg = glm::vec3(7.4f, 22.6f, -179.0f);
+    const auto snapped = core::calculateObjectTransform(
+        unsnapped, core::ObjectTransformCommand::Snap);
+    require(snapped.has_value() && almostEqual(snapped->position.x, 0.0) &&
+                almostEqual(snapped->position.y, 0.5) &&
+                almostEqual(snapped->position.z, -0.5) &&
+                almostEqual(snapped->rotationDeg.x, 0.0) &&
+                almostEqual(snapped->rotationDeg.y, 30.0) &&
+                almostEqual(std::abs(snapped->rotationDeg.z), 180.0),
+            "transform snapping did not use the editor grid steps");
+
+    core::ObjectTransform boundarySnap = original;
+    boundarySnap.position = glm::vec3(
+        core::kMaxSceneCoordinate, -core::kMaxSceneCoordinate, 0.0f);
+    const auto snappedBoundary = core::calculateObjectTransform(
+        boundarySnap, core::ObjectTransformCommand::Snap,
+        1.5f, 15.0f, 1.1f);
+    require(snappedBoundary.has_value() &&
+                almostEqual(snappedBoundary->position.x, 999'999.0) &&
+                almostEqual(snappedBoundary->position.y, -999'999.0),
+            "boundary snap rejected the nearest valid custom grid point");
+
+    const auto reset = core::calculateObjectTransform(
+        original, core::ObjectTransformCommand::Reset);
+    require(reset.has_value() && reset->position == glm::vec3(0.0f) &&
+                reset->rotationDeg == glm::vec3(0.0f) &&
+                reset->scale == glm::vec3(1.0f),
+            "transform reset did not restore identity values");
+    core::ObjectTransform identity;
+    require(!core::calculateObjectTransform(
+                 identity, core::ObjectTransformCommand::Reset)
+                 .has_value(),
+            "identity transform reset created a false history change");
+
+    core::ObjectTransform invalid = original;
+    invalid.position.x = (std::numeric_limits<float>::quiet_NaN)();
+    require(!core::calculateObjectTransform(
+                 invalid, core::ObjectTransformCommand::MovePositiveX)
+                 .has_value() &&
+                !core::calculateObjectTransform(
+                    original, core::ObjectTransformCommand::ScaleUp,
+                    0.5f, 15.0f, 1.0f)
+                    .has_value(),
+            "invalid transform command parameters were accepted");
+}
+
 void testEditorCameraFraming() {
     geometry::AxisAlignedBounds bounds;
     bounds.minimum = glm::vec3(-1.0f);
@@ -874,6 +1085,7 @@ int main() {
         {"runtime object lookup", testRuntimeObjectLookup},
         {"spatial ray queries", testSpatialQueries},
         {"editor cube placement", testEditorCubePlacement},
+        {"editor object transforms", testEditorObjectTransforms},
         {"editor camera framing", testEditorCameraFraming}
     };
 

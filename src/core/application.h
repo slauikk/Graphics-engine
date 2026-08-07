@@ -12,6 +12,7 @@
 #include <memory>
 #include "renderer/light.h"
 #include "renderer/post_processor.h"
+#include "editor_transform.h"
 #include "scene_document.h"
 #include "scene_history.h"
 
@@ -79,6 +80,9 @@ private:
     void selectObjectUnderCrosshair();
     void createCubeObject();
     void focusSelectedObject();
+    bool transformSelectedObject(
+        core::ObjectTransformCommand command,
+        bool recordHistory = true);
     void duplicateSelectedObject();
     void deleteSelectedObject();
     void syncSelectedObjectToMenu();
@@ -157,6 +161,8 @@ private:
     // Objects
     std::vector<RenderObject> m_objects;
     int m_selectedObject = 0;
+    int m_activeTransformKey = GLFW_KEY_UNKNOWN;
+    std::uint64_t m_activeTransformObjectId = 0;
     std::uint64_t m_nextObjectId = 1;
     core::SceneHistory m_sceneHistory;
     

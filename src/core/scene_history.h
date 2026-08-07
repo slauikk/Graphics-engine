@@ -14,15 +14,21 @@ int resolveSceneHistorySelection(
     const SceneDocument& currentScene,
     const SceneDocument& restoredScene);
 
+void preserveSceneAnimationState(
+    const SceneDocument& currentScene,
+    SceneDocument& restoredScene);
+
 class SceneHistory {
 public:
     explicit SceneHistory(
         std::size_t maxEntries = 64,
         std::size_t maxBytes = kDefaultSceneHistoryBytes);
 
-    void record(SceneDocument scene);
+    void record(SceneDocument scene, bool preserveAnimationState = true);
     const SceneDocument* undoTarget() const;
     const SceneDocument* redoTarget() const;
+    bool undoPreservesAnimationState() const;
+    bool redoPreservesAnimationState() const;
     bool commitUndo(SceneDocument currentScene);
     bool commitRedo(SceneDocument currentScene);
     void clear();
@@ -36,11 +42,12 @@ private:
     struct Entry {
         SceneDocument scene;
         std::size_t bytes = 0;
+        bool preserveAnimationState = true;
     };
 
     static std::size_t estimateBytes(const SceneDocument& scene);
     void pushBounded(std::vector<Entry>& stack, std::size_t& usedBytes,
-                     SceneDocument scene);
+                     SceneDocument scene, bool preserveAnimationState);
 
     std::size_t m_maxEntries;
     std::size_t m_maxBytes;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -53,6 +54,33 @@ int resolveSceneHistorySelection(
             .runtimeId);
 }
 
+void preserveSceneAnimationState(
+    const SceneDocument& currentScene,
+    SceneDocument& restoredScene) {
+    std::unordered_map<std::uint64_t, const SceneObject*> currentObjects;
+    currentObjects.reserve(currentScene.objects.size());
+    for (const SceneObject& object : currentScene.objects) {
+        if (object.runtimeId != 0) {
+            currentObjects.emplace(object.runtimeId, &object);
+        }
+    }
+
+    for (SceneObject& restoredObject : restoredScene.objects) {
+        if (!restoredObject.spinning || restoredObject.runtimeId == 0) {
+            continue;
+        }
+        const auto current = currentObjects.find(restoredObject.runtimeId);
+        if (current != currentObjects.end() && current->second->spinning) {
+            restoredObject.rotationDeg = current->second->rotationDeg;
+        }
+    }
+
+    if (currentScene.pointLight.spinning && restoredScene.pointLight.spinning) {
+        restoredScene.pointLight.position.x = currentScene.pointLight.position.x;
+        restoredScene.pointLight.position.z = currentScene.pointLight.position.z;
+    }
+}
+
 SceneHistory::SceneHistory(std::size_t maxEntries, std::size_t maxBytes)
     : m_maxEntries(maxEntries), m_maxBytes(maxBytes) {
     const std::size_t reserveCount = std::min<std::size_t>(maxEntries, 64);
@@ -60,10 +88,11 @@ SceneHistory::SceneHistory(std::size_t maxEntries, std::size_t maxBytes)
     m_redo.reserve(reserveCount);
 }
 
-void SceneHistory::record(SceneDocument scene) {
+void SceneHistory::record(SceneDocument scene, bool preserveAnimationState) {
     m_redo.clear();
     m_redoBytes = 0;
-    pushBounded(m_undo, m_undoBytes, std::move(scene));
+    pushBounded(
+        m_undo, m_undoBytes, std::move(scene), preserveAnimationState);
 }
 
 const SceneDocument* SceneHistory::undoTarget() const {
@@ -74,13 +103,25 @@ const SceneDocument* SceneHistory::redoTarget() const {
     return m_redo.empty() ? nullptr : &m_redo.back().scene;
 }
 
+bool SceneHistory::undoPreservesAnimationState() const {
+    return !m_undo.empty() && m_undo.back().preserveAnimationState;
+}
+
+bool SceneHistory::redoPreservesAnimationState() const {
+    return !m_redo.empty() && m_redo.back().preserveAnimationState;
+}
+
 bool SceneHistory::commitUndo(SceneDocument currentScene) {
     if (m_undo.empty()) {
         return false;
     }
+    const bool preserveAnimationState =
+        m_undo.back().preserveAnimationState;
     m_undoBytes -= m_undo.back().bytes;
     m_undo.pop_back();
-    pushBounded(m_redo, m_redoBytes, std::move(currentScene));
+    pushBounded(
+        m_redo, m_redoBytes, std::move(currentScene),
+        preserveAnimationState);
     return true;
 }
 
@@ -88,9 +129,13 @@ bool SceneHistory::commitRedo(SceneDocument currentScene) {
     if (m_redo.empty()) {
         return false;
     }
+    const bool preserveAnimationState =
+        m_redo.back().preserveAnimationState;
     m_redoBytes -= m_redo.back().bytes;
     m_redo.pop_back();
-    pushBounded(m_undo, m_undoBytes, std::move(currentScene));
+    pushBounded(
+        m_undo, m_undoBytes, std::move(currentScene),
+        preserveAnimationState);
     return true;
 }
 
@@ -118,7 +163,8 @@ std::size_t SceneHistory::estimateBytes(const SceneDocument& scene) {
 }
 
 void SceneHistory::pushBounded(
-    std::vector<Entry>& stack, std::size_t& usedBytes, SceneDocument scene) {
+    std::vector<Entry>& stack, std::size_t& usedBytes, SceneDocument scene,
+    bool preserveAnimationState) {
     if (m_maxEntries == 0 || m_maxBytes == 0) {
         return;
     }
@@ -143,7 +189,7 @@ void SceneHistory::pushBounded(
     if (!hasByteCapacity()) {
         return;
     }
-    stack.push_back({std::move(scene), sceneBytes});
+    stack.push_back({std::move(scene), sceneBytes, preserveAnimationState});
     usedBytes += sceneBytes;
 }
 
