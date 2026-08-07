@@ -1,6 +1,7 @@
 #include "core/benchmark_report.h"
 #include "core/scene_document.h"
 #include "core/scene_history.h"
+#include "core/spatial_query.h"
 
 #include <algorithm>
 #include <chrono>
@@ -17,6 +18,7 @@
 #include <vector>
 
 #include <nlohmann/json.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 namespace {
 
@@ -272,6 +274,7 @@ void testSceneIoRoundTrip() {
     source.renderSettings.shaderViewMode = 4;
     source.renderSettings.coordinateGrid = false;
     source.objects[0].rotationDeg = {10.0f, 20.0f, 30.0f};
+    source.objects[0].runtimeId = 42;
 
     core::SceneIoResult saveResult = core::saveSceneDocument(source, scenePath);
     require(saveResult.success, "scene save failed: " + saveResult.error);
@@ -287,6 +290,8 @@ void testSceneIoRoundTrip() {
     require(!loaded.renderSettings.coordinateGrid, "coordinate grid state was not restored");
     require(loaded.objects[0].material == source.objects[0].material,
             "object material was not restored");
+    require(loaded.objects[0].runtimeId == 0,
+            "runtime object ID leaked into the scene file");
 
     source.camera.fov = 50.0f;
     saveResult = core::saveSceneDocument(source, scenePath);
@@ -390,6 +395,186 @@ void testSceneHistoryTransactions() {
             "history retained a snapshot larger than its byte budget");
 }
 
+void testRuntimeObjectLookup() {
+    core::SceneDocument scene = validScene();
+    scene.objects[0].runtimeId = 7;
+    core::SceneObject second = scene.objects[0];
+    second.runtimeId = 11;
+    scene.objects.push_back(second);
+
+    require(core::findSceneObjectByRuntimeId(scene, 7) == 0,
+            "first runtime object ID was not found");
+    require(core::findSceneObjectByRuntimeId(scene, 11) == 1,
+            "second runtime object ID was not found");
+    require(core::findSceneObjectByRuntimeId(scene, 0) == -1 &&
+                core::findSceneObjectByRuntimeId(scene, 99) == -1,
+            "missing runtime object ID returned an object");
+}
+
+void testSpatialQueries() {
+    geometry::AxisAlignedBounds bounds;
+    bounds.minimum = glm::vec3(-1.0f);
+    bounds.maximum = glm::vec3(1.0f);
+    bounds.valid = true;
+
+    const auto directHit = core::intersectRayAabb(
+        glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f), bounds);
+    require(directHit.has_value() && almostEqual(*directHit, 4.0),
+            "direct ray hit returned the wrong distance");
+
+    const auto unnormalizedHit = core::intersectRayAabb(
+        glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -2.0f), bounds);
+    require(unnormalizedHit.has_value() && almostEqual(*unnormalizedHit, 2.0),
+            "ray parameter was changed by implicit direction normalization");
+
+    const auto tinyDirectionHit = core::intersectRayAabb(
+        glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0e-9f), bounds);
+    require(tinyDirectionHit.has_value() && almostEqual(*tinyDirectionHit, 4.0e9),
+            "tiny nonzero ray direction was treated as parallel");
+
+    require(!core::intersectRayAabb(
+                glm::vec3(2.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f), bounds)
+                 .has_value(),
+            "parallel ray outside a slab was accepted");
+    require(!core::intersectRayAabb(
+                glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, 1.0f), bounds)
+                 .has_value(),
+            "ray pointing away from the bounds was accepted");
+
+    const auto insideHit = core::intersectRayAabb(
+        glm::vec3(0.0f), glm::vec3(1.0f, 0.0f, 0.0f), bounds);
+    require(insideHit.has_value() && almostEqual(*insideHit, 0.0),
+            "ray starting inside the bounds was rejected");
+
+    geometry::AxisAlignedBounds unitBounds;
+    unitBounds.minimum = glm::vec3(-0.5f);
+    unitBounds.maximum = glm::vec3(0.5f);
+    unitBounds.valid = true;
+    glm::mat4 transform(1.0f);
+    transform = glm::translate(transform, glm::vec3(0.0f, 0.0f, 1.0f));
+    transform = glm::rotate(transform, glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    transform = glm::scale(transform, glm::vec3(2.0f, 1.0f, 4.0f));
+    const auto transformedHit = core::intersectRayTransformedAabb(
+        glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f),
+        unitBounds, transform);
+    require(transformedHit.has_value() && almostEqual(*transformedHit, 3.0),
+            "transformed bounds returned a local-space distance");
+
+    glm::mat4 fartherTransform(1.0f);
+    fartherTransform = glm::translate(fartherTransform, glm::vec3(0.0f, 0.0f, -2.0f));
+    const auto fartherHit = core::intersectRayTransformedAabb(
+        glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f),
+        unitBounds, fartherTransform);
+    require(fartherHit.has_value() && *transformedHit < *fartherHit,
+            "transformed hit distances cannot select the nearest object");
+
+    const glm::mat4 singular = glm::scale(glm::mat4(1.0f), glm::vec3(0.0f, 1.0f, 1.0f));
+    require(!core::intersectRayTransformedAabb(
+                glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f),
+                unitBounds, singular)
+                 .has_value(),
+            "singular object transform was accepted");
+
+    const glm::mat4 projective = glm::perspective(
+        glm::radians(45.0f), 1.0f, 0.1f, 100.0f);
+    require(!core::intersectRayTransformedAabb(
+                glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f),
+                unitBounds, projective)
+                 .has_value(),
+            "projective object transform was accepted");
+
+    geometry::AxisAlignedBounds flatBounds;
+    flatBounds.minimum = glm::vec3(-1.0f, -1.0f, 0.0f);
+    flatBounds.maximum = glm::vec3(1.0f, 1.0f, 0.0f);
+    flatBounds.valid = true;
+    const auto flatHit = core::intersectRayAabb(
+        glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f), flatBounds);
+    require(flatHit.has_value() && almostEqual(*flatHit, 5.0),
+            "zero-volume bounds were rejected");
+
+    const std::vector<float> indexedVertices = {
+        -1.0f, -2.0f, 0.0f,
+         3.0f,  1.0f, 2.0f,
+         0.0f,  4.0f, 1.0f,
+       500.0f, 500.0f, 500.0f
+    };
+    const std::vector<std::uint32_t> indexedTriangles = {0, 1, 2};
+    const auto indexedBounds = core::calculateIndexedBounds(
+        indexedVertices, 3, indexedTriangles);
+    require(indexedBounds.has_value() && indexedBounds->maximum.x == 3.0f &&
+                indexedBounds->maximum.y == 4.0f && indexedBounds->maximum.z == 2.0f,
+            "unused outlier vertex changed indexed bounds");
+    const std::vector<std::uint32_t> invalidBoundsIndices = {0, 1, 4};
+    require(!core::calculateIndexedBounds(
+                indexedVertices, 3, invalidBoundsIndices)
+                 .has_value(),
+            "out-of-range bounds index was accepted");
+
+    const std::vector<glm::vec3> trianglePositions = {
+        {-1.0f, -1.0f, 0.0f},
+        { 1.0f, -1.0f, 0.0f},
+        { 0.0f,  1.0f, 0.0f},
+        {-1.0f, -1.0f, 2.0f},
+        { 1.0f, -1.0f, 2.0f},
+        { 0.0f,  1.0f, 2.0f}
+    };
+    const std::vector<std::uint32_t> singleTriangle = {0, 1, 2};
+    const std::vector<std::uint32_t> twoTriangles = {0, 1, 2, 3, 4, 5};
+    const auto triangleHit = core::intersectRayIndexedTriangles(
+        glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f),
+        trianglePositions, twoTriangles, 0.1f, 100.0f);
+    require(triangleHit.has_value() && almostEqual(*triangleHit, 3.0),
+            "indexed triangle query did not return the nearest surface");
+    require(!core::intersectRayIndexedTriangles(
+                glm::vec3(0.9f, 0.9f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f),
+                trianglePositions, singleTriangle,
+                0.1f, 100.0f)
+                 .has_value(),
+            "triangle query selected empty space inside its bounds");
+    require(!core::intersectRayIndexedTriangles(
+                glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f),
+                trianglePositions, singleTriangle,
+                0.1f, 4.0f)
+                 .has_value(),
+            "triangle outside the camera clip range was accepted");
+
+    geometry::AxisAlignedBounds triangleBounds;
+    triangleBounds.minimum = glm::vec3(-1.0f, -1.0f, 0.0f);
+    triangleBounds.maximum = glm::vec3(1.0f, 1.0f, 0.0f);
+    triangleBounds.valid = true;
+    const glm::mat4 triangleTransform = glm::translate(
+        glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    const auto transformedTriangleHit = core::intersectRayTransformedIndexedMesh(
+        glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f),
+        triangleBounds, trianglePositions,
+        singleTriangle, triangleTransform, 0.1f, 100.0f);
+    require(transformedTriangleHit.has_value() &&
+                almostEqual(*transformedTriangleHit, 4.0),
+            "transformed triangle query returned the wrong world ray distance");
+
+    geometry::AxisAlignedBounds reversedBounds = flatBounds;
+    reversedBounds.minimum.x = 2.0f;
+    reversedBounds.maximum.x = -2.0f;
+    require(!core::intersectRayAabb(
+                glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f),
+                reversedBounds)
+                 .has_value(),
+            "reversed bounds were accepted");
+
+    const float infinity = (std::numeric_limits<float>::infinity)();
+    require(!core::intersectRayAabb(
+                glm::vec3(infinity, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f),
+                flatBounds)
+                 .has_value(),
+            "infinite ray origin was accepted");
+
+    bounds.valid = false;
+    require(!core::intersectRayAabb(
+                glm::vec3(0.0f), glm::vec3(1.0f, 0.0f, 0.0f), bounds)
+                 .has_value(),
+            "invalid bounds were accepted");
+}
+
 } // namespace
 
 int main() {
@@ -401,7 +586,9 @@ int main() {
         {"scene validation matrix", testSceneValidationMatrix},
         {"scene I/O round-trip", testSceneIoRoundTrip},
         {"oversized scene rejection", testOversizedSceneIsNotSaved},
-        {"scene history transactions", testSceneHistoryTransactions}
+        {"scene history transactions", testSceneHistoryTransactions},
+        {"runtime object lookup", testRuntimeObjectLookup},
+        {"spatial ray queries", testSpatialQueries}
     };
 
     int failures = 0;

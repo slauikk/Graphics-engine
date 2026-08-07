@@ -279,6 +279,18 @@ bool replaceFile(const std::filesystem::path& temporary,
 
 namespace core {
 
+int findSceneObjectByRuntimeId(const SceneDocument& scene, std::uint64_t runtimeId) {
+    if (runtimeId == 0) {
+        return -1;
+    }
+    for (std::size_t index = 0; index < scene.objects.size(); ++index) {
+        if (scene.objects[index].runtimeId == runtimeId) {
+            return static_cast<int>(index);
+        }
+    }
+    return -1;
+}
+
 bool validateSceneDocument(const SceneDocument& scene, std::string& error) {
     error.clear();
     if (scene.schemaVersion != kCurrentSceneSchemaVersion) {

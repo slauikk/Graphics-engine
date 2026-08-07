@@ -2,6 +2,7 @@
 #define SCENE_DOCUMENT_H
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -33,6 +34,7 @@ struct SceneObject {
     glm::vec3 rotationDeg = glm::vec3(0.0f);
     glm::vec3 scale = glm::vec3(1.0f);
     bool spinning = false;
+    std::uint64_t runtimeId = 0; // Runtime-only; intentionally omitted from scene files.
 };
 
 struct SceneCamera {
@@ -83,6 +85,7 @@ struct SceneIoResult {
 };
 
 bool validateSceneDocument(const SceneDocument& scene, std::string& error);
+int findSceneObjectByRuntimeId(const SceneDocument& scene, std::uint64_t runtimeId);
 SceneIoResult saveSceneDocument(
     const SceneDocument& scene,
     const std::filesystem::path& path);

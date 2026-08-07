@@ -33,6 +33,7 @@ executable, assets, third-party DLLs, and the MSVC runtime libraries.
 
 - `W/A/S/D`, `Shift`, `Ctrl`: move the camera.
 - Mouse and wheel: look around and change field of view.
+- Left mouse button: select the nearest object under the center crosshair.
 - `F8`: open the texture, model, object movement, and lighting menu.
 - `Tab` / `Shift+Tab`: select the next / previous scene object.
 - `Ctrl+D`: duplicate the selected object with a small position offset.

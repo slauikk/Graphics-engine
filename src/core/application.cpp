@@ -1,6 +1,7 @@
 #include "application.h"
 #include "asset_paths.h"
 #include "benchmark_report.h"
+#include "spatial_query.h"
 #include "../camera.h"
 #include "../shader.h"
 #include "../texture2d.h"
@@ -16,6 +17,7 @@
 #include "../renderer/model.h"
 #include "../renderer/model_loader.h"
 #include "../renderer/mesh/mesh_factory.h"
+#include "../renderer/mesh/mesh.h"
 #include "../renderer/light.h"
 #include "resource_manager.h"
 #include <glm/glm.hpp>
@@ -28,6 +30,7 @@
 #include <cmath>
 #include <algorithm>
 #include <numeric>
+#include <limits>
 #include <unordered_set>
 #include <utility>
 
@@ -38,6 +41,8 @@ constexpr int kBenchmarkRows = 18;
 constexpr int kBenchmarkLayers = 4;
 constexpr int kBenchmarkShaderIterations = 48;
 constexpr float kBenchmarkFov = 45.0f;
+constexpr float kCameraNearPlane = 0.1f;
+constexpr float kCameraFarPlane = 100.0f;
 constexpr GLsizei kBenchmarkWidth = 1600;
 constexpr GLsizei kBenchmarkHeight = 900;
 constexpr double kBenchmarkWarmupSeconds = 2.0;
@@ -172,6 +177,7 @@ bool Application::init() {
 
     // Mouse callbacks
     glfwSetCursorPosCallback(m_window, mouseCallback);
+    glfwSetMouseButtonCallback(m_window, mouseButtonCallback);
     glfwSetScrollCallback(m_window, scrollCallback);
     glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
@@ -207,6 +213,9 @@ bool Application::init() {
         {"Cube 4", "builtin:cube", m_cubeMesh, nullptr, glm::vec3(4.0f, 0.0f, 0.0f),
          glm::vec3(0.0f), glm::vec3(1.0f), matZelya, false}
     };
+    for (RenderObject& object : m_objects) {
+        object.runtimeId = m_nextObjectId++;
+    }
 
     m_benchmarkMaterial = std::make_unique<Material>(m_shader.get(), matGrid->albedo);
     m_benchmarkMaterial->shininess = 32.0f;
@@ -558,6 +567,64 @@ void Application::selectObject(int direction) {
     syncSelectedObjectToMenu();
 }
 
+void Application::selectObjectUnderCrosshair() {
+    m_sceneMessageTime = 1.5f;
+    if (m_camera == nullptr || m_objects.empty()) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Selection failed: no scene objects";
+        return;
+    }
+
+    const float directionLength = glm::length(m_camera->front);
+    if (!std::isfinite(directionLength) || directionLength <= 0.000001f) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Selection failed: invalid camera direction";
+        return;
+    }
+
+    const glm::vec3 direction = m_camera->front / directionLength;
+    float nearestDistance = kCameraFarPlane;
+    int nearestObject = -1;
+
+    for (std::size_t objectIndex = 0; objectIndex < m_objects.size(); ++objectIndex) {
+        const RenderObject& object = m_objects[objectIndex];
+        const glm::mat4 transform = objectTransform(object);
+        const auto testMesh = [&](const std::shared_ptr<Mesh>& mesh) {
+            if (mesh == nullptr) {
+                return;
+            }
+            const std::optional<float> hit = core::intersectRayTransformedIndexedMesh(
+                m_camera->position, direction, mesh->bounds(),
+                mesh->pickingPositions(), mesh->pickingIndices(), transform,
+                kCameraNearPlane, nearestDistance);
+            if (hit.has_value() && *hit < nearestDistance) {
+                nearestDistance = *hit;
+                nearestObject = static_cast<int>(objectIndex);
+            }
+        };
+
+        if (object.model != nullptr) {
+            for (const ModelPart& part : object.model->parts()) {
+                testMesh(part.mesh);
+            }
+        } else {
+            testMesh(object.mesh);
+        }
+    }
+
+    if (nearestObject < 0) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "No object under crosshair";
+        return;
+    }
+
+    m_selectedObject = nearestObject;
+    syncSelectedObjectToMenu();
+    m_sceneOperationSucceeded = true;
+    m_sceneMessage = "Selected: " +
+                     m_objects[static_cast<std::size_t>(m_selectedObject)].name;
+}
+
 void Application::duplicateSelectedObject() {
     m_sceneMessageTime = 2.0f;
     if (m_selectedObject < 0 ||
@@ -576,6 +643,7 @@ void Application::duplicateSelectedObject() {
     RenderObject duplicate = m_objects[static_cast<std::size_t>(m_selectedObject)];
     duplicate.name = duplicateObjectName(duplicate.name);
     duplicate.position += glm::vec3(0.75f, 0.0f, 0.75f);
+    duplicate.runtimeId = m_nextObjectId++;
 
     const auto insertion = m_objects.begin() + m_selectedObject + 1;
     m_objects.insert(insertion, std::move(duplicate));
@@ -645,6 +713,16 @@ void Application::restoreSceneHistory(bool redo) {
     core::SceneDocument current = captureScene();
     core::SceneDocument restored = *target;
     restored.camera = current.camera;
+    if (m_selectedObject >= 0 &&
+        m_selectedObject < static_cast<int>(m_objects.size())) {
+        const std::uint64_t selectedRuntimeId =
+            m_objects[static_cast<std::size_t>(m_selectedObject)].runtimeId;
+        const int preservedSelection =
+            core::findSceneObjectByRuntimeId(restored, selectedRuntimeId);
+        if (preservedSelection >= 0) {
+            restored.selectedObject = preservedSelection;
+        }
+    }
 
     std::string error;
     if (!applyScene(restored, error)) {
@@ -764,6 +842,7 @@ core::SceneDocument Application::captureScene() const {
         saved.rotationDeg = object.rotationDeg;
         saved.scale = object.scale;
         saved.spinning = object.spinning;
+        saved.runtimeId = object.runtimeId;
         scene.objects.push_back(std::move(saved));
     }
     return scene;
@@ -833,9 +912,16 @@ bool Application::applyScene(const core::SceneDocument& scene, std::string& erro
                 return false;
             }
         }
+        std::uint64_t runtimeId = saved.runtimeId;
+        if (runtimeId == 0) {
+            runtimeId = m_nextObjectId++;
+        } else if (runtimeId >= m_nextObjectId &&
+                   runtimeId != (std::numeric_limits<std::uint64_t>::max)()) {
+            m_nextObjectId = runtimeId + 1;
+        }
         newObjects.push_back({
             saved.name, saved.mesh, std::move(mesh), std::move(model), saved.position,
-            saved.rotationDeg, saved.scale, materialOverride, saved.spinning
+            saved.rotationDeg, saved.scale, materialOverride, saved.spinning, runtimeId
         });
     }
 
@@ -1611,7 +1697,8 @@ void Application::render() {
             const float benchmarkAspect = static_cast<float>(m_benchmarkFramebuffer->width()) /
                                           static_cast<float>(m_benchmarkFramebuffer->height());
             const glm::mat4 projection = glm::perspective(
-                glm::radians(kBenchmarkFov), benchmarkAspect, 0.1f, 100.0f);
+                glm::radians(kBenchmarkFov), benchmarkAspect,
+                kCameraNearPlane, kCameraFarPlane);
             DirectionalLight benchmarkDirLight;
             PointLight benchmarkPointLight;
             benchmarkPointLight.enabled = false;
@@ -1638,7 +1725,9 @@ void Application::render() {
 
             const float aspect = static_cast<float>(width) / static_cast<float>(height);
             const glm::mat4 view = m_camera->getViewMatrix();
-            const glm::mat4 projection = glm::perspective(glm::radians(m_camera->fov), aspect, 0.1f, 100.0f);
+            const glm::mat4 projection = glm::perspective(
+                glm::radians(m_camera->fov), aspect,
+                kCameraNearPlane, kCameraFarPlane);
 
             if (m_showCoordinateGrid && m_coordinateGrid != nullptr) {
                 m_coordinateGrid->draw(view, projection, m_camera->position);
@@ -1730,6 +1819,15 @@ void Application::render() {
     m_renderer->beginUiPass();
     UIText::beginFrame();
     Menu::render();
+
+    if (!m_benchmarkEnabled && !Menu::isOpen()) {
+        constexpr float crosshairScale = 1.5f;
+        UIText::renderTextWithColor(
+            "+",
+            static_cast<float>(width) * 0.5f - 4.0f * crosshairScale,
+            static_cast<float>(height) * 0.5f - 6.0f * crosshairScale,
+            crosshairScale, 1.0f, 0.75f, 0.1f);
+    }
 
     // Render UI
     std::ostringstream oss;
@@ -1874,7 +1972,7 @@ void Application::render() {
         } else {
             cubeOss << "\nSelected: none";
         }
-        cubeOss << "\nSelect: Tab / Shift+Tab"
+        cubeOss << "\nSelect: left click / Tab / Shift+Tab"
                 << "\nDuplicate: Ctrl+D | Delete: Del"
                 << "\nUndo: Ctrl+Z | Redo: Ctrl+Y"
                 << "\nHistory: " << m_sceneHistory.undoDepth() << " undo, "
@@ -1899,7 +1997,16 @@ void Application::keyCallback(GLFWwindow* window, int key, int scancode, int act
 
 void Application::mouseCallback(GLFWwindow* window, double xpos, double ypos) {
     auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
-    app->onMouseMove(xpos, ypos);
+    if (app != nullptr) {
+        app->onMouseMove(xpos, ypos);
+    }
+}
+
+void Application::mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
+    auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
+    if (app != nullptr) {
+        app->onMouseButton(button, action, mods);
+    }
 }
 
 void Application::scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
@@ -2105,6 +2212,10 @@ void Application::onMouseMove(double xpos, double ypos) {
         m_lastY = static_cast<float>(ypos);
         return;
     }
+    if (Menu::isOpen()) {
+        m_firstMouse = true;
+        return;
+    }
     
     if (m_firstMouse) {
         m_lastX = static_cast<float>(xpos);
@@ -2121,8 +2232,16 @@ void Application::onMouseMove(double xpos, double ypos) {
     m_camera->processMouse(xoffset, yoffset);
 }
 
+void Application::onMouseButton(int button, int action, int mods) {
+    (void)mods;
+    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS &&
+        !m_benchmarkEnabled && !Menu::isOpen()) {
+        selectObjectUnderCrosshair();
+    }
+}
+
 void Application::onScroll(double xoffset, double yoffset) {
     (void)xoffset;
-    if (m_camera == nullptr || m_benchmarkEnabled) return;
+    if (m_camera == nullptr || m_benchmarkEnabled || Menu::isOpen()) return;
     m_camera->processScroll(static_cast<float>(yoffset));
 }

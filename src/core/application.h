@@ -4,6 +4,7 @@
 #include <GLFW/glfw3.h>
 #include <glad/glad.h>
 #include <glm/glm.hpp>
+#include <cstdint>
 #include <string>
 #include <sstream>
 #include <unordered_map>
@@ -35,6 +36,7 @@ struct RenderObject {
     glm::vec3 scale;
     Material* material;      // Does not own
     bool spinning;           // Auto-rotation flag
+    std::uint64_t runtimeId = 0;
 };
 
 class Application {
@@ -74,6 +76,7 @@ private:
         std::string& error);
     void loadSelectedModel(const std::string& assetReference);
     void selectObject(int direction);
+    void selectObjectUnderCrosshair();
     void duplicateSelectedObject();
     void deleteSelectedObject();
     void syncSelectedObjectToMenu();
@@ -92,6 +95,7 @@ private:
     static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
     static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
     static void mouseCallback(GLFWwindow* window, double xpos, double ypos);
+    static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
     static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset);
     static void glfwErrorCallback(int error, const char* description);
     
@@ -99,6 +103,7 @@ private:
     void onFramebufferResize(int width, int height);
     void onKey(int key, int action, int mods);
     void onMouseMove(double xpos, double ypos);
+    void onMouseButton(int button, int action, int mods);
     void onScroll(double xoffset, double yoffset);
     
     GLFWwindow* m_window = nullptr;
@@ -150,6 +155,7 @@ private:
     // Objects
     std::vector<RenderObject> m_objects;
     int m_selectedObject = 0;
+    std::uint64_t m_nextObjectId = 1;
     core::SceneHistory m_sceneHistory;
     
     // Rendering resources

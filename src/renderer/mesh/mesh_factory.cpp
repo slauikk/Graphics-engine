@@ -1,4 +1,5 @@
 #include "mesh_factory.h"
+#include "core/spatial_query.h"
 #include "mesh.h"
 #include "vertex_buffer.h"
 #include "index_buffer.h"
@@ -8,17 +9,36 @@
 #include <memory>
 #include <cstdint>
 #include <limits>
+#include <optional>
+
+#include <glm/glm.hpp>
 
 std::shared_ptr<Mesh> MeshFactory::CreateInterleaved(
     const std::vector<float>& vertices,
     const std::vector<std::uint32_t>& indices) {
     constexpr std::size_t floatsPerVertex = 8;
+    const std::size_t vertexCount = vertices.size() / floatsPerVertex;
     if (vertices.empty() || indices.empty() || vertices.size() % floatsPerVertex != 0 ||
-        vertices.size() / floatsPerVertex >
+        indices.size() < 3 || indices.size() % 3 != 0 ||
+        vertexCount >
             static_cast<std::size_t>((std::numeric_limits<GLsizei>::max)()) ||
         indices.size() > static_cast<std::size_t>((std::numeric_limits<GLsizei>::max)()) ||
         indices.size() > static_cast<std::size_t>((std::numeric_limits<std::uint32_t>::max)())) {
         return nullptr;
+    }
+
+    const std::optional<geometry::AxisAlignedBounds> bounds =
+        core::calculateIndexedBounds(vertices, floatsPerVertex, indices);
+    if (!bounds.has_value()) {
+        return nullptr;
+    }
+
+    std::vector<glm::vec3> pickingPositions;
+    pickingPositions.reserve(vertexCount);
+    for (std::size_t vertex = 0; vertex < vertexCount; ++vertex) {
+        const std::size_t offset = vertex * floatsPerVertex;
+        pickingPositions.emplace_back(
+            vertices[offset], vertices[offset + 1], vertices[offset + 2]);
     }
 
     auto mesh = std::make_shared<Mesh>();
@@ -45,6 +65,8 @@ std::shared_ptr<Mesh> MeshFactory::CreateInterleaved(
     mesh->setVertexCount(static_cast<GLsizei>(vertices.size() / floatsPerVertex));
     mesh->setIndexCount(static_cast<GLsizei>(indices.size()));
     mesh->setPrimitive(GL_TRIANGLES);
+    mesh->setBounds(*bounds);
+    mesh->setPickingGeometry(std::move(pickingPositions), indices);
     return mesh;
 }
 
