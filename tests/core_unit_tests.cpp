@@ -348,6 +348,38 @@ void testEditorTranslationGizmo() {
                 almostEqual(translated->y, 2.0) &&
                 almostEqual(translated->z, 3.0),
             "gizmo drag did not translate only the selected axis");
+    const auto snapped = core::calculateEditorGizmoTranslation(
+        gizmo,
+        core::EditorGizmoAxis::X,
+        glm::vec3(0.13f, 2.2f, 3.3f),
+        gizmo.origin,
+        draggedCursor,
+        core::kObjectTranslationStep);
+    require(snapped.has_value() &&
+                almostEqual(
+                    snapped->x / core::kObjectTranslationStep,
+                    std::round(snapped->x / core::kObjectTranslationStep)) &&
+                almostEqual(snapped->y, 2.2) &&
+                almostEqual(snapped->z, 3.3),
+            "gizmo snapping changed an inactive axis or missed the grid");
+    require(!core::calculateEditorGizmoTranslation(
+                 gizmo,
+                 core::EditorGizmoAxis::X,
+                 glm::vec3(0.0f),
+                 gizmo.origin,
+                 draggedCursor,
+                 -core::kObjectTranslationStep)
+                 .has_value(),
+            "gizmo drag accepted a negative snap step");
+    require(!core::calculateEditorGizmoTranslation(
+                 gizmo,
+                 core::EditorGizmoAxis::X,
+                 glm::vec3(0.0f),
+                 gizmo.origin,
+                 draggedCursor,
+                 std::numeric_limits<float>::infinity())
+                 .has_value(),
+            "gizmo drag accepted a non-finite snap step");
     require(!core::calculateEditorGizmoTranslation(
                  gizmo,
                  core::EditorGizmoAxis::None,

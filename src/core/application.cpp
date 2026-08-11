@@ -2264,6 +2264,7 @@ void Application::clearGizmoDrag() {
     m_gizmoDragStartPosition = glm::vec3(0.0f);
     m_activeGizmoObjectId = 0;
     m_gizmoHistoryRecorded = false;
+    m_gizmoLastMoveSnapped = false;
 }
 
 void Application::render() {
@@ -3001,7 +3002,7 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
     }
     UIText::renderTextWithColor(
         truncateHudText(
-            "LMB SELECT  |  DRAG XYZ  |  RMB LOOK  |  WASD MOVE  |  WHEEL FOV",
+            "LMB SELECT  |  DRAG XYZ  |  CTRL SNAP  |  RMB LOOK  |  WASD MOVE",
             viewportCharacters),
         static_cast<float>(layout.viewport.x) + 12.0f,
         static_cast<float>(layout.viewport.y + layout.viewport.height) - 22.0f,
@@ -3121,6 +3122,12 @@ void Application::onKey(int key, int action, int mods) {
         return;
     }
     if (action != GLFW_PRESS) {
+        return;
+    }
+    const bool gizmoSnapModifier =
+        m_activeGizmoAxis != core::EditorGizmoAxis::None &&
+        (key == GLFW_KEY_LEFT_CONTROL || key == GLFW_KEY_RIGHT_CONTROL);
+    if (gizmoSnapModifier) {
         return;
     }
     clearGizmoDrag();
@@ -3377,12 +3384,16 @@ void Application::onMouseMove(double xpos, double ypos) {
 
         RenderObject& object =
             m_objects[static_cast<std::size_t>(m_selectedObject)];
+        const bool snapToGrid =
+            glfwGetKey(m_window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+            glfwGetKey(m_window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
         const auto translated = core::calculateEditorGizmoTranslation(
             m_activeGizmo,
             m_activeGizmoAxis,
             m_gizmoDragStartPosition,
             m_gizmoDragStartCursor,
-            cursorFramebufferPosition());
+            cursorFramebufferPosition(),
+            snapToGrid ? core::kObjectTranslationStep : 0.0f);
         if (translated.has_value() &&
             (translated->x != object.position.x ||
              translated->y != object.position.y ||
@@ -3392,9 +3403,10 @@ void Application::onMouseMove(double xpos, double ypos) {
                 m_gizmoHistoryRecorded = true;
             }
             object.position = *translated;
+            m_gizmoLastMoveSnapped = snapToGrid;
             syncSelectedObjectToMenu();
             m_sceneOperationSucceeded = true;
-            m_sceneMessage = std::string("Moving ") +
+            m_sceneMessage = std::string(snapToGrid ? "Snapping " : "Moving ") +
                 core::editorGizmoAxisName(m_activeGizmoAxis) + ": " +
                 object.name;
             m_sceneMessageTime = 0.5f;
@@ -3450,12 +3462,15 @@ void Application::onMouseButton(int button, int action, int mods) {
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE &&
         m_activeGizmoAxis != core::EditorGizmoAxis::None) {
         const bool moved = m_gizmoHistoryRecorded;
+        const bool snapped = m_gizmoLastMoveSnapped;
         const std::string axisName =
             core::editorGizmoAxisName(m_activeGizmoAxis);
         clearGizmoDrag();
         if (moved) {
             m_sceneOperationSucceeded = true;
-            m_sceneMessage = "Gizmo move committed on " + axisName;
+            m_sceneMessage = snapped
+                ? "Gizmo snap committed on " + axisName
+                : "Gizmo move committed on " + axisName;
             m_sceneMessageTime = 1.5f;
         }
         return;
@@ -3588,9 +3603,11 @@ void Application::onMouseButton(int button, int action, int mods) {
             m_gizmoDragStartPosition = object.position;
             m_activeGizmoObjectId = object.runtimeId;
             m_gizmoHistoryRecorded = false;
+            m_gizmoLastMoveSnapped = false;
             m_sceneOperationSucceeded = true;
             m_sceneMessage = std::string("Drag ") +
-                core::editorGizmoAxisName(gizmoAxis) + " axis";
+                core::editorGizmoAxisName(gizmoAxis) +
+                " axis | Hold Ctrl to snap";
             m_sceneMessageTime = 1.0f;
             return;
         }

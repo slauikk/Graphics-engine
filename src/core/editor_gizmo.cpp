@@ -73,6 +73,16 @@ bool finiteVector(const glm::vec3& value) {
            std::isfinite(value.z);
 }
 
+float snapCoordinate(float value, float step) {
+    const double doubleStep = static_cast<double>(step);
+    const double maximumGridIndex = std::floor(
+        static_cast<double>(core::kMaxSceneCoordinate) / doubleStep);
+    const double gridIndex = std::clamp(
+        std::round(static_cast<double>(value) / doubleStep),
+        -maximumGridIndex, maximumGridIndex);
+    return static_cast<float>(gridIndex * doubleStep);
+}
+
 } // namespace
 
 namespace core {
@@ -184,11 +194,13 @@ std::optional<glm::vec3> calculateEditorGizmoTranslation(
     EditorGizmoAxis axis,
     const glm::vec3& startPosition,
     EditorPoint startCursor,
-    EditorPoint currentCursor) {
+    EditorPoint currentCursor,
+    float snapStep) {
     const std::optional<std::size_t> index = axisIndex(axis);
     if (!gizmo.valid || !index.has_value() ||
         !gizmo.handles[*index].valid() || !finiteVector(startPosition) ||
-        !finitePoint(startCursor) || !finitePoint(currentCursor)) {
+        !finitePoint(startCursor) || !finitePoint(currentCursor) ||
+        !std::isfinite(snapStep) || snapStep < 0.0f) {
         return std::nullopt;
     }
 
@@ -205,6 +217,19 @@ std::optional<glm::vec3> calculateEditorGizmoTranslation(
 
     glm::vec3 translated =
         startPosition + axisVector(*index) * worldDistance;
+    if (snapStep > 0.0f) {
+        switch (*index) {
+            case 0:
+                translated.x = snapCoordinate(translated.x, snapStep);
+                break;
+            case 1:
+                translated.y = snapCoordinate(translated.y, snapStep);
+                break;
+            default:
+                translated.z = snapCoordinate(translated.z, snapStep);
+                break;
+        }
+    }
     translated.x = std::clamp(
         translated.x, -kMaxSceneCoordinate, kMaxSceneCoordinate);
     translated.y = std::clamp(

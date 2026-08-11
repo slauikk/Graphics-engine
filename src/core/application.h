@@ -188,6 +188,7 @@ private:
     glm::vec3 m_gizmoDragStartPosition = glm::vec3(0.0f);
     std::uint64_t m_activeGizmoObjectId = 0;
     bool m_gizmoHistoryRecorded = false;
+    bool m_gizmoLastMoveSnapped = false;
     std::uint64_t m_nextObjectId = 1;
     core::SceneHistory m_sceneHistory;
     
