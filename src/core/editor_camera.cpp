@@ -24,6 +24,22 @@ bool isValid(const geometry::AxisAlignedBounds& bounds) {
 
 } // namespace
 
+float clampEditorCameraDelta(
+    float deltaSeconds,
+    float maximumDeltaSeconds) {
+    if (!std::isfinite(deltaSeconds) || deltaSeconds <= 0.0f ||
+        !std::isfinite(maximumDeltaSeconds) || maximumDeltaSeconds <= 0.0f) {
+        return 0.0f;
+    }
+    return std::min(deltaSeconds, maximumDeltaSeconds);
+}
+
+bool shouldProcessEditorCameraScroll(
+    bool cameraInputActive,
+    bool cursorInsideViewport) {
+    return cameraInputActive || cursorInsideViewport;
+}
+
 std::optional<glm::vec3> calculateFramedCameraPosition(
     const geometry::AxisAlignedBounds& worldBounds,
     const glm::vec3& viewDirection,

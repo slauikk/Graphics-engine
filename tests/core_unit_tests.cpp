@@ -1484,6 +1484,19 @@ void testEditorObjectTransforms() {
 }
 
 void testEditorCameraFraming() {
+    require(almostEqual(core::clampEditorCameraDelta(0.016f), 0.016) &&
+                almostEqual(
+                    core::clampEditorCameraDelta(5.0f),
+                    core::kMaximumEditorCameraDeltaSeconds) &&
+                core::clampEditorCameraDelta(-1.0f) == 0.0f &&
+                core::clampEditorCameraDelta(
+                    std::numeric_limits<float>::quiet_NaN()) == 0.0f,
+            "camera delta clamp accepted a stall or invalid interval");
+    require(core::shouldProcessEditorCameraScroll(true, false) &&
+                core::shouldProcessEditorCameraScroll(false, true) &&
+                !core::shouldProcessEditorCameraScroll(false, false),
+            "camera scroll gating ignored active look or viewport bounds");
+
     geometry::AxisAlignedBounds bounds;
     bounds.minimum = glm::vec3(-1.0f);
     bounds.maximum = glm::vec3(1.0f);

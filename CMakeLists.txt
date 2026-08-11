@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.31)
 
-project(Graphics_engine VERSION 0.19.5 LANGUAGES CXX)
+project(Graphics_engine VERSION 0.19.6 LANGUAGES CXX)
 
 include(CTest)
 

@@ -1916,6 +1916,8 @@ void Application::processInput(float dt) {
     if (m_benchmarkEnabled) {
         return;
     }
+
+    const float cameraDelta = core::clampEditorCameraDelta(dt);
     
     // Keep menu navigation from moving the camera behind the overlay.
     if (!Menu::isOpen() && m_cameraInputActive) {
@@ -1934,18 +1936,18 @@ void Application::processInput(float dt) {
             glfwGetKey(m_window, GLFW_KEY_TAB) == GLFW_PRESS;
 
         if (glfwGetKey(m_window, GLFW_KEY_W) == GLFW_PRESS)
-            m_camera->processKeyboard(FORWARD, dt);
+            m_camera->processKeyboard(FORWARD, cameraDelta);
         if (glfwGetKey(m_window, GLFW_KEY_S) == GLFW_PRESS)
-            m_camera->processKeyboard(BACKWARD, dt);
+            m_camera->processKeyboard(BACKWARD, cameraDelta);
         if (glfwGetKey(m_window, GLFW_KEY_A) == GLFW_PRESS)
-            m_camera->processKeyboard(LEFT, dt);
+            m_camera->processKeyboard(LEFT, cameraDelta);
         if (glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS &&
             !duplicateShortcutHeld)
-            m_camera->processKeyboard(RIGHT, dt);
+            m_camera->processKeyboard(RIGHT, cameraDelta);
         if (shiftPressed && !selectionShortcutHeld && !historyShortcutHeld)
-            m_camera->processKeyboard(UP, dt);
+            m_camera->processKeyboard(UP, cameraDelta);
         if (controlPressed && !duplicateShortcutHeld && !historyShortcutHeld)
-            m_camera->processKeyboard(DOWN, dt);
+            m_camera->processKeyboard(DOWN, cameraDelta);
     }
 }
 
@@ -3712,7 +3714,9 @@ void Application::onScroll(double xoffset, double yoffset) {
             m_width, m_height,
             m_windowSettings.hierarchyExpanded,
             m_windowSettings.inspectorExpanded);
-    if (!layout.viewport.contains(cursorFramebufferPosition())) {
+    if (!core::shouldProcessEditorCameraScroll(
+            m_cameraInputActive,
+            layout.viewport.contains(cursorFramebufferPosition()))) {
         return;
     }
     m_camera->processScroll(static_cast<float>(yoffset));

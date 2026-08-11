@@ -9,6 +9,16 @@
 
 namespace core {
 
+inline constexpr float kMaximumEditorCameraDeltaSeconds = 0.1f;
+
+float clampEditorCameraDelta(
+    float deltaSeconds,
+    float maximumDeltaSeconds = kMaximumEditorCameraDeltaSeconds);
+
+bool shouldProcessEditorCameraScroll(
+    bool cameraInputActive,
+    bool cursorInsideViewport);
+
 std::optional<glm::vec3> calculateFramedCameraPosition(
     const geometry::AxisAlignedBounds& worldBounds,
     const glm::vec3& viewDirection,
