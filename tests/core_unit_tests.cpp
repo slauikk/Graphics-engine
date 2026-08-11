@@ -388,6 +388,17 @@ void testEditorTranslationGizmo() {
                  draggedCursor)
                  .has_value(),
             "gizmo drag accepted the None axis");
+    require(!core::editorGizmoTranslationChanged(
+                glm::vec3(1.0f, 2.0f, 3.0f),
+                glm::vec3(1.0f, 2.0f, 3.0f)) &&
+                core::editorGizmoTranslationChanged(
+                    glm::vec3(1.0f, 2.0f, 3.0f),
+                    glm::vec3(1.5f, 2.0f, 3.0f)) &&
+                !core::editorGizmoTranslationChanged(
+                    glm::vec3(0.0f),
+                    glm::vec3(
+                        std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f)),
+            "gizmo transaction change detection accepted an invalid no-op");
 
     const core::EditorTranslationGizmo hidden =
         core::calculateEditorTranslationGizmo(

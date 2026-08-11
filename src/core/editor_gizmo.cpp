@@ -239,6 +239,15 @@ std::optional<glm::vec3> calculateEditorGizmoTranslation(
     return translated;
 }
 
+bool editorGizmoTranslationChanged(
+    const glm::vec3& startPosition,
+    const glm::vec3& currentPosition) {
+    return finiteVector(startPosition) && finiteVector(currentPosition) &&
+        (startPosition.x != currentPosition.x ||
+         startPosition.y != currentPosition.y ||
+         startPosition.z != currentPosition.z);
+}
+
 const char* editorGizmoAxisName(EditorGizmoAxis axis) {
     switch (axis) {
         case EditorGizmoAxis::X:

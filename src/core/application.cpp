@@ -2273,8 +2273,31 @@ void Application::clearGizmoDrag() {
     m_gizmoDragStartCursor = {};
     m_gizmoDragStartPosition = glm::vec3(0.0f);
     m_activeGizmoObjectId = 0;
-    m_gizmoHistoryRecorded = false;
+    m_gizmoSceneBeforeDrag.reset();
     m_gizmoLastMoveSnapped = false;
+}
+
+void Application::cancelGizmoDrag() {
+    if (m_activeGizmoAxis != core::EditorGizmoAxis::None &&
+        m_activeGizmoObjectId != 0) {
+        const auto dragged = std::find_if(
+            m_objects.begin(), m_objects.end(),
+            [this](const RenderObject& object) {
+                return object.runtimeId == m_activeGizmoObjectId;
+            });
+        if (dragged != m_objects.end() &&
+            core::editorGizmoTranslationChanged(
+                m_gizmoDragStartPosition, dragged->position)) {
+            dragged->position = m_gizmoDragStartPosition;
+            if (m_selectedObject >= 0 &&
+                m_selectedObject < static_cast<int>(m_objects.size()) &&
+                m_objects[static_cast<std::size_t>(m_selectedObject)].runtimeId ==
+                    dragged->runtimeId) {
+                syncSelectedObjectToMenu();
+            }
+        }
+    }
+    clearGizmoDrag();
 }
 
 void Application::render() {
@@ -3100,7 +3123,7 @@ void Application::onFramebufferResize(int width, int height) {
 void Application::onWindowFocus(int focused) {
     if (focused == GLFW_FALSE) {
         setCameraInputActive(false);
-        clearGizmoDrag();
+        cancelGizmoDrag();
     }
 }
 
@@ -3140,9 +3163,22 @@ void Application::onKey(int key, int action, int mods) {
     if (gizmoSnapModifier) {
         return;
     }
-    clearGizmoDrag();
+    const bool cancelledGizmo =
+        m_activeGizmoAxis != core::EditorGizmoAxis::None;
+    if (cancelledGizmo) {
+        cancelGizmoDrag();
+    } else {
+        clearGizmoDrag();
+    }
     m_activeTransformKey = GLFW_KEY_UNKNOWN;
     m_activeTransformObjectId = 0;
+
+    if (cancelledGizmo && key == GLFW_KEY_ESCAPE) {
+        m_sceneOperationSucceeded = true;
+        m_sceneMessage = "Gizmo move cancelled";
+        m_sceneMessageTime = 1.5f;
+        return;
+    }
 
     const bool altPressed = (mods & GLFW_MOD_ALT) != 0;
     const bool otherModifierPressed =
@@ -3388,7 +3424,7 @@ void Application::onMouseMove(double xpos, double ypos) {
             m_objects[static_cast<std::size_t>(m_selectedObject)].runtimeId ==
                 m_activeGizmoObjectId;
         if (!hasDraggedObject) {
-            clearGizmoDrag();
+            cancelGizmoDrag();
             return;
         }
 
@@ -3408,10 +3444,6 @@ void Application::onMouseMove(double xpos, double ypos) {
             (translated->x != object.position.x ||
              translated->y != object.position.y ||
              translated->z != object.position.z)) {
-            if (!m_gizmoHistoryRecorded) {
-                checkpointScene();
-                m_gizmoHistoryRecorded = true;
-            }
             object.position = *translated;
             m_gizmoLastMoveSnapped = snapToGrid;
             syncSelectedObjectToMenu();
@@ -3471,12 +3503,23 @@ void Application::onMouseButton(int button, int action, int mods) {
 
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE &&
         m_activeGizmoAxis != core::EditorGizmoAxis::None) {
-        const bool moved = m_gizmoHistoryRecorded;
+        const auto dragged = std::find_if(
+            m_objects.begin(), m_objects.end(),
+            [this](const RenderObject& object) {
+                return object.runtimeId == m_activeGizmoObjectId;
+            });
+        const bool moved = dragged != m_objects.end() &&
+            core::editorGizmoTranslationChanged(
+                m_gizmoDragStartPosition, dragged->position) &&
+            m_gizmoSceneBeforeDrag.has_value();
         const bool snapped = m_gizmoLastMoveSnapped;
         const std::string axisName =
             core::editorGizmoAxisName(m_activeGizmoAxis);
+        std::optional<core::SceneDocument> sceneBeforeDrag =
+            std::move(m_gizmoSceneBeforeDrag);
         clearGizmoDrag();
         if (moved) {
+            m_sceneHistory.record(std::move(*sceneBeforeDrag));
             m_sceneOperationSucceeded = true;
             m_sceneMessage = snapped
                 ? "Gizmo snap committed on " + axisName
@@ -3487,7 +3530,14 @@ void Application::onMouseButton(int button, int action, int mods) {
     }
 
     if (button == GLFW_MOUSE_BUTTON_RIGHT) {
-        clearGizmoDrag();
+        const bool cancelledGizmo =
+            m_activeGizmoAxis != core::EditorGizmoAxis::None;
+        cancelGizmoDrag();
+        if (cancelledGizmo) {
+            m_sceneOperationSucceeded = true;
+            m_sceneMessage = "Gizmo move cancelled";
+            m_sceneMessageTime = 1.5f;
+        }
         if (action == GLFW_RELEASE) {
             setCameraInputActive(false);
         } else if (action == GLFW_PRESS && !m_benchmarkEnabled &&
@@ -3612,7 +3662,7 @@ void Application::onMouseButton(int button, int action, int mods) {
                 m_objects[static_cast<std::size_t>(m_selectedObject)];
             m_gizmoDragStartPosition = object.position;
             m_activeGizmoObjectId = object.runtimeId;
-            m_gizmoHistoryRecorded = false;
+            m_gizmoSceneBeforeDrag = captureScene();
             m_gizmoLastMoveSnapped = false;
             m_sceneOperationSucceeded = true;
             m_sceneMessage = std::string("Drag ") +

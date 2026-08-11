@@ -50,6 +50,10 @@ std::optional<glm::vec3> calculateEditorGizmoTranslation(
     EditorPoint currentCursor,
     float snapStep = 0.0f);
 
+bool editorGizmoTranslationChanged(
+    const glm::vec3& startPosition,
+    const glm::vec3& currentPosition);
+
 const char* editorGizmoAxisName(EditorGizmoAxis axis);
 
 } // namespace core

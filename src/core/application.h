@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <vector>
 #include <memory>
+#include <optional>
 #include "renderer/light.h"
 #include "renderer/post_processor.h"
 #include "editor_transform.h"
@@ -108,6 +109,7 @@ private:
     core::EditorTranslationGizmo selectedObjectGizmo(
         const core::EditorLayout& layout) const;
     void clearGizmoDrag();
+    void cancelGizmoDrag();
     core::EditorPoint cursorFramebufferPosition() const;
     
     // GLFW callbacks (static)
@@ -187,7 +189,7 @@ private:
     core::EditorPoint m_gizmoDragStartCursor;
     glm::vec3 m_gizmoDragStartPosition = glm::vec3(0.0f);
     std::uint64_t m_activeGizmoObjectId = 0;
-    bool m_gizmoHistoryRecorded = false;
+    std::optional<core::SceneDocument> m_gizmoSceneBeforeDrag;
     bool m_gizmoLastMoveSnapped = false;
     std::uint64_t m_nextObjectId = 1;
     core::SceneHistory m_sceneHistory;
