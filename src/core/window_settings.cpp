@@ -129,6 +129,56 @@ WindowSettings fitWindowSettingsToWorkArea(
     return fitted;
 }
 
+std::size_t windowWorkAreaIndexForSettings(
+    const WindowSettings& settings,
+    const std::vector<WindowWorkArea>& workAreas,
+    std::size_t fallbackIndex) {
+    if (workAreas.empty()) {
+        return 0;
+    }
+
+    const std::size_t fallback = (std::min)(
+        fallbackIndex, workAreas.size() - 1);
+    if (!settings.hasPosition || settings.width <= 0 ||
+        settings.height <= 0) {
+        return fallback;
+    }
+
+    const std::int64_t windowLeft = settings.x;
+    const std::int64_t windowTop = settings.y;
+    const std::int64_t windowRight = windowLeft + settings.width;
+    const std::int64_t windowBottom = windowTop + settings.height;
+    const auto overlapArea = [&](const WindowWorkArea& area) {
+        if (area.width <= 0 || area.height <= 0) {
+            return std::int64_t{0};
+        }
+        const std::int64_t areaRight =
+            static_cast<std::int64_t>(area.x) + area.width;
+        const std::int64_t areaBottom =
+            static_cast<std::int64_t>(area.y) + area.height;
+        const std::int64_t overlapWidth = (std::max)(
+            std::int64_t{0},
+            (std::min)(windowRight, areaRight) -
+                (std::max)(windowLeft, static_cast<std::int64_t>(area.x)));
+        const std::int64_t overlapHeight = (std::max)(
+            std::int64_t{0},
+            (std::min)(windowBottom, areaBottom) -
+                (std::max)(windowTop, static_cast<std::int64_t>(area.y)));
+        return overlapWidth * overlapHeight;
+    };
+
+    std::size_t selected = fallback;
+    std::int64_t largestOverlap = overlapArea(workAreas[fallback]);
+    for (std::size_t index = 0; index < workAreas.size(); ++index) {
+        const std::int64_t overlap = overlapArea(workAreas[index]);
+        if (overlap > largestOverlap) {
+            selected = index;
+            largestOverlap = overlap;
+        }
+    }
+    return largestOverlap > 0 ? selected : fallback;
+}
+
 WindowSettingsLoadResult loadWindowSettings(
     const std::filesystem::path& path) {
     WindowSettingsLoadResult result;

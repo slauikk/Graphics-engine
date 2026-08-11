@@ -283,6 +283,33 @@ void testWindowSettingsPersistence() {
                 fittedSmall.width == 1024 && fittedSmall.height == 650,
             "window dimensions were not fitted to a smaller work area");
 
+    const std::vector<core::WindowWorkArea> workAreas = {
+        {-1920, 0, 1920, 1080},
+        {0, 0, 2560, 1400}};
+    core::WindowSettings laptopWindow = defaults;
+    laptopWindow.hasPosition = true;
+    laptopWindow.x = -1760;
+    laptopWindow.y = 80;
+    require(core::windowWorkAreaIndexForSettings(
+                laptopWindow, workAreas, 1) == 0,
+            "window on the secondary monitor was forced to the primary monitor");
+    core::WindowSettings primaryWindow = defaults;
+    primaryWindow.hasPosition = true;
+    primaryWindow.x = 640;
+    primaryWindow.y = 336;
+    require(core::windowWorkAreaIndexForSettings(
+                primaryWindow, workAreas, 0) == 1,
+            "window on the primary monitor selected the wrong work area");
+    require(core::windowWorkAreaIndexForSettings(
+                defaults, workAreas, 1) == 1,
+            "unpositioned window ignored the primary-monitor fallback");
+    core::WindowSettings disconnectedWindow = defaults;
+    disconnectedWindow.hasPosition = true;
+    disconnectedWindow.x = -20'000;
+    require(core::windowWorkAreaIndexForSettings(
+                disconnectedWindow, workAreas, 1) == 1,
+            "disconnected monitor position did not fall back to primary");
+
     TemporaryDirectory temporary;
     const std::filesystem::path settingsPath =
         temporary.path() / "editor_settings.json";

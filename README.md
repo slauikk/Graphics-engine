@@ -38,6 +38,7 @@ executable, assets, third-party DLLs, and the MSVC runtime libraries.
 - Buttons and Scene rows show hover feedback, and Assets menu entries can be opened with the mouse or keyboard.
 - Hold the right mouse button and use the mouse / `W/A/S/D`, `Shift`, `Ctrl`: look and move the editor camera.
 - `Alt+Enter`: toggle between the remembered windowed layout and fullscreen.
+- Window position is preserved across monitors; fullscreen uses the display containing the window.
 - `V`: toggle VSync; GPU benchmark mode temporarily disables it.
 - Mouse and wheel: look around and change field of view.
 - Left mouse button: select the nearest object under the cursor inside the viewport.

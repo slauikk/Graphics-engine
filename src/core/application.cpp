@@ -62,13 +62,36 @@ core::WindowWorkArea monitorWorkArea(GLFWmonitor* monitor) {
         monitor, &area.x, &area.y, &area.width, &area.height);
     if (area.width <= 0 || area.height <= 0) {
         if (const GLFWvidmode* mode = glfwGetVideoMode(monitor)) {
-            area.x = 0;
-            area.y = 0;
+            glfwGetMonitorPos(monitor, &area.x, &area.y);
             area.width = mode->width;
             area.height = mode->height;
         }
     }
     return area;
+}
+
+GLFWmonitor* monitorForWindowSettings(
+    const core::WindowSettings& settings) {
+    GLFWmonitor* primary = glfwGetPrimaryMonitor();
+    int monitorCount = 0;
+    GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
+    if (monitors == nullptr || monitorCount <= 0) {
+        return primary;
+    }
+
+    std::vector<core::WindowWorkArea> workAreas;
+    workAreas.reserve(static_cast<std::size_t>(monitorCount));
+    std::size_t primaryIndex = 0;
+    for (int index = 0; index < monitorCount; ++index) {
+        workAreas.push_back(monitorWorkArea(monitors[index]));
+        if (monitors[index] == primary) {
+            primaryIndex = static_cast<std::size_t>(index);
+        }
+    }
+    const std::size_t selectedIndex =
+        core::windowWorkAreaIndexForSettings(
+            settings, workAreas, primaryIndex);
+    return monitors[selectedIndex];
 }
 
 glm::mat4 objectTransform(const RenderObject& object) {
@@ -305,15 +328,15 @@ bool Application::init() {
         std::cerr << "Window settings ignored: " << settingsResult.error << "\n";
     }
 
-    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    GLFWmonitor* monitor = monitorForWindowSettings(m_windowSettings);
     if (!monitor) {
-        std::cerr << "Failed to get primary monitor\n";
+        std::cerr << "Failed to get target monitor\n";
         return false;
     }
 
     const GLFWvidmode* mode = glfwGetVideoMode(monitor);
     if (!mode) {
-        std::cerr << "Failed to get primary monitor video mode\n";
+        std::cerr << "Failed to get target monitor video mode\n";
         return false;
     }
 
@@ -1613,7 +1636,14 @@ void Application::toggleFullscreen() {
     }
     setCameraInputActive(false);
 
-    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    if (!m_fullscreen) {
+        glfwGetWindowPos(m_window, &m_windowSettings.x, &m_windowSettings.y);
+        glfwGetWindowSize(
+            m_window, &m_windowSettings.width, &m_windowSettings.height);
+        m_windowSettings.hasPosition = true;
+    }
+
+    GLFWmonitor* monitor = monitorForWindowSettings(m_windowSettings);
     const GLFWvidmode* mode = monitor != nullptr
         ? glfwGetVideoMode(monitor)
         : nullptr;
@@ -1625,10 +1655,6 @@ void Application::toggleFullscreen() {
     }
 
     if (!m_fullscreen) {
-        glfwGetWindowPos(m_window, &m_windowSettings.x, &m_windowSettings.y);
-        glfwGetWindowSize(
-            m_window, &m_windowSettings.width, &m_windowSettings.height);
-        m_windowSettings.hasPosition = true;
         glfwSetWindowMonitor(
             m_window, monitor, 0, 0, mode->width, mode->height,
             mode->refreshRate);

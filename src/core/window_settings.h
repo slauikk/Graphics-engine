@@ -1,8 +1,10 @@
 #ifndef CORE_WINDOW_SETTINGS_H
 #define CORE_WINDOW_SETTINGS_H
 
+#include <cstddef>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace core {
 
@@ -49,6 +51,11 @@ bool validateWindowSettings(
 WindowSettings fitWindowSettingsToWorkArea(
     const WindowSettings& settings,
     const WindowWorkArea& workArea);
+
+std::size_t windowWorkAreaIndexForSettings(
+    const WindowSettings& settings,
+    const std::vector<WindowWorkArea>& workAreas,
+    std::size_t fallbackIndex);
 
 WindowSettingsLoadResult loadWindowSettings(
     const std::filesystem::path& path);
