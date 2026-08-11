@@ -94,6 +94,12 @@ bool validateWindowSettings(
         settings.y > kMaximumStoredWindowPosition) {
         return setError(error, "window position is outside the supported range");
     }
+    if (settings.hierarchyWidth < kMinimumEditorHierarchyWidth ||
+        settings.hierarchyWidth > kMaximumEditorHierarchyWidth ||
+        settings.inspectorWidth < kMinimumEditorInspectorWidth ||
+        settings.inspectorWidth > kMaximumEditorInspectorWidth) {
+        return setError(error, "editor panel widths are outside the supported range");
+    }
     error.clear();
     return true;
 }
@@ -236,13 +242,24 @@ WindowSettingsLoadResult loadWindowSettings(
     }
     if (settings.schemaVersion == 1) {
         settings.schemaVersion = kCurrentWindowSettingsSchemaVersion;
-    } else if (settings.schemaVersion ==
-               kCurrentWindowSettingsSchemaVersion) {
+    } else if (settings.schemaVersion == 2) {
         if (!readBoolean(
                 value, "hierarchy_expanded", settings.hierarchyExpanded) ||
             !readBoolean(
                 value, "inspector_expanded", settings.inspectorExpanded)) {
             result.error = "window settings have missing or invalid panel state";
+            return result;
+        }
+        settings.schemaVersion = kCurrentWindowSettingsSchemaVersion;
+    } else if (settings.schemaVersion ==
+               kCurrentWindowSettingsSchemaVersion) {
+        if (!readBoolean(
+                value, "hierarchy_expanded", settings.hierarchyExpanded) ||
+            !readBoolean(
+                value, "inspector_expanded", settings.inspectorExpanded) ||
+            !readInteger(value, "hierarchy_width", settings.hierarchyWidth) ||
+            !readInteger(value, "inspector_width", settings.inspectorWidth)) {
+            result.error = "window settings have missing or invalid panel layout";
             return result;
         }
     }
@@ -278,7 +295,9 @@ WindowSettingsSaveResult saveWindowSettings(
         {"fullscreen", settings.fullscreen},
         {"vsync", settings.vsync},
         {"hierarchy_expanded", settings.hierarchyExpanded},
-        {"inspector_expanded", settings.inspectorExpanded}};
+        {"inspector_expanded", settings.inspectorExpanded},
+        {"hierarchy_width", settings.hierarchyWidth},
+        {"inspector_width", settings.inspectorWidth}};
     const std::string serialized = value.dump(2);
 
     std::error_code filesystemError;

@@ -282,6 +282,35 @@ void testEditorLayoutAndHitTesting() {
                 core::EditorPanelAction::None,
             "editor panel toggle hit testing is incorrect");
 
+    require(core::editorPanelSplitterAt(
+                layout,
+                {layout.hierarchySplitter.x + 2.0,
+                 layout.hierarchySplitter.y + 10.0}) ==
+                core::EditorPanelSplitter::Hierarchy &&
+                core::editorPanelSplitterAt(
+                    layout,
+                    {layout.inspectorSplitter.x + 2.0,
+                     layout.inspectorSplitter.y + 10.0}) ==
+                core::EditorPanelSplitter::Inspector,
+            "editor panel splitter hit testing is incorrect");
+
+    const core::EditorLayout resized = core::calculateEditorLayout(
+        1280, 720, true, true, 300, 360);
+    require(resized.hierarchy.width == 300 &&
+                resized.inspector.width == 360 &&
+                resized.viewport.x == 301 &&
+                resized.viewport.width == 618,
+            "requested editor panel widths were not applied");
+    const auto resizedHierarchy = core::resizedEditorPanelWidth(
+        resized, core::EditorPanelSplitter::Hierarchy, {350.0, 100.0});
+    const auto resizedInspector = core::resizedEditorPanelWidth(
+        resized, core::EditorPanelSplitter::Inspector, {850.0, 100.0});
+    const auto clampedHierarchy = core::resizedEditorPanelWidth(
+        resized, core::EditorPanelSplitter::Hierarchy, {10'000.0, 100.0});
+    require(resizedHierarchy == 350 && resizedInspector == 430 &&
+                clampedHierarchy == core::kMaximumEditorHierarchyWidth,
+            "editor panel resize calculation is incorrect");
+
     const core::EditorRect moveNegativeX =
         layout.inspectorMoveButtons[0];
     const core::EditorRect reset =
@@ -320,8 +349,187 @@ void testEditorLayoutAndHitTesting() {
 
     const core::EditorLayout compact =
         core::calculateEditorLayout(500, 300);
-    require(compact.viewport.width >= 320 && compact.viewport.height > 0,
+    require(compact.viewport.width >= 320 && compact.viewport.height > 0 &&
+                !compact.hierarchySplitter.valid() &&
+                !compact.inspectorSplitter.valid(),
             "compact editor layout collapsed the viewport");
+
+    const core::EditorLayout constrained = core::calculateEditorLayout(
+        800,
+        600,
+        true,
+        true,
+        core::kMaximumEditorHierarchyWidth,
+        core::kMaximumEditorInspectorWidth);
+    const core::EditorLayout normalized = core::calculateEditorLayout(
+        800,
+        600,
+        true,
+        true,
+        constrained.hierarchy.width,
+        constrained.inspector.width);
+    require(constrained.viewport.width == core::kEditorMinimumViewportWidth &&
+                constrained.hierarchy.width >=
+                    core::kMinimumEditorHierarchyWidth &&
+                constrained.inspector.width >=
+                    core::kMinimumEditorInspectorWidth &&
+                constrained.hierarchySplitter.valid() &&
+                constrained.inspectorSplitter.valid() &&
+                normalized.hierarchy.width == constrained.hierarchy.width &&
+                normalized.inspector.width == constrained.inspector.width,
+            "constrained editor panel widths were not stable after normalization");
+
+    const auto unchangedHierarchy = core::resizedEditorPanelWidth(
+        normalized,
+        core::EditorPanelSplitter::Hierarchy,
+        {static_cast<double>(normalized.hierarchy.x +
+                             normalized.hierarchy.width),
+         100.0});
+    const auto unchangedInspector = core::resizedEditorPanelWidth(
+        normalized,
+        core::EditorPanelSplitter::Inspector,
+        {static_cast<double>(normalized.inspector.x), 100.0});
+    require(unchangedHierarchy.has_value() &&
+                unchangedInspector.has_value(),
+            "constrained editor splitters rejected their own boundaries");
+    const core::EditorLayout afterHierarchyEvent =
+        core::calculateEditorLayout(
+            800,
+            600,
+            true,
+            true,
+            *unchangedHierarchy,
+            normalized.inspector.width);
+    const core::EditorLayout afterInspectorEvent =
+        core::calculateEditorLayout(
+            800,
+            600,
+            true,
+            true,
+            normalized.hierarchy.width,
+            *unchangedInspector);
+    require(afterHierarchyEvent.hierarchy.width ==
+                normalized.hierarchy.width &&
+                afterHierarchyEvent.inspector.width ==
+                    normalized.inspector.width &&
+                afterInspectorEvent.hierarchy.width ==
+                    normalized.hierarchy.width &&
+                afterInspectorEvent.inspector.width ==
+                    normalized.inspector.width,
+            "stationary constrained splitter input caused panel drift");
+
+    const core::EditorLayout zeroRange = core::calculateEditorLayout(
+        core::kMinimumEditorHierarchyWidth +
+            core::kEditorMinimumViewportWidth +
+            core::kMinimumEditorInspectorWidth +
+            2 * core::kEditorPanelSeparatorWidth,
+        600,
+        true,
+        true,
+        core::kMinimumEditorHierarchyWidth,
+        core::kMinimumEditorInspectorWidth);
+    require(!zeroRange.hierarchySplitter.valid() &&
+                !zeroRange.inspectorSplitter.valid(),
+            "editor enabled splitters with no legal resize range");
+
+    const double extreme = (std::numeric_limits<double>::max)();
+    const auto extremeHierarchyMaximum = core::resizedEditorPanelWidth(
+        resized, core::EditorPanelSplitter::Hierarchy, {extreme, 100.0});
+    const auto extremeHierarchyMinimum = core::resizedEditorPanelWidth(
+        resized, core::EditorPanelSplitter::Hierarchy, {-extreme, 100.0});
+    const auto extremeInspectorMinimum = core::resizedEditorPanelWidth(
+        resized, core::EditorPanelSplitter::Inspector, {extreme, 100.0});
+    const auto extremeInspectorMaximum = core::resizedEditorPanelWidth(
+        resized, core::EditorPanelSplitter::Inspector, {-extreme, 100.0});
+    require(extremeHierarchyMaximum == core::kMaximumEditorHierarchyWidth &&
+                extremeHierarchyMinimum == core::kMinimumEditorHierarchyWidth &&
+                extremeInspectorMinimum == core::kMinimumEditorInspectorWidth &&
+                extremeInspectorMaximum == core::kMaximumEditorInspectorWidth,
+            "extreme splitter coordinates were not clamped safely");
+
+    const core::EditorLayout narrowCollapsed =
+        core::calculateEditorLayout(500, 300, false, true);
+    require(narrowCollapsed.hierarchy.width ==
+                core::kEditorCollapsedPanelWidth &&
+                narrowCollapsed.viewport.width ==
+                    core::kEditorMinimumViewportWidth &&
+                !narrowCollapsed.inspectorSplitter.valid(),
+            "small editor layout shrank a collapsed panel rail");
+
+    constexpr std::array<int, 3> hierarchyWidths = {
+        core::kMinimumEditorHierarchyWidth,
+        core::kDefaultEditorHierarchyWidth,
+        core::kMaximumEditorHierarchyWidth};
+    constexpr std::array<int, 3> inspectorWidths = {
+        core::kMinimumEditorInspectorWidth,
+        core::kDefaultEditorInspectorWidth,
+        core::kMaximumEditorInspectorWidth};
+    for (const bool hierarchyExpanded : {false, true}) {
+        for (const bool inspectorExpanded : {false, true}) {
+            for (const int hierarchyWidth : hierarchyWidths) {
+                for (const int inspectorWidth : inspectorWidths) {
+                    for (int editorWidth = 1; editorWidth <= 1600;
+                         ++editorWidth) {
+                        const core::EditorLayout candidate =
+                            core::calculateEditorLayout(
+                                editorWidth,
+                                600,
+                                hierarchyExpanded,
+                                inspectorExpanded,
+                                hierarchyWidth,
+                                inspectorWidth);
+                        require(candidate.hierarchy.width >= 0 &&
+                                    candidate.viewport.width >= 0 &&
+                                    candidate.inspector.width >= 0 &&
+                                    candidate.hierarchy.width +
+                                            candidate.viewport.width +
+                                            candidate.inspector.width <=
+                                        editorWidth,
+                                "editor panel allocation exceeded its width");
+                        if (editorWidth >=
+                            core::kEditorMinimumViewportWidth +
+                                2 * core::kEditorPanelSeparatorWidth) {
+                            require(candidate.viewport.width >=
+                                        core::kEditorMinimumViewportWidth &&
+                                        candidate.hierarchy.width +
+                                                candidate.viewport.width +
+                                                candidate.inspector.width +
+                                                2 * core::kEditorPanelSeparatorWidth ==
+                                            editorWidth,
+                                    "editor layout did not reserve its viewport");
+                        }
+                        if (candidate.hierarchySplitter.valid() ||
+                            candidate.inspectorSplitter.valid()) {
+                            require(
+                                (!hierarchyExpanded ||
+                                 candidate.hierarchy.width >=
+                                     core::kMinimumEditorHierarchyWidth) &&
+                                    (!inspectorExpanded ||
+                                     candidate.inspector.width >=
+                                         core::kMinimumEditorInspectorWidth),
+                                "editor splitter was enabled below a panel minimum");
+                        }
+                        if (candidate.hierarchySplitter.valid()) {
+                            require(
+                                editorWidth - candidate.inspector.width -
+                                        2 * core::kEditorPanelSeparatorWidth -
+                                        core::kEditorMinimumViewportWidth >
+                                    core::kMinimumEditorHierarchyWidth,
+                                "hierarchy splitter had no legal resize range");
+                        }
+                        if (candidate.inspectorSplitter.valid()) {
+                            require(
+                                editorWidth - candidate.hierarchy.width -
+                                        2 * core::kEditorPanelSeparatorWidth -
+                                        core::kEditorMinimumViewportWidth >
+                                    core::kMinimumEditorInspectorWidth,
+                                "inspector splitter had no legal resize range");
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     const core::EditorLayout collapsed =
         core::calculateEditorLayout(1280, 720, false, false);
@@ -337,7 +545,9 @@ void testEditorLayoutAndHitTesting() {
                 !collapsed.hierarchyDuplicateButton.valid() &&
                 !collapsed.inspectorContent.valid() &&
                 collapsed.hierarchyToggleButton.valid() &&
-                collapsed.inspectorToggleButton.valid(),
+                collapsed.inspectorToggleButton.valid() &&
+                !collapsed.hierarchySplitter.valid() &&
+                !collapsed.inspectorSplitter.valid(),
             "collapsed panel controls have invalid visibility");
 }
 
@@ -571,6 +781,8 @@ void testWindowSettingsPersistence() {
     source.vsync = false;
     source.hierarchyExpanded = false;
     source.inspectorExpanded = false;
+    source.hierarchyWidth = 320;
+    source.inspectorWidth = 410;
     const core::WindowSettingsSaveResult saved =
         core::saveWindowSettings(source, settingsPath);
     require(saved.success, "window settings save failed: " + saved.error);
@@ -587,7 +799,9 @@ void testWindowSettingsPersistence() {
                 loaded.settings.hierarchyExpanded ==
                     source.hierarchyExpanded &&
                 loaded.settings.inspectorExpanded ==
-                    source.inspectorExpanded,
+                    source.inspectorExpanded &&
+                loaded.settings.hierarchyWidth == source.hierarchyWidth &&
+                loaded.settings.inspectorWidth == source.inspectorWidth,
             "window settings round-trip changed persisted values");
 
     {
@@ -610,8 +824,40 @@ void testWindowSettingsPersistence() {
                     core::kCurrentWindowSettingsSchemaVersion &&
                 migrated.settings.x == -1759 &&
                 migrated.settings.hierarchyExpanded &&
-                migrated.settings.inspectorExpanded,
+                migrated.settings.inspectorExpanded &&
+                migrated.settings.hierarchyWidth ==
+                    core::kDefaultEditorHierarchyWidth &&
+                migrated.settings.inspectorWidth ==
+                    core::kDefaultEditorInspectorWidth,
             "schema-1 window settings were not migrated safely");
+
+    {
+        std::ofstream legacy(settingsPath, std::ios::binary | std::ios::trunc);
+        legacy << R"({
+  "schema_version": 2,
+  "x": -1759,
+  "y": 87,
+  "width": 1280,
+  "height": 720,
+  "has_position": true,
+  "fullscreen": false,
+  "vsync": true,
+  "hierarchy_expanded": false,
+  "inspector_expanded": true
+})";
+    }
+    const core::WindowSettingsLoadResult migratedV2 =
+        core::loadWindowSettings(settingsPath);
+    require(migratedV2.loaded && migratedV2.error.empty() &&
+                migratedV2.settings.schemaVersion ==
+                    core::kCurrentWindowSettingsSchemaVersion &&
+                !migratedV2.settings.hierarchyExpanded &&
+                migratedV2.settings.inspectorExpanded &&
+                migratedV2.settings.hierarchyWidth ==
+                    core::kDefaultEditorHierarchyWidth &&
+                migratedV2.settings.inspectorWidth ==
+                    core::kDefaultEditorInspectorWidth,
+            "schema-2 window settings were not migrated safely");
 
     {
         std::ofstream malformed(settingsPath, std::ios::binary | std::ios::trunc);
@@ -629,6 +875,10 @@ void testWindowSettingsPersistence() {
         core::saveWindowSettings(invalid, settingsPath);
     require(!invalidSave.success && !invalidSave.error.empty(),
             "invalid window settings were saved");
+    invalid = defaults;
+    invalid.hierarchyWidth = core::kMaximumEditorHierarchyWidth + 1;
+    require(!core::saveWindowSettings(invalid, settingsPath).success,
+            "invalid editor panel width was saved");
 }
 
 void testBenchmarkStatistics() {

@@ -1,6 +1,8 @@
 #ifndef CORE_WINDOW_SETTINGS_H
 #define CORE_WINDOW_SETTINGS_H
 
+#include "editor_layout.h"
+
 #include <cstddef>
 #include <filesystem>
 #include <string>
@@ -8,7 +10,7 @@
 
 namespace core {
 
-inline constexpr int kCurrentWindowSettingsSchemaVersion = 2;
+inline constexpr int kCurrentWindowSettingsSchemaVersion = 3;
 inline constexpr int kDefaultEditorWindowWidth = 1280;
 inline constexpr int kDefaultEditorWindowHeight = 720;
 inline constexpr int kMinimumEditorWindowWidth = 800;
@@ -26,6 +28,8 @@ struct WindowSettings {
     bool vsync = true;
     bool hierarchyExpanded = true;
     bool inspectorExpanded = true;
+    int hierarchyWidth = kDefaultEditorHierarchyWidth;
+    int inspectorWidth = kDefaultEditorInspectorWidth;
 };
 
 struct WindowWorkArea {

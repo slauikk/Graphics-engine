@@ -5,12 +5,6 @@
 
 namespace {
 
-constexpr int kMinimumViewportWidth = 320;
-constexpr int kHierarchyMinimumWidth = 200;
-constexpr int kHierarchyMaximumWidth = 260;
-constexpr int kInspectorMinimumWidth = 260;
-constexpr int kInspectorMaximumWidth = 340;
-constexpr int kPanelSeparatorWidth = 1;
 constexpr int kHierarchyHorizontalPadding = 8;
 constexpr int kHierarchyTopPadding = 8;
 constexpr int kHierarchyActionButtonHeight = 26;
@@ -23,6 +17,95 @@ constexpr int kInspectorButtonGap = 4;
 constexpr int kInspectorButtonHeight = 24;
 constexpr int kInspectorButtonRowGap = 6;
 constexpr int kPanelTogglePadding = 4;
+
+void reducePanelWidthsToFit(
+    int maximumWidth,
+    bool hierarchyExpanded,
+    bool inspectorExpanded,
+    int& hierarchyWidth,
+    int& inspectorWidth) {
+    const int hierarchyFloor = hierarchyExpanded
+        ? core::kMinimumEditorHierarchyWidth
+        : core::kEditorCollapsedPanelWidth;
+    const int inspectorFloor = inspectorExpanded
+        ? core::kMinimumEditorInspectorWidth
+        : core::kEditorCollapsedPanelWidth;
+    int overflow = hierarchyWidth + inspectorWidth - maximumWidth;
+    if (overflow <= 0) {
+        return;
+    }
+
+    const int hierarchyFlexible = (std::max)(
+        0, hierarchyWidth - hierarchyFloor);
+    const int inspectorFlexible = (std::max)(
+        0, inspectorWidth - inspectorFloor);
+    const int totalFlexible = hierarchyFlexible + inspectorFlexible;
+    if (totalFlexible > 0) {
+        int hierarchyReduction = static_cast<int>(
+            (static_cast<long long>(overflow) * hierarchyFlexible +
+             totalFlexible / 2) /
+            totalFlexible);
+        hierarchyReduction = std::clamp(
+            hierarchyReduction, 0, hierarchyFlexible);
+        int inspectorReduction = (std::min)(
+            inspectorFlexible, overflow - hierarchyReduction);
+        const int remaining = overflow - hierarchyReduction - inspectorReduction;
+        hierarchyReduction += (std::min)(
+            remaining, hierarchyFlexible - hierarchyReduction);
+        hierarchyWidth -= hierarchyReduction;
+        inspectorWidth -= inspectorReduction;
+        overflow -= hierarchyReduction + inspectorReduction;
+    }
+
+    if (overflow <= 0) {
+        return;
+    }
+
+    // On very small displays, shrink expanded content before collapsed rails.
+    const int hierarchyCompressible = hierarchyExpanded ? hierarchyWidth : 0;
+    const int inspectorCompressible = inspectorExpanded ? inspectorWidth : 0;
+    const int totalCompressible = hierarchyCompressible + inspectorCompressible;
+    if (totalCompressible > 0) {
+        int hierarchyReduction = static_cast<int>(
+            (static_cast<long long>(overflow) * hierarchyCompressible +
+             totalCompressible / 2) /
+            totalCompressible);
+        hierarchyReduction = std::clamp(
+            hierarchyReduction, 0, hierarchyCompressible);
+        int inspectorReduction = (std::min)(
+            inspectorCompressible, overflow - hierarchyReduction);
+        const int remaining = overflow - hierarchyReduction - inspectorReduction;
+        hierarchyReduction += (std::min)(
+            remaining, hierarchyCompressible - hierarchyReduction);
+        hierarchyWidth -= hierarchyReduction;
+        inspectorWidth -= inspectorReduction;
+        overflow -= hierarchyReduction + inspectorReduction;
+    }
+
+    if (overflow > 0) {
+        const int hierarchyReduction = (std::min)(overflow, hierarchyWidth);
+        hierarchyWidth -= hierarchyReduction;
+        overflow -= hierarchyReduction;
+        inspectorWidth = (std::max)(0, inspectorWidth - overflow);
+    }
+}
+
+std::optional<int> clampedRoundedWidth(
+    double desired,
+    int minimum,
+    int maximum) {
+    if (!std::isfinite(desired)) {
+        return std::nullopt;
+    }
+    if (desired <= static_cast<double>(minimum)) {
+        return minimum;
+    }
+    if (desired >= static_cast<double>(maximum)) {
+        return maximum;
+    }
+    return std::clamp(
+        static_cast<int>(std::lround(desired)), minimum, maximum);
+}
 
 core::EditorRect toolbarButton(int& x, int width) {
     const core::EditorRect button{x, kToolbarButtonY, width, kToolbarButtonHeight};
@@ -50,7 +133,9 @@ EditorLayout calculateEditorLayout(
     int width,
     int height,
     bool hierarchyExpanded,
-    bool inspectorExpanded) {
+    bool inspectorExpanded,
+    int desiredHierarchyWidth,
+    int desiredInspectorWidth) {
     EditorLayout layout;
     if (width <= 0 || height <= 0) {
         return layout;
@@ -68,37 +153,64 @@ EditorLayout calculateEditorLayout(
 
     int hierarchyWidth = hierarchyExpanded
         ? std::clamp(
-              width * 18 / 100,
-              kHierarchyMinimumWidth,
-              kHierarchyMaximumWidth)
+              desiredHierarchyWidth,
+              kMinimumEditorHierarchyWidth,
+              kMaximumEditorHierarchyWidth)
         : kEditorCollapsedPanelWidth;
     int inspectorWidth = inspectorExpanded
         ? std::clamp(
-              width * 23 / 100,
-              kInspectorMinimumWidth,
-              kInspectorMaximumWidth)
+              desiredInspectorWidth,
+              kMinimumEditorInspectorWidth,
+              kMaximumEditorInspectorWidth)
         : kEditorCollapsedPanelWidth;
     const int maximumPanelWidth = (std::max)(
-        0, width - kMinimumViewportWidth - 2 * kPanelSeparatorWidth);
-    const int desiredPanelWidth = hierarchyWidth + inspectorWidth;
-    if (desiredPanelWidth > maximumPanelWidth && desiredPanelWidth > 0) {
-        const double scale = static_cast<double>(maximumPanelWidth) /
-            static_cast<double>(desiredPanelWidth);
-        hierarchyWidth = static_cast<int>(std::floor(hierarchyWidth * scale));
-        inspectorWidth = maximumPanelWidth - hierarchyWidth;
-    }
+        0, width - kEditorMinimumViewportWidth -
+               2 * kEditorPanelSeparatorWidth);
+    reducePanelWidthsToFit(
+        maximumPanelWidth,
+        hierarchyExpanded,
+        inspectorExpanded,
+        hierarchyWidth,
+        inspectorWidth);
 
     layout.toolbar = {0, 0, width, toolbarHeight};
     layout.statusBar = {0, height - statusHeight, width, statusHeight};
     layout.hierarchy = {0, toolbarHeight, hierarchyWidth, workspaceHeight};
     layout.viewport = {
-        hierarchyWidth + kPanelSeparatorWidth,
+        hierarchyWidth + kEditorPanelSeparatorWidth,
         toolbarHeight,
         (std::max)(0, width - hierarchyWidth - inspectorWidth -
-                           2 * kPanelSeparatorWidth),
+                           2 * kEditorPanelSeparatorWidth),
         workspaceHeight};
     layout.inspector = {
         width - inspectorWidth, toolbarHeight, inspectorWidth, workspaceHeight};
+
+    const bool panelWidthsResizable =
+        (!hierarchyExpanded ||
+         hierarchyWidth >= kMinimumEditorHierarchyWidth) &&
+        (!inspectorExpanded ||
+         inspectorWidth >= kMinimumEditorInspectorWidth);
+    const int hierarchyMaximumAvailable = width - inspectorWidth -
+        2 * kEditorPanelSeparatorWidth - kEditorMinimumViewportWidth;
+    if (panelWidthsResizable && hierarchyExpanded &&
+        hierarchyMaximumAvailable > kMinimumEditorHierarchyWidth) {
+        const int boundary = layout.hierarchy.x + layout.hierarchy.width;
+        layout.hierarchySplitter = {
+            boundary - kEditorPanelSplitterHitWidth / 2,
+            toolbarHeight,
+            kEditorPanelSplitterHitWidth,
+            workspaceHeight};
+    }
+    const int inspectorMaximumAvailable = width - hierarchyWidth -
+        2 * kEditorPanelSeparatorWidth - kEditorMinimumViewportWidth;
+    if (panelWidthsResizable && inspectorExpanded &&
+        inspectorMaximumAvailable > kMinimumEditorInspectorWidth) {
+        layout.inspectorSplitter = {
+            layout.inspector.x - kEditorPanelSplitterHitWidth / 2,
+            toolbarHeight,
+            kEditorPanelSplitterHitWidth,
+            workspaceHeight};
+    }
 
     const int hierarchyHeaderHeight = (std::min)(
         kEditorPanelHeaderHeight, layout.hierarchy.height);
@@ -313,6 +425,58 @@ EditorPanelAction editorPanelActionAt(
         return EditorPanelAction::ToggleInspector;
     }
     return EditorPanelAction::None;
+}
+
+EditorPanelSplitter editorPanelSplitterAt(
+    const EditorLayout& layout,
+    EditorPoint point) {
+    if (layout.hierarchySplitter.contains(point)) {
+        return EditorPanelSplitter::Hierarchy;
+    }
+    if (layout.inspectorSplitter.contains(point)) {
+        return EditorPanelSplitter::Inspector;
+    }
+    return EditorPanelSplitter::None;
+}
+
+std::optional<int> resizedEditorPanelWidth(
+    const EditorLayout& layout,
+    EditorPanelSplitter splitter,
+    EditorPoint point) {
+    if (!std::isfinite(point.x)) {
+        return std::nullopt;
+    }
+
+    if (splitter == EditorPanelSplitter::Hierarchy &&
+        layout.hierarchySplitter.valid()) {
+        const int maximum = (std::min)(
+            kMaximumEditorHierarchyWidth,
+            layout.width - layout.inspector.width -
+                2 * kEditorPanelSeparatorWidth - kEditorMinimumViewportWidth);
+        if (maximum < kMinimumEditorHierarchyWidth) {
+            return std::nullopt;
+        }
+        return clampedRoundedWidth(
+            point.x - static_cast<double>(layout.hierarchy.x),
+            kMinimumEditorHierarchyWidth,
+            maximum);
+    }
+
+    if (splitter == EditorPanelSplitter::Inspector &&
+        layout.inspectorSplitter.valid()) {
+        const int maximum = (std::min)(
+            kMaximumEditorInspectorWidth,
+            layout.width - layout.hierarchy.width -
+                2 * kEditorPanelSeparatorWidth - kEditorMinimumViewportWidth);
+        if (maximum < kMinimumEditorInspectorWidth) {
+            return std::nullopt;
+        }
+        return clampedRoundedWidth(
+            static_cast<double>(layout.width) - point.x,
+            kMinimumEditorInspectorWidth,
+            maximum);
+    }
+    return std::nullopt;
 }
 
 std::size_t editorHierarchyVisibleRowCount(const EditorLayout& layout) {

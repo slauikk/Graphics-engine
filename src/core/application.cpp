@@ -356,6 +356,10 @@ bool Application::init() {
         std::cerr << "Failed to create GLFW window\n";
         return false;
     }
+    m_horizontalResizeCursor = glfwCreateStandardCursor(GLFW_HRESIZE_CURSOR);
+    if (m_horizontalResizeCursor == nullptr) {
+        std::cerr << "Failed to create editor resize cursor\n";
+    }
     const core::WindowWorkArea workArea = monitorWorkArea(monitor);
     glfwSetWindowSizeLimits(
         m_window,
@@ -815,10 +819,7 @@ void Application::selectObjectAtViewportPoint(core::EditorPoint point) {
     }
 
     const core::EditorRect viewport =
-        core::calculateEditorLayout(
-            m_width, m_height,
-            m_windowSettings.hierarchyExpanded,
-            m_windowSettings.inspectorExpanded).viewport;
+        currentEditorLayout(m_width, m_height).viewport;
     if (!viewport.contains(point)) {
         m_sceneOperationSucceeded = false;
         m_sceneMessage = "Selection failed: cursor is outside the viewport";
@@ -997,10 +998,7 @@ void Application::focusSelectedObject() {
     const std::optional<geometry::AxisAlignedBounds> worldBounds =
         objectWorldBounds(selected);
     const core::EditorRect viewport =
-        core::calculateEditorLayout(
-            m_width, m_height,
-            m_windowSettings.hierarchyExpanded,
-            m_windowSettings.inspectorExpanded).viewport;
+        currentEditorLayout(m_width, m_height).viewport;
     const float aspectRatio = viewport.height > 0
         ? static_cast<float>(viewport.width) / static_cast<float>(viewport.height)
         : 1.0f;
@@ -1739,7 +1737,11 @@ void Application::persistWindowSettings() {
 }
 
 void Application::setCameraInputActive(bool active) {
-    if (m_window == nullptr || m_cameraInputActive == active) {
+    if (m_window == nullptr) {
+        return;
+    }
+    setEditorResizeCursor(false);
+    if (m_cameraInputActive == active) {
         return;
     }
     m_cameraInputActive = active;
@@ -1753,7 +1755,11 @@ void Application::shutdown() {
     m_initialized = false;
 
     if (m_window != nullptr) {
-        persistWindowSettings();
+        if (m_activePanelSplitter != core::EditorPanelSplitter::None) {
+            finishEditorPanelResize(true, false);
+        } else {
+            persistWindowSettings();
+        }
     }
 
     if (m_contextReady && m_window) {
@@ -1813,6 +1819,18 @@ void Application::shutdown() {
     m_gpuVendor.clear();
     m_gpuRenderer.clear();
     m_openGlVersion.clear();
+
+    if (m_horizontalResizeCursor != nullptr) {
+        if (m_window != nullptr) {
+            glfwSetCursor(m_window, nullptr);
+        }
+        glfwDestroyCursor(m_horizontalResizeCursor);
+        m_horizontalResizeCursor = nullptr;
+    }
+    m_editorResizeCursorActive = false;
+    m_activePanelSplitter = core::EditorPanelSplitter::None;
+    m_panelResizeGrabOffset = 0.0;
+    m_panelResizeChanged = false;
 
     if (m_window) {
         glfwDestroyWindow(m_window);
@@ -2324,10 +2342,7 @@ void Application::render() {
     }
 
     const core::EditorLayout editorLayout =
-        core::calculateEditorLayout(
-            width, height,
-            m_windowSettings.hierarchyExpanded,
-            m_windowSettings.inspectorExpanded);
+        currentEditorLayout(width, height);
     const core::EditorRect sceneViewport = editorLayout.viewport.valid()
         ? editorLayout.viewport
         : core::EditorRect{0, 0, width, height};
@@ -2512,7 +2527,8 @@ void Application::render() {
             Menu::isOpen(),
             editorCursor,
             editorGizmo,
-            m_activeGizmoAxis);
+            m_activeGizmoAxis,
+            m_activePanelSplitter);
     }
     UIText::beginFrame();
 
@@ -3139,6 +3155,7 @@ void Application::onWindowFocus(int focused) {
     if (focused == GLFW_FALSE) {
         setCameraInputActive(false);
         cancelGizmoDrag();
+        finishEditorPanelResize(false, false);
     }
 }
 
@@ -3147,6 +3164,12 @@ void Application::onKey(int key, int action, int mods) {
         if (key == m_activeTransformKey) {
             m_activeTransformKey = GLFW_KEY_UNKNOWN;
             m_activeTransformObjectId = 0;
+        }
+        return;
+    }
+    if (m_activePanelSplitter != core::EditorPanelSplitter::None) {
+        if (action == GLFW_PRESS && key == GLFW_KEY_ESCAPE) {
+            finishEditorPanelResize(true, true);
         }
         return;
     }
@@ -3431,7 +3454,132 @@ core::EditorPoint Application::cursorFramebufferPosition() const {
         framebufferWidth, framebufferHeight);
 }
 
+core::EditorLayout Application::currentEditorLayout(
+    int width,
+    int height) const {
+    return core::calculateEditorLayout(
+        width, height,
+        m_windowSettings.hierarchyExpanded,
+        m_windowSettings.inspectorExpanded,
+        m_windowSettings.hierarchyWidth,
+        m_windowSettings.inspectorWidth);
+}
+
+void Application::setEditorResizeCursor(bool active) {
+    const bool enabled = active && !m_cameraInputActive &&
+        m_horizontalResizeCursor != nullptr && m_window != nullptr;
+    if (enabled == m_editorResizeCursorActive || m_window == nullptr) {
+        return;
+    }
+    glfwSetCursor(m_window, enabled ? m_horizontalResizeCursor : nullptr);
+    m_editorResizeCursorActive = enabled;
+}
+
+void Application::beginEditorPanelResize(
+    core::EditorPanelSplitter splitter,
+    const core::EditorLayout& layout,
+    core::EditorPoint cursor) {
+    if (splitter == core::EditorPanelSplitter::None ||
+        m_activePanelSplitter != core::EditorPanelSplitter::None) {
+        return;
+    }
+
+    m_panelResizeStartHierarchyWidth = m_windowSettings.hierarchyWidth;
+    m_panelResizeStartInspectorWidth = m_windowSettings.inspectorWidth;
+    // A constrained drag must commit the visible pair; retaining a larger
+    // hidden preference would move the divider again on the next frame.
+    if (layout.hierarchyExpanded &&
+        layout.hierarchy.width >= core::kMinimumEditorHierarchyWidth) {
+        m_windowSettings.hierarchyWidth = layout.hierarchy.width;
+    }
+    if (layout.inspectorExpanded &&
+        layout.inspector.width >= core::kMinimumEditorInspectorWidth) {
+        m_windowSettings.inspectorWidth = layout.inspector.width;
+    }
+    const double boundary = splitter == core::EditorPanelSplitter::Hierarchy
+        ? static_cast<double>(layout.hierarchy.x + layout.hierarchy.width)
+        : static_cast<double>(layout.inspector.x);
+    m_panelResizeGrabOffset = cursor.x - boundary;
+    m_panelResizeChanged = false;
+    m_activePanelSplitter = splitter;
+    setEditorResizeCursor(true);
+}
+
+void Application::updateEditorPanelResize(
+    const core::EditorLayout& layout,
+    core::EditorPoint cursor) {
+    cursor.x -= m_panelResizeGrabOffset;
+    const auto resized = core::resizedEditorPanelWidth(
+        layout, m_activePanelSplitter, cursor);
+    if (!resized.has_value()) {
+        return;
+    }
+    if (m_activePanelSplitter == core::EditorPanelSplitter::Hierarchy) {
+        if (m_windowSettings.hierarchyWidth != *resized) {
+            m_windowSettings.hierarchyWidth = *resized;
+            m_panelResizeChanged = true;
+        }
+    } else if (m_activePanelSplitter ==
+               core::EditorPanelSplitter::Inspector) {
+        if (m_windowSettings.inspectorWidth != *resized) {
+            m_windowSettings.inspectorWidth = *resized;
+            m_panelResizeChanged = true;
+        }
+    }
+}
+
+void Application::finishEditorPanelResize(bool cancel, bool notify) {
+    if (m_activePanelSplitter == core::EditorPanelSplitter::None) {
+        setEditorResizeCursor(false);
+        return;
+    }
+
+    const core::EditorPanelSplitter resizedPanel = m_activePanelSplitter;
+    const bool changed = m_panelResizeChanged;
+    if (cancel || !changed) {
+        m_windowSettings.hierarchyWidth = m_panelResizeStartHierarchyWidth;
+        m_windowSettings.inspectorWidth = m_panelResizeStartInspectorWidth;
+    }
+    m_activePanelSplitter = core::EditorPanelSplitter::None;
+    m_panelResizeGrabOffset = 0.0;
+    m_panelResizeChanged = false;
+    persistWindowSettings();
+    setEditorResizeCursor(false);
+
+    if (!notify || (!cancel && !changed)) {
+        return;
+    }
+    m_sceneOperationSucceeded = true;
+    if (cancel) {
+        m_sceneMessage = "Panel resize cancelled";
+    } else {
+        m_sceneMessage = resizedPanel == core::EditorPanelSplitter::Hierarchy
+            ? "Scene panel resized"
+            : "Inspector panel resized";
+    }
+    m_sceneMessageTime = 1.0f;
+}
+
 void Application::onMouseMove(double xpos, double ypos) {
+    const core::EditorLayout layout = currentEditorLayout(m_width, m_height);
+    const core::EditorPoint cursor = cursorFramebufferPosition();
+    if (m_activePanelSplitter != core::EditorPanelSplitter::None) {
+        updateEditorPanelResize(layout, cursor);
+        setEditorResizeCursor(true);
+        m_lastX = static_cast<float>(xpos);
+        m_lastY = static_cast<float>(ypos);
+        m_firstMouse = true;
+        return;
+    }
+
+    const bool canResizePanels = !m_benchmarkEnabled && !Menu::isOpen() &&
+        !m_cameraInputActive &&
+        m_activeGizmoAxis == core::EditorGizmoAxis::None;
+    setEditorResizeCursor(
+        canResizePanels &&
+        core::editorPanelSplitterAt(layout, cursor) !=
+            core::EditorPanelSplitter::None);
+
     if (m_activeGizmoAxis != core::EditorGizmoAxis::None) {
         const bool hasDraggedObject = m_selectedObject >= 0 &&
             m_selectedObject < static_cast<int>(m_objects.size()) &&
@@ -3509,12 +3657,27 @@ void Application::onMouseMove(double xpos, double ypos) {
 
 void Application::onMouseButton(int button, int action, int mods) {
     (void)mods;
-    const core::EditorLayout layout =
-        core::calculateEditorLayout(
-            m_width, m_height,
-            m_windowSettings.hierarchyExpanded,
-            m_windowSettings.inspectorExpanded);
+    const core::EditorLayout layout = currentEditorLayout(m_width, m_height);
     const core::EditorPoint cursor = cursorFramebufferPosition();
+
+    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE &&
+        m_activePanelSplitter != core::EditorPanelSplitter::None) {
+        updateEditorPanelResize(layout, cursor);
+        finishEditorPanelResize(false, true);
+        const core::EditorLayout resizedLayout =
+            currentEditorLayout(m_width, m_height);
+        setEditorResizeCursor(
+            core::editorPanelSplitterAt(resizedLayout, cursor) !=
+                core::EditorPanelSplitter::None);
+        return;
+    }
+
+    if (m_activePanelSplitter != core::EditorPanelSplitter::None) {
+        if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
+            finishEditorPanelResize(true, true);
+        }
+        return;
+    }
 
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE &&
         m_activeGizmoAxis != core::EditorGizmoAxis::None) {
@@ -3577,6 +3740,15 @@ void Application::onMouseButton(int button, int action, int mods) {
             Menu::processClick(
                 static_cast<float>(cursor.x),
                 static_cast<float>(cursor.y));
+            return;
+        }
+
+        const core::EditorPanelSplitter splitter =
+            core::editorPanelSplitterAt(layout, cursor);
+        if (splitter != core::EditorPanelSplitter::None) {
+            setCameraInputActive(false);
+            cancelGizmoDrag();
+            beginEditorPanelResize(splitter, layout, cursor);
             return;
         }
 
@@ -3708,15 +3880,19 @@ void Application::onMouseButton(int button, int action, int mods) {
 
 void Application::onScroll(double xoffset, double yoffset) {
     (void)xoffset;
-    if (m_camera == nullptr || m_benchmarkEnabled || Menu::isOpen()) return;
-    const core::EditorLayout layout =
-        core::calculateEditorLayout(
-            m_width, m_height,
-            m_windowSettings.hierarchyExpanded,
-            m_windowSettings.inspectorExpanded);
+    if (m_camera == nullptr || m_benchmarkEnabled || Menu::isOpen() ||
+        m_activePanelSplitter != core::EditorPanelSplitter::None) {
+        return;
+    }
+    const core::EditorLayout layout = currentEditorLayout(m_width, m_height);
+    const core::EditorPoint cursor = cursorFramebufferPosition();
+    if (core::editorPanelSplitterAt(layout, cursor) !=
+        core::EditorPanelSplitter::None) {
+        return;
+    }
     if (!core::shouldProcessEditorCameraScroll(
             m_cameraInputActive,
-            layout.viewport.contains(cursorFramebufferPosition()))) {
+            layout.viewport.contains(cursor))) {
         return;
     }
     m_camera->processScroll(static_cast<float>(yoffset));

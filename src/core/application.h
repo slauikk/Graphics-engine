@@ -110,7 +110,17 @@ private:
         const core::EditorLayout& layout) const;
     void clearGizmoDrag();
     void cancelGizmoDrag();
+    core::EditorLayout currentEditorLayout(int width, int height) const;
     core::EditorPoint cursorFramebufferPosition() const;
+    void setEditorResizeCursor(bool active);
+    void beginEditorPanelResize(
+        core::EditorPanelSplitter splitter,
+        const core::EditorLayout& layout,
+        core::EditorPoint cursor);
+    void updateEditorPanelResize(
+        const core::EditorLayout& layout,
+        core::EditorPoint cursor);
+    void finishEditorPanelResize(bool cancel, bool notify);
     
     // GLFW callbacks (static)
     static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
@@ -130,6 +140,7 @@ private:
     void onScroll(double xoffset, double yoffset);
     
     GLFWwindow* m_window = nullptr;
+    GLFWcursor* m_horizontalResizeCursor = nullptr;
     bool m_glfwInitialized = false;
     bool m_contextReady = false;
     bool m_initialized = false;
@@ -138,6 +149,15 @@ private:
     core::WindowSettings m_windowSettings;
     bool m_fullscreen = false;
     bool m_cameraInputActive = false;
+    bool m_editorResizeCursorActive = false;
+    core::EditorPanelSplitter m_activePanelSplitter =
+        core::EditorPanelSplitter::None;
+    int m_panelResizeStartHierarchyWidth =
+        core::kDefaultEditorHierarchyWidth;
+    int m_panelResizeStartInspectorWidth =
+        core::kDefaultEditorInspectorWidth;
+    double m_panelResizeGrabOffset = 0.0;
+    bool m_panelResizeChanged = false;
     
     float m_deltaTime = 0.0f;
     float m_lastFrame = 0.0f;

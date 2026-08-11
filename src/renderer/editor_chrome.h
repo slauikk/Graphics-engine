@@ -30,7 +30,8 @@ public:
         bool menuOpen,
         core::EditorPoint cursor,
         const core::EditorTranslationGizmo& gizmo,
-        core::EditorGizmoAxis activeGizmoAxis);
+        core::EditorGizmoAxis activeGizmoAxis,
+        core::EditorPanelSplitter activePanelSplitter);
 
 private:
     void appendRect(const core::EditorRect& rect, float red, float green, float blue);

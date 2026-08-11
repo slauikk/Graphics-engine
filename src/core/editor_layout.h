@@ -14,6 +14,15 @@ inline constexpr int kEditorStatusBarHeight = 28;
 inline constexpr int kEditorPanelHeaderHeight = 34;
 inline constexpr int kEditorHierarchyRowHeight = 24;
 inline constexpr int kEditorCollapsedPanelWidth = 34;
+inline constexpr int kEditorMinimumViewportWidth = 320;
+inline constexpr int kDefaultEditorHierarchyWidth = 230;
+inline constexpr int kMinimumEditorHierarchyWidth = 180;
+inline constexpr int kMaximumEditorHierarchyWidth = 480;
+inline constexpr int kDefaultEditorInspectorWidth = 294;
+inline constexpr int kMinimumEditorInspectorWidth = 240;
+inline constexpr int kMaximumEditorInspectorWidth = 560;
+inline constexpr int kEditorPanelSeparatorWidth = 1;
+inline constexpr int kEditorPanelSplitterHitWidth = 8;
 
 struct EditorPoint {
     double x = -1.0;
@@ -52,6 +61,12 @@ enum class EditorPanelAction {
     ToggleInspector
 };
 
+enum class EditorPanelSplitter {
+    None,
+    Hierarchy,
+    Inspector
+};
+
 struct EditorLayout {
     int width = 0;
     int height = 0;
@@ -64,11 +79,13 @@ struct EditorLayout {
     EditorRect hierarchyList;
     EditorRect hierarchyDuplicateButton;
     EditorRect hierarchyDeleteButton;
+    EditorRect hierarchySplitter;
     EditorRect viewport;
     EditorRect inspector;
     EditorRect inspectorHeader;
     EditorRect inspectorToggleButton;
     EditorRect inspectorContent;
+    EditorRect inspectorSplitter;
     EditorRect statusBar;
     EditorRect modalOverlay;
     EditorRect createButton;
@@ -86,7 +103,9 @@ EditorLayout calculateEditorLayout(
     int width,
     int height,
     bool hierarchyExpanded = true,
-    bool inspectorExpanded = true);
+    bool inspectorExpanded = true,
+    int desiredHierarchyWidth = kDefaultEditorHierarchyWidth,
+    int desiredInspectorWidth = kDefaultEditorInspectorWidth);
 
 EditorPoint mapWindowPointToFramebuffer(
     EditorPoint point,
@@ -105,6 +124,15 @@ EditorHierarchyAction editorHierarchyActionAt(
 
 EditorPanelAction editorPanelActionAt(
     const EditorLayout& layout,
+    EditorPoint point);
+
+EditorPanelSplitter editorPanelSplitterAt(
+    const EditorLayout& layout,
+    EditorPoint point);
+
+std::optional<int> resizedEditorPanelWidth(
+    const EditorLayout& layout,
+    EditorPanelSplitter splitter,
     EditorPoint point);
 
 std::size_t editorHierarchyVisibleRowCount(const EditorLayout& layout);

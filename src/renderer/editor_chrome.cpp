@@ -29,6 +29,7 @@ constexpr Color kHierarchyHoverColor{0.125f, 0.153f, 0.196f};
 constexpr Color kSelectionColor{0.235f, 0.153f, 0.047f};
 constexpr Color kSeparatorColor{0.184f, 0.220f, 0.275f};
 constexpr Color kViewportBorderColor{0.714f, 0.463f, 0.110f};
+constexpr Color kSplitterHoverColor{0.278f, 0.529f, 0.792f};
 constexpr Color kModalShadowColor{0.020f, 0.024f, 0.031f};
 constexpr Color kModalColor{0.055f, 0.067f, 0.086f};
 constexpr std::array<Color, 3> kGizmoAxisColors = {
@@ -202,7 +203,8 @@ void EditorChrome::render(
     bool menuOpen,
     core::EditorPoint cursor,
     const core::EditorTranslationGizmo& gizmo,
-    core::EditorGizmoAxis activeGizmoAxis) {
+    core::EditorGizmoAxis activeGizmoAxis,
+    core::EditorPanelSplitter activePanelSplitter) {
     if (layout.width <= 0 || layout.height <= 0 ||
         !m_shader || m_shader->m_id == 0 ||
         m_vertexArray == 0 || m_vertexBuffer == 0) {
@@ -344,6 +346,32 @@ void EditorChrome::render(
     appendColorRect(
         {0, layout.statusBar.y - 1, layout.width, 1},
         kSeparatorColor);
+
+    const core::EditorPanelSplitter hoveredSplitter = menuOpen
+        ? core::EditorPanelSplitter::None
+        : core::editorPanelSplitterAt(layout, cursor);
+    const auto appendSplitterHighlight = [&](const core::EditorRect& splitter,
+                                              core::EditorPanelSplitter panel) {
+        if (!splitter.valid() ||
+            (hoveredSplitter != panel && activePanelSplitter != panel)) {
+            return;
+        }
+        const int highlightWidth = (std::min)(3, splitter.width);
+        const core::EditorRect highlight = {
+            splitter.x + (splitter.width - highlightWidth) / 2,
+            splitter.y,
+            highlightWidth,
+            splitter.height};
+        appendColorRect(
+            highlight,
+            activePanelSplitter == panel
+                ? kButtonActiveColor
+                : kSplitterHoverColor);
+    };
+    appendSplitterHighlight(
+        layout.hierarchySplitter, core::EditorPanelSplitter::Hierarchy);
+    appendSplitterHighlight(
+        layout.inspectorSplitter, core::EditorPanelSplitter::Inspector);
 
     if (menuOpen && layout.modalOverlay.valid()) {
         appendColorRect(
