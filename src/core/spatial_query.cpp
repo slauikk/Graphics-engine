@@ -112,6 +112,35 @@ std::optional<glm::vec3> calculateViewportRayDirection(
     return direction / directionLength;
 }
 
+std::optional<float> calculateRayDistanceToViewPlane(
+    const glm::vec3& rayDirection,
+    const glm::vec3& viewForward,
+    float viewDepth) {
+    if (!isFinite(rayDirection) || !isFinite(viewForward) ||
+        !std::isfinite(viewDepth) || viewDepth <= 0.0f) {
+        return std::nullopt;
+    }
+
+    const float rayLength = glm::length(rayDirection);
+    const float forwardLength = glm::length(viewForward);
+    if (!std::isfinite(rayLength) || !std::isfinite(forwardLength) ||
+        rayLength <= 0.000001f || forwardLength <= 0.000001f) {
+        return std::nullopt;
+    }
+
+    const float forwardProjection = glm::dot(
+        rayDirection / rayLength, viewForward / forwardLength);
+    if (!std::isfinite(forwardProjection) ||
+        forwardProjection <= 0.000001f) {
+        return std::nullopt;
+    }
+
+    const float distance = viewDepth / forwardProjection;
+    return std::isfinite(distance)
+        ? std::optional<float>(distance)
+        : std::nullopt;
+}
+
 std::optional<geometry::AxisAlignedBounds> calculateIndexedBounds(
     std::span<const float> interleavedVertices,
     std::size_t componentsPerVertex,

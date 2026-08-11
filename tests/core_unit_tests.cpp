@@ -989,6 +989,27 @@ void testSpatialQueries() {
                 upperRightRay->x > 0.0f && upperRightRay->y > 0.0f &&
                 upperRightRay->z < 0.0f,
             "viewport point did not produce the expected ray quadrant");
+    const auto centerFarDistance = core::calculateRayDistanceToViewPlane(
+        *centerRay, glm::vec3(0.0f, 0.0f, -1.0f), 100.0f);
+    const auto cornerFarDistance = core::calculateRayDistanceToViewPlane(
+        *upperRightRay, glm::vec3(0.0f, 0.0f, -1.0f), 100.0f);
+    require(centerFarDistance.has_value() &&
+                almostEqual(*centerFarDistance, 100.0) &&
+                cornerFarDistance.has_value() && *cornerFarDistance > 100.0f,
+            "view-plane depth was incorrectly treated as radial ray distance");
+    require(!core::calculateRayDistanceToViewPlane(
+                 glm::vec3(1.0f, 0.0f, 0.0f),
+                 glm::vec3(0.0f, 0.0f, -1.0f), 100.0f)
+                 .has_value() &&
+                !core::calculateRayDistanceToViewPlane(
+                    glm::vec3(0.0f),
+                    glm::vec3(0.0f, 0.0f, -1.0f), 100.0f)
+                    .has_value() &&
+                !core::calculateRayDistanceToViewPlane(
+                    glm::vec3(0.0f, 0.0f, -1.0f),
+                    glm::vec3(0.0f, 0.0f, -1.0f), -1.0f)
+                    .has_value(),
+            "invalid view-plane ray inputs were accepted");
     require(!core::calculateViewportRayDirection(
                 -1.0f, 50.0f, 100.0f, 100.0f,
                 identityView, squareProjection).has_value() &&

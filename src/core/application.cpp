@@ -843,7 +843,20 @@ void Application::selectObjectAtViewportPoint(core::EditorPoint point) {
         return;
     }
 
-    float nearestDistance = kCameraFarPlane;
+    const std::optional<float> minimumRayDistance =
+        core::calculateRayDistanceToViewPlane(
+            *rayDirection, m_camera->front, kCameraNearPlane);
+    const std::optional<float> maximumRayDistance =
+        core::calculateRayDistanceToViewPlane(
+            *rayDirection, m_camera->front, kCameraFarPlane);
+    if (!minimumRayDistance.has_value() ||
+        !maximumRayDistance.has_value()) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Selection failed: invalid camera clip range";
+        return;
+    }
+
+    float nearestDistance = *maximumRayDistance;
     int nearestObject = -1;
 
     for (std::size_t objectIndex = 0; objectIndex < m_objects.size(); ++objectIndex) {
@@ -856,7 +869,7 @@ void Application::selectObjectAtViewportPoint(core::EditorPoint point) {
             const std::optional<float> hit = core::intersectRayTransformedIndexedMesh(
                 m_camera->position, *rayDirection, mesh->bounds(),
                 mesh->pickingPositions(), mesh->pickingIndices(), transform,
-                kCameraNearPlane, nearestDistance);
+                *minimumRayDistance, nearestDistance);
             if (hit.has_value() && *hit < nearestDistance) {
                 nearestDistance = *hit;
                 nearestObject = static_cast<int>(objectIndex);

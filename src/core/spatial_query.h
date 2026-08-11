@@ -19,6 +19,11 @@ std::optional<glm::vec3> calculateViewportRayDirection(
     const glm::mat4& view,
     const glm::mat4& projection);
 
+std::optional<float> calculateRayDistanceToViewPlane(
+    const glm::vec3& rayDirection,
+    const glm::vec3& viewForward,
+    float viewDepth);
+
 std::optional<geometry::AxisAlignedBounds> calculateIndexedBounds(
     std::span<const float> interleavedVertices,
     std::size_t componentsPerVertex,
