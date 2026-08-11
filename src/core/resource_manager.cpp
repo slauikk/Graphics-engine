@@ -3,11 +3,14 @@
 #include "../shader.h"
 #include "../texture2d.h"
 
+#include <array>
 #include <filesystem>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace ResourceManager {
 
@@ -33,10 +36,17 @@ std::unordered_map<std::string, std::shared_ptr<Texture2D>> textureCache;
 std::unordered_map<ShaderCacheKey, std::shared_ptr<Shader>, ShaderCacheKeyHash> shaderCache;
 
 enum class ShaderKind {
+    Unknown,
     Mesh,
     UiText,
     UiRect,
-    PostProcess
+    PostProcess,
+    SelectionOutline
+};
+
+struct ExpectedAttribute {
+    const char* name;
+    GLint location;
 };
 
 constexpr const char* kMeshFallbackVertex = R"(
@@ -160,9 +170,40 @@ void main() {
 }
 )";
 
+constexpr const char* kSelectionOutlineFallbackVertex = R"(
+#version 330 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNormal;
+
+uniform mat4 u_Model;
+uniform mat4 u_View;
+uniform mat4 u_Projection;
+uniform float u_OutlineWidth;
+
+void main() {
+    vec3 worldPosition = vec3(u_Model * vec4(aPos, 1.0));
+    vec3 worldNormal = normalize(transpose(inverse(mat3(u_Model))) * aNormal);
+    gl_Position = u_Projection * u_View *
+                  vec4(worldPosition + worldNormal * u_OutlineWidth, 1.0);
+}
+)";
+
+constexpr const char* kSelectionOutlineFallbackFragment = R"(
+#version 330 core
+out vec4 FragColor;
+uniform vec3 u_OutlineColor;
+
+void main() {
+    FragColor = vec4(u_OutlineColor, 1.0);
+}
+)";
+
 ShaderKind shaderKind(const ShaderCacheKey& key) {
     const auto vertexFilename = std::filesystem::path(key.vertexPath).filename();
     const auto fragmentFilename = std::filesystem::path(key.fragmentPath).filename();
+    if (vertexFilename == "textured.vert" && fragmentFilename == "textured.frag") {
+        return ShaderKind::Mesh;
+    }
     if (vertexFilename == "ui_text.vert" && fragmentFilename == "ui_text.frag") {
         return ShaderKind::UiText;
     }
@@ -172,7 +213,11 @@ ShaderKind shaderKind(const ShaderCacheKey& key) {
     if (vertexFilename == "post_process.vert" && fragmentFilename == "post_process.frag") {
         return ShaderKind::PostProcess;
     }
-    return ShaderKind::Mesh;
+    if (vertexFilename == "selection_outline.vert" &&
+        fragmentFilename == "selection_outline.frag") {
+        return ShaderKind::SelectionOutline;
+    }
+    return ShaderKind::Unknown;
 }
 
 bool hasUiTextInterface(const Shader& shader) {
@@ -201,12 +246,76 @@ bool hasUiRectInterface(const Shader& shader) {
            glGetUniformLocation(shader.m_id, "projection") >= 0;
 }
 
+bool hasMeshInterface(const Shader& shader) {
+    if (shader.m_id == 0) {
+        return false;
+    }
+
+    constexpr std::array<ExpectedAttribute, 4> expectedAttributes = {{
+        {"aPos", 0},
+        {"aNormal", 1},
+        {"aTexCoord", 2},
+        {"aInstanceModel", 3},
+    }};
+    for (const ExpectedAttribute& attribute : expectedAttributes) {
+        if (glGetAttribLocation(shader.m_id, attribute.name) != attribute.location) {
+            return false;
+        }
+    }
+
+    constexpr std::array<const char*, 24> expectedUniforms = {{
+        "u_Model",
+        "u_View",
+        "u_Projection",
+        "u_UseInstancing",
+        "u_CameraPos",
+        "u_DebugViewMode",
+        "u_BenchmarkIterations",
+        "u_DirLight.direction",
+        "u_DirLight.color",
+        "u_DirLight.enabled",
+        "u_PointLight.position",
+        "u_PointLight.color",
+        "u_PointLight.constant",
+        "u_PointLight.linear",
+        "u_PointLight.quadratic",
+        "u_PointLight.enabled",
+        "u_UseAlbedoTex",
+        "u_AlbedoTex",
+        "u_AlbedoColor",
+        "u_SpecularColor",
+        "u_EmissiveColor",
+        "u_Shininess",
+        "u_Metallic",
+        "u_Roughness",
+    }};
+    for (const char* uniform : expectedUniforms) {
+        if (glGetUniformLocation(shader.m_id, uniform) < 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool hasSelectionOutlineInterface(const Shader& shader) {
+    return shader.m_id != 0 &&
+           glGetAttribLocation(shader.m_id, "aPos") == 0 &&
+           glGetAttribLocation(shader.m_id, "aNormal") == 1 &&
+           glGetUniformLocation(shader.m_id, "u_Model") >= 0 &&
+           glGetUniformLocation(shader.m_id, "u_View") >= 0 &&
+           glGetUniformLocation(shader.m_id, "u_Projection") >= 0 &&
+           glGetUniformLocation(shader.m_id, "u_OutlineWidth") >= 0 &&
+           glGetUniformLocation(shader.m_id, "u_OutlineColor") >= 0;
+}
+
 bool hasExpectedInterface(const Shader& shader, ShaderKind kind) {
     switch (kind) {
         case ShaderKind::UiText: return hasUiTextInterface(shader);
         case ShaderKind::UiRect: return hasUiRectInterface(shader);
         case ShaderKind::PostProcess: return hasPostProcessInterface(shader);
-        case ShaderKind::Mesh:
+        case ShaderKind::SelectionOutline: return hasSelectionOutlineInterface(shader);
+        case ShaderKind::Mesh: return hasMeshInterface(shader);
+        case ShaderKind::Unknown:
         default: return shader.m_id != 0;
     }
 }
@@ -221,7 +330,11 @@ bool loadFallback(Shader& shader, ShaderKind kind) {
         case ShaderKind::PostProcess:
             return shader.loadFromSource(
                 kPostProcessFallbackVertex, kPostProcessFallbackFragment);
+        case ShaderKind::SelectionOutline:
+            return shader.loadFromSource(
+                kSelectionOutlineFallbackVertex, kSelectionOutlineFallbackFragment);
         case ShaderKind::Mesh:
+        case ShaderKind::Unknown:
         default:
             return shader.loadFromSource(kMeshFallbackVertex, kMeshFallbackFragment);
     }
@@ -283,27 +396,38 @@ std::shared_ptr<Shader> getShader(const std::string& vertRel, const std::string&
 }
 
 bool reloadAllShaders() {
-    bool reloadedAny = false;
-    bool allSucceeded = true;
+    struct ReloadCandidate {
+        std::shared_ptr<Shader> target;
+        std::unique_ptr<Shader> replacement;
+    };
+
+    std::vector<ReloadCandidate> candidates;
+    candidates.reserve(shaderCache.size());
 
     for (auto& [key, shader] : shaderCache) {
         if (!shader) {
-            allSucceeded = false;
-            continue;
+            return false;
         }
 
-        reloadedAny = true;
-        bool succeeded = shader->reload();
+        auto replacement = std::make_unique<Shader>(
+            core::assetPath(key.vertexPath), core::assetPath(key.fragmentPath));
         const ShaderKind kind = shaderKind(key);
-        if (succeeded && !hasExpectedInterface(*shader, kind)) {
-            std::cerr << "[ResourceManager] Reloaded shader has an incompatible interface\n";
-            loadFallback(*shader, kind);
-            succeeded = false;
+        if (!hasExpectedInterface(*replacement, kind)) {
+            std::cerr << "[ResourceManager] Shader reload rejected for "
+                      << key.vertexPath << " and " << key.fragmentPath
+                      << ": incompatible interface\n";
+            return false;
         }
-        allSucceeded = succeeded && allSucceeded;
+        candidates.push_back({shader, std::move(replacement)});
     }
 
-    return reloadedAny && allSucceeded;
+    if (candidates.empty()) {
+        return false;
+    }
+    for (ReloadCandidate& candidate : candidates) {
+        *candidate.target = std::move(*candidate.replacement);
+    }
+    return true;
 }
 
 void clear() {
