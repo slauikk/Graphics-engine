@@ -89,6 +89,11 @@ SceneHistory::SceneHistory(std::size_t maxEntries, std::size_t maxBytes)
 }
 
 void SceneHistory::record(SceneDocument scene, bool preserveAnimationState) {
+    const std::size_t sceneBytes = estimateBytes(scene);
+    if (m_maxEntries == 0 || m_maxBytes == 0 || sceneBytes > m_maxBytes) {
+        return;
+    }
+
     m_redo.clear();
     m_redoBytes = 0;
     pushBounded(
@@ -115,13 +120,17 @@ bool SceneHistory::commitUndo(SceneDocument currentScene) {
     if (m_undo.empty()) {
         return false;
     }
-    const bool preserveAnimationState =
-        m_undo.back().preserveAnimationState;
-    m_undoBytes -= m_undo.back().bytes;
+
+    Entry target = std::move(m_undo.back());
+    m_undoBytes -= target.bytes;
     m_undo.pop_back();
-    pushBounded(
-        m_redo, m_redoBytes, std::move(currentScene),
-        preserveAnimationState);
+    if (!pushBounded(
+            m_redo, m_redoBytes, std::move(currentScene),
+            target.preserveAnimationState)) {
+        m_undoBytes += target.bytes;
+        m_undo.push_back(std::move(target));
+        return false;
+    }
     return true;
 }
 
@@ -129,13 +138,17 @@ bool SceneHistory::commitRedo(SceneDocument currentScene) {
     if (m_redo.empty()) {
         return false;
     }
-    const bool preserveAnimationState =
-        m_redo.back().preserveAnimationState;
-    m_redoBytes -= m_redo.back().bytes;
+
+    Entry target = std::move(m_redo.back());
+    m_redoBytes -= target.bytes;
     m_redo.pop_back();
-    pushBounded(
-        m_undo, m_undoBytes, std::move(currentScene),
-        preserveAnimationState);
+    if (!pushBounded(
+            m_undo, m_undoBytes, std::move(currentScene),
+            target.preserveAnimationState)) {
+        m_redoBytes += target.bytes;
+        m_redo.push_back(std::move(target));
+        return false;
+    }
     return true;
 }
 
@@ -162,35 +175,37 @@ std::size_t SceneHistory::estimateBytes(const SceneDocument& scene) {
     return bytes;
 }
 
-void SceneHistory::pushBounded(
+bool SceneHistory::pushBounded(
     std::vector<Entry>& stack, std::size_t& usedBytes, SceneDocument scene,
     bool preserveAnimationState) {
     if (m_maxEntries == 0 || m_maxBytes == 0) {
-        return;
+        return false;
     }
 
     const std::size_t sceneBytes = estimateBytes(scene);
     if (sceneBytes > m_maxBytes) {
-        return;
+        return false;
     }
 
-    const auto hasByteCapacity = [this, sceneBytes] {
-        if (m_redoBytes > m_maxBytes ||
-            m_undoBytes > m_maxBytes - m_redoBytes) {
-            return false;
-        }
-        return m_undoBytes + m_redoBytes <= m_maxBytes - sceneBytes;
-    };
+    const std::size_t otherStackBytes =
+        &stack == &m_undo ? m_redoBytes : m_undoBytes;
+    if (otherStackBytes > m_maxBytes ||
+        sceneBytes > m_maxBytes - otherStackBytes) {
+        return false;
+    }
+    const std::size_t maximumUsedBytes =
+        m_maxBytes - otherStackBytes - sceneBytes;
     while (!stack.empty() &&
-           (stack.size() >= m_maxEntries || !hasByteCapacity())) {
+           (stack.size() >= m_maxEntries || usedBytes > maximumUsedBytes)) {
         usedBytes -= stack.front().bytes;
         stack.erase(stack.begin());
     }
-    if (!hasByteCapacity()) {
-        return;
+    if (usedBytes > maximumUsedBytes) {
+        return false;
     }
     stack.push_back({std::move(scene), sceneBytes, preserveAnimationState});
     usedBytes += sceneBytes;
+    return true;
 }
 
 } // namespace core

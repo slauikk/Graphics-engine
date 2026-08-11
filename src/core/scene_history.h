@@ -46,7 +46,7 @@ private:
     };
 
     static std::size_t estimateBytes(const SceneDocument& scene);
-    void pushBounded(std::vector<Entry>& stack, std::size_t& usedBytes,
+    bool pushBounded(std::vector<Entry>& stack, std::size_t& usedBytes,
                      SceneDocument scene, bool preserveAnimationState);
 
     std::size_t m_maxEntries;

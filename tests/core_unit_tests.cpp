@@ -842,6 +842,33 @@ void testSceneHistoryTransactions() {
     require(!byteLimited.canUndo(),
             "history retained a snapshot larger than its byte budget");
 
+    core::SceneDocument oversizedCurrent = sceneB;
+    oversizedCurrent.objects[0].name.assign(8192, 'x');
+    core::SceneHistory failedUndoHistory(64, 4096);
+    failedUndoHistory.record(sceneA);
+    require(failedUndoHistory.canUndo() &&
+                !failedUndoHistory.commitUndo(oversizedCurrent) &&
+                failedUndoHistory.undoDepth() == 1 &&
+                failedUndoHistory.redoDepth() == 0,
+            "failed undo transfer corrupted the history stacks");
+    target = failedUndoHistory.undoTarget();
+    require(target != nullptr && target->objects[0].name == "A",
+            "failed undo transfer lost its original target");
+
+    core::SceneHistory failedRedoHistory(64, 4096);
+    failedRedoHistory.record(sceneA);
+    require(failedRedoHistory.commitUndo(sceneB) &&
+                !failedRedoHistory.commitRedo(oversizedCurrent) &&
+                failedRedoHistory.undoDepth() == 0 &&
+                failedRedoHistory.redoDepth() == 1,
+            "failed redo transfer corrupted the history stacks");
+    target = failedRedoHistory.redoTarget();
+    require(target != nullptr && target->objects[0].name == "B",
+            "failed redo transfer lost its original target");
+    failedRedoHistory.record(oversizedCurrent);
+    require(failedRedoHistory.redoDepth() == 1,
+            "rejected history record cleared the redo branch");
+
     core::SceneHistory authoredStateHistory;
     authoredStateHistory.record(sceneA, false);
     require(!authoredStateHistory.undoPreservesAnimationState(),
