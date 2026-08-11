@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.31)
 
-project(Graphics_engine VERSION 0.19.4 LANGUAGES CXX)
+project(Graphics_engine VERSION 0.19.5 LANGUAGES CXX)
 
 include(CTest)
 
@@ -181,19 +181,62 @@ if(MSVC)
     else()
         set(GRAPHICS_ENGINE_REDIST_ARCH "x86")
     endif()
-    file(TO_CMAKE_PATH "$ENV{VCToolsRedistDir}" GRAPHICS_ENGINE_REDIST_ROOT)
-    file(GLOB GRAPHICS_ENGINE_CRT_DIRECTORIES LIST_DIRECTORIES true
-         "${GRAPHICS_ENGINE_REDIST_ROOT}/${GRAPHICS_ENGINE_REDIST_ARCH}/Microsoft.VC*.CRT")
-    list(SORT GRAPHICS_ENGINE_CRT_DIRECTORIES ORDER DESCENDING)
-    if(GRAPHICS_ENGINE_CRT_DIRECTORIES)
-        list(GET GRAPHICS_ENGINE_CRT_DIRECTORIES 0 GRAPHICS_ENGINE_CRT_DIRECTORY)
+    set(GRAPHICS_ENGINE_REDIST_ROOTS)
+    if(DEFINED ENV{VCToolsRedistDir} AND
+       IS_DIRECTORY "$ENV{VCToolsRedistDir}")
+        file(TO_CMAKE_PATH
+             "$ENV{VCToolsRedistDir}" GRAPHICS_ENGINE_ENV_REDIST_ROOT)
+        list(APPEND GRAPHICS_ENGINE_REDIST_ROOTS
+             "${GRAPHICS_ENGINE_ENV_REDIST_ROOT}")
+    endif()
+
+    file(TO_CMAKE_PATH
+         "${CMAKE_CXX_COMPILER}" GRAPHICS_ENGINE_CXX_COMPILER_PATH)
+    if(GRAPHICS_ENGINE_CXX_COMPILER_PATH MATCHES
+       "^(.*)/VC/Tools/MSVC/[^/]+/bin/")
+        file(GLOB GRAPHICS_ENGINE_DERIVED_REDIST_ROOTS LIST_DIRECTORIES true
+             "${CMAKE_MATCH_1}/VC/Redist/MSVC/*")
+        list(SORT GRAPHICS_ENGINE_DERIVED_REDIST_ROOTS
+             COMPARE NATURAL ORDER DESCENDING)
+        list(APPEND GRAPHICS_ENGINE_REDIST_ROOTS
+             ${GRAPHICS_ENGINE_DERIVED_REDIST_ROOTS})
+    endif()
+    list(REMOVE_DUPLICATES GRAPHICS_ENGINE_REDIST_ROOTS)
+
+    set(GRAPHICS_ENGINE_CRT_DIRECTORY)
+    foreach(GRAPHICS_ENGINE_REDIST_ROOT IN LISTS GRAPHICS_ENGINE_REDIST_ROOTS)
+        file(GLOB GRAPHICS_ENGINE_CRT_CANDIDATES LIST_DIRECTORIES true
+             "${GRAPHICS_ENGINE_REDIST_ROOT}/${GRAPHICS_ENGINE_REDIST_ARCH}/Microsoft.VC*.CRT")
+        list(SORT GRAPHICS_ENGINE_CRT_CANDIDATES
+             COMPARE NATURAL ORDER DESCENDING)
+        foreach(GRAPHICS_ENGINE_CRT_CANDIDATE IN LISTS GRAPHICS_ENGINE_CRT_CANDIDATES)
+            if(EXISTS "${GRAPHICS_ENGINE_CRT_CANDIDATE}/msvcp140.dll" AND
+               EXISTS "${GRAPHICS_ENGINE_CRT_CANDIDATE}/vcruntime140.dll")
+                set(GRAPHICS_ENGINE_CRT_DIRECTORY
+                    "${GRAPHICS_ENGINE_CRT_CANDIDATE}")
+                break()
+            endif()
+        endforeach()
+        if(GRAPHICS_ENGINE_CRT_DIRECTORY)
+            break()
+        endif()
+    endforeach()
+
+    if(GRAPHICS_ENGINE_CRT_DIRECTORY)
+        message(STATUS
+            "App-local MSVC runtime: ${GRAPHICS_ENGINE_CRT_DIRECTORY}")
         install(DIRECTORY "${GRAPHICS_ENGINE_CRT_DIRECTORY}/"
                 DESTINATION "." COMPONENT Runtime
+                CONFIGURATIONS Release RelWithDebInfo MinSizeRel
                 FILES_MATCHING PATTERN "*.dll")
     else()
         message(WARNING
-            "MSVC redistributable directory was not found; the ZIP will require "
-            "the matching Visual C++ Redistributable to be installed")
+            "App-local MSVC runtime was not found; Release install and CPack "
+            "will fail instead of producing a non-portable package")
+        install(CODE
+            "message(FATAL_ERROR \"Cannot package Graphics-engine: app-local MSVC runtime DLLs were not found\")"
+            COMPONENT Runtime
+            CONFIGURATIONS Release RelWithDebInfo MinSizeRel)
     endif()
 endif()
 
