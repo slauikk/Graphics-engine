@@ -2390,10 +2390,6 @@ void Application::render() {
                 glm::radians(m_camera->fov), aspect,
                 kCameraNearPlane, kCameraFarPlane);
 
-            if (m_showCoordinateGrid && m_coordinateGrid != nullptr) {
-                m_coordinateGrid->draw(view, projection, m_camera->position);
-            }
-
             const bool hasSelectedObject = m_selectedObject >= 0 &&
                 m_selectedObject < static_cast<int>(m_objects.size());
             const bool outlinePassActive = hasSelectedObject &&
@@ -2464,6 +2460,10 @@ void Application::render() {
 
                 glBindVertexArray(m_lightVAO);
                 glDrawElements(GL_TRIANGLES, m_lightIndexCount, GL_UNSIGNED_INT, 0);
+            }
+
+            if (m_showCoordinateGrid && m_coordinateGrid != nullptr) {
+                m_coordinateGrid->draw(view, projection, m_camera->position);
             }
 
             if (usePostProcessing) {
