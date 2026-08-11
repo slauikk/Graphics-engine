@@ -13,6 +13,7 @@
 #include "renderer/light.h"
 #include "renderer/post_processor.h"
 #include "editor_transform.h"
+#include "editor_layout.h"
 #include "scene_document.h"
 #include "scene_history.h"
 #include "window_settings.h"
@@ -22,6 +23,7 @@ class Shader;
 class Texture2D;
 class Renderer;
 class CoordinateGrid;
+class EditorChrome;
 class SelectionOutline;
 class Framebuffer;
 class Material;
@@ -101,6 +103,8 @@ private:
     void processInput(float dt);
     void update(float dt);
     void render();
+    void renderEditorOverlay(const core::EditorLayout& layout);
+    core::EditorPoint cursorFramebufferPosition() const;
     
     // GLFW callbacks (static)
     static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
@@ -181,6 +185,7 @@ private:
     std::shared_ptr<Shader> m_shader = nullptr;
     Renderer* m_renderer = nullptr;
     std::unique_ptr<CoordinateGrid> m_coordinateGrid;
+    std::unique_ptr<EditorChrome> m_editorChrome;
     std::unique_ptr<SelectionOutline> m_selectionOutline;
     bool m_showCoordinateGrid = true;
     std::unique_ptr<Framebuffer> m_sceneFramebuffer;

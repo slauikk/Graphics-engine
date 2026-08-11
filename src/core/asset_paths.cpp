@@ -36,7 +36,9 @@ bool isAssetsRoot(const std::filesystem::path& candidate) {
         shaders / "selection_outline.vert",
         shaders / "selection_outline.frag",
         shaders / "ui_text.vert",
-        shaders / "ui_text.frag"
+        shaders / "ui_text.frag",
+        shaders / "ui_rect.vert",
+        shaders / "ui_rect.frag"
     };
     for (const auto& shader : requiredShaders) {
         error.clear();

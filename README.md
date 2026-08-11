@@ -31,6 +31,8 @@ executable, assets, third-party DLLs, and the MSVC runtime libraries.
 
 ## Controls
 
+- The editor toolbar and Scene object rows are clickable; the 3D camera and wheel only react inside the central viewport.
+- Toolbar actions: create a cube, quick-save/load the scene, toggle the grid, open Assets, or start the GPU benchmark.
 - Hold the right mouse button and use the mouse / `W/A/S/D`, `Shift`, `Ctrl`: look and move the editor camera.
 - `Alt+Enter`: toggle between the remembered windowed layout and fullscreen.
 - `V`: toggle VSync; GPU benchmark mode temporarily disables it.

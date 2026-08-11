@@ -2,6 +2,7 @@
 #include "asset_paths.h"
 #include "benchmark_report.h"
 #include "editor_camera.h"
+#include "editor_layout.h"
 #include "editor_placement.h"
 #include "editor_transform.h"
 #include "spatial_query.h"
@@ -13,6 +14,7 @@
 #include "../gl_debug.h"
 #include "../renderer/renderer.h"
 #include "../renderer/coordinate_grid.h"
+#include "../renderer/editor_chrome.h"
 #include "../renderer/selection_outline.h"
 #include "../renderer/framebuffer.h"
 #include "../renderer/post_processor.h"
@@ -526,6 +528,12 @@ void main() {
     m_renderer = new Renderer();
     m_renderer->init();
 
+    m_editorChrome = std::make_unique<EditorChrome>();
+    if (!m_editorChrome->init()) {
+        std::cerr << "Failed to initialize editor chrome\n";
+        return false;
+    }
+
     m_coordinateGrid = std::make_unique<CoordinateGrid>();
     if (!m_coordinateGrid->init()) {
         std::cerr << "Failed to create coordinate grid\n";
@@ -931,8 +939,10 @@ void Application::focusSelectedObject() {
         m_objects[static_cast<std::size_t>(m_selectedObject)];
     const std::optional<geometry::AxisAlignedBounds> worldBounds =
         objectWorldBounds(selected);
-    const float aspectRatio = m_height > 0
-        ? static_cast<float>(m_width) / static_cast<float>(m_height)
+    const core::EditorRect viewport =
+        core::calculateEditorLayout(m_width, m_height).viewport;
+    const float aspectRatio = viewport.height > 0
+        ? static_cast<float>(viewport.width) / static_cast<float>(viewport.height)
         : 1.0f;
     const std::optional<glm::vec3> framedPosition = worldBounds.has_value()
         ? core::calculateFramedCameraPosition(
@@ -1680,6 +1690,7 @@ void Application::shutdown() {
     m_postProcessor.reset();
     m_selectionOutline.reset();
     m_coordinateGrid.reset();
+    m_editorChrome.reset();
     m_benchmarkFramebuffer.reset();
     m_sceneFramebuffer.reset();
     m_benchmarkInstanceCount = 0;
@@ -2183,6 +2194,12 @@ void Application::render() {
     if (width <= 0 || height <= 0) {
         return;
     }
+
+    const core::EditorLayout editorLayout =
+        core::calculateEditorLayout(width, height);
+    const core::EditorRect sceneViewport = editorLayout.viewport.valid()
+        ? editorLayout.viewport
+        : core::EditorRect{0, 0, width, height};
     
     m_renderer->beginFrame(0.10f, 0.12f, 0.16f, 1.0f);
     updateBenchmarkCapture();
@@ -2218,15 +2235,25 @@ void Application::render() {
             m_benchmarkFramebuffer->blitColorToDefault(width, height);
         } else {
             const bool usePostProcessing = m_postProcessor && m_postProcessor->isReady() &&
-                                           ensureSceneFramebuffer(width, height);
+                                           ensureSceneFramebuffer(
+                                               sceneViewport.width,
+                                               sceneViewport.height);
             if (usePostProcessing) {
                 m_sceneFramebuffer->bind();
-                glViewport(0, 0, width, height);
+                glViewport(0, 0, sceneViewport.width, sceneViewport.height);
                 glClearColor(0.10f, 0.12f, 0.16f, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            } else {
+                Framebuffer::bindDefault();
+                glViewport(
+                    sceneViewport.x,
+                    height - sceneViewport.y - sceneViewport.height,
+                    sceneViewport.width,
+                    sceneViewport.height);
             }
 
-            const float aspect = static_cast<float>(width) / static_cast<float>(height);
+            const float aspect = static_cast<float>(sceneViewport.width) /
+                                 static_cast<float>(sceneViewport.height);
             const glm::mat4 view = m_camera->getViewMatrix();
             const glm::mat4 projection = glm::perspective(
                 glm::radians(m_camera->fov), aspect,
@@ -2310,25 +2337,46 @@ void Application::render() {
 
             if (usePostProcessing) {
                 Framebuffer::bindDefault();
-                glViewport(0, 0, width, height);
+                glViewport(
+                    sceneViewport.x,
+                    height - sceneViewport.y - sceneViewport.height,
+                    sceneViewport.width,
+                    sceneViewport.height);
                 m_postProcessor->render(
                     m_sceneFramebuffer->colorTexture(), m_postProcessEffect,
                     static_cast<float>(glfwGetTime()));
             }
+            Framebuffer::bindDefault();
+            glViewport(0, 0, width, height);
         }
     }
     
     Menu::update();
     m_renderer->beginUiPass();
+    if (!m_benchmarkEnabled && m_editorChrome != nullptr) {
+        m_editorChrome->render(
+            editorLayout,
+            m_selectedObject,
+            core::firstVisibleEditorObject(
+                editorLayout, m_objects.size(), m_selectedObject),
+            m_showCoordinateGrid);
+    }
     UIText::beginFrame();
-    Menu::render();
+
+    if (!m_benchmarkEnabled) {
+        renderEditorOverlay(editorLayout);
+    }
 
     if (!m_benchmarkEnabled && !Menu::isOpen()) {
         constexpr float crosshairScale = 1.5f;
         UIText::renderTextWithColor(
             "+",
-            static_cast<float>(width) * 0.5f - 4.0f * crosshairScale,
-            static_cast<float>(height) * 0.5f - 6.0f * crosshairScale,
+            static_cast<float>(sceneViewport.x) +
+                static_cast<float>(sceneViewport.width) * 0.5f -
+                4.0f * crosshairScale,
+            static_cast<float>(sceneViewport.y) +
+                static_cast<float>(sceneViewport.height) * 0.5f -
+                6.0f * crosshairScale,
             crosshairScale, 1.0f, 0.75f, 0.1f);
     }
 
@@ -2414,15 +2462,17 @@ void Application::render() {
         }
     }
     
-    UIText::renderText(oss.str(), 10.0f, 10.0f, 1.5f);
+    if (m_benchmarkEnabled || m_showGPUInfo) {
+        UIText::renderText(oss.str(), 10.0f, 10.0f, 1.5f);
+    }
     
     // Show shader reload status
-    if (m_reloadMessageTime > 0.0f) {
+    if (m_benchmarkEnabled && m_reloadMessageTime > 0.0f) {
         const float red = m_reloadSucceeded ? 0.0f : 1.0f;
         const float green = m_reloadSucceeded ? 1.0f : 0.0f;
         UIText::renderTextWithColor(m_reloadMessage, 10.0f, 200.0f, 1.5f, red, green, 0.0f);
     }
-    if (m_sceneMessageTime > 0.0f) {
+    if (m_benchmarkEnabled && m_sceneMessageTime > 0.0f) {
         const float red = m_sceneOperationSucceeded ? 0.0f : 1.0f;
         const float green = m_sceneOperationSucceeded ? 1.0f : 0.0f;
         UIText::renderTextWithColor(
@@ -2430,7 +2480,8 @@ void Application::render() {
     }
     
     // Show active post-process and material inspection views.
-    if (!m_benchmarkEnabled && m_shader != nullptr && m_shader->m_id != 0) {
+    if (!m_benchmarkEnabled && m_showGPUInfo &&
+        m_shader != nullptr && m_shader->m_id != 0) {
         std::string shaderStatus = std::string("Post: ") +
                                    PostProcessor::effectName(m_postProcessEffect) +
                                    " [1-6]\nMaterial: " + shaderViewModeName(m_shaderViewMode) +
@@ -2438,7 +2489,7 @@ void Application::render() {
         UIText::renderTextWithColor(shaderStatus, 10.0f, 250.0f, 1.2f, 0.0f, 1.0f, 0.0f);
     }
 
-    if (!m_benchmarkEnabled) {
+    if (!m_benchmarkEnabled && m_showGPUInfo) {
         const float editorHudScale = m_width < 600
             ? 0.8f
             : (m_width < 900 ? 1.0f : 1.2f);
@@ -2546,7 +2597,242 @@ void Application::render() {
         UIText::renderText(
             controlsOss.str(), controlsX, editorHudY, editorHudScale);
     }
+    Menu::render();
     UIText::flush();
+}
+
+void Application::renderEditorOverlay(const core::EditorLayout& layout) {
+    if (!layout.viewport.valid()) {
+        return;
+    }
+
+    constexpr float textScale = 1.0f;
+    constexpr float headingScale = 1.1f;
+    constexpr float accentRed = 1.0f;
+    constexpr float accentGreen = 0.63f;
+    constexpr float accentBlue = 0.14f;
+    constexpr float mutedRed = 0.62f;
+    constexpr float mutedGreen = 0.68f;
+    constexpr float mutedBlue = 0.76f;
+
+    UIText::renderTextWithColor(
+        "GRAPHICS", 12.0f, 14.0f, headingScale,
+        accentRed, accentGreen, accentBlue);
+    UIText::renderText("ENGINE", 86.0f, 14.0f, headingScale);
+
+    const auto renderButtonLabel = [](const core::EditorRect& button,
+                                      const std::string& label) {
+        const float labelWidth = static_cast<float>(label.size()) * 8.0f;
+        const float x = static_cast<float>(button.x) +
+            (static_cast<float>(button.width) - labelWidth) * 0.5f;
+        UIText::renderText(
+            label, x, static_cast<float>(button.y) + 7.0f, textScale);
+    };
+    renderButtonLabel(layout.createButton, "+ CUBE");
+    renderButtonLabel(layout.saveButton, "SAVE");
+    renderButtonLabel(layout.loadButton, "LOAD");
+    renderButtonLabel(
+        layout.gridButton, m_showCoordinateGrid ? "GRID ON" : "GRID OFF");
+    renderButtonLabel(layout.assetsButton, "ASSETS");
+    renderButtonLabel(layout.benchmarkButton, "BENCH");
+
+    UIText::renderTextWithColor(
+        "SCENE", 12.0f,
+        static_cast<float>(layout.hierarchyHeader.y) + 10.0f,
+        headingScale, accentRed, accentGreen, accentBlue);
+    const std::size_t firstVisible = core::firstVisibleEditorObject(
+        layout, m_objects.size(), m_selectedObject);
+    const std::size_t visibleRows =
+        core::editorHierarchyVisibleRowCount(layout);
+    const std::size_t finalVisible = (std::min)(
+        m_objects.size(), firstVisible + visibleRows);
+    const std::size_t hierarchyCharacters = (std::max<std::size_t>)(
+        4, static_cast<std::size_t>(layout.hierarchyList.width / 8) - 3);
+    for (std::size_t objectIndex = firstVisible;
+         objectIndex < finalVisible; ++objectIndex) {
+        const std::size_t visibleRow = objectIndex - firstVisible;
+        const core::EditorRect row =
+            core::editorHierarchyRowRect(layout, visibleRow);
+        const std::string name = truncateHudText(
+            m_objects[objectIndex].name, hierarchyCharacters);
+        const bool selected =
+            objectIndex == static_cast<std::size_t>(m_selectedObject);
+        const std::string label = selected ? "> " + name : "  " + name;
+        if (selected) {
+            UIText::renderTextWithColor(
+                label,
+                static_cast<float>(row.x) + 5.0f,
+                static_cast<float>(row.y) + 5.0f,
+                textScale, 1.0f, 0.86f, 0.60f);
+        } else {
+            UIText::renderTextWithColor(
+                label,
+                static_cast<float>(row.x) + 5.0f,
+                static_cast<float>(row.y) + 5.0f,
+                textScale, 0.80f, 0.84f, 0.90f);
+        }
+    }
+    std::ostringstream sceneFooter;
+    sceneFooter << m_objects.size() << " OBJECTS  |  TAB CYCLE";
+    UIText::renderTextWithColor(
+        truncateHudText(sceneFooter.str(), hierarchyCharacters + 2),
+        static_cast<float>(layout.hierarchy.x) + 12.0f,
+        static_cast<float>(layout.hierarchy.y + layout.hierarchy.height) - 22.0f,
+        textScale, mutedRed, mutedGreen, mutedBlue);
+
+    UIText::renderTextWithColor(
+        "INSPECTOR",
+        static_cast<float>(layout.inspectorHeader.x) + 12.0f,
+        static_cast<float>(layout.inspectorHeader.y) + 10.0f,
+        headingScale, accentRed, accentGreen, accentBlue);
+
+    float inspectorY = static_cast<float>(layout.inspectorContent.y) + 2.0f;
+    const float inspectorX = static_cast<float>(layout.inspectorContent.x);
+    const std::size_t inspectorCharacters = (std::max<std::size_t>)(
+        8, static_cast<std::size_t>(layout.inspectorContent.width / 8));
+    const auto inspectorLine = [&](const std::string& text) {
+        UIText::renderText(
+            truncateHudText(text, inspectorCharacters),
+            inspectorX, inspectorY, textScale);
+        inspectorY += 16.0f;
+    };
+    const auto inspectorHeading = [&](const std::string& text) {
+        inspectorY += 6.0f;
+        UIText::renderTextWithColor(
+            text, inspectorX, inspectorY, textScale,
+            accentRed, accentGreen, accentBlue);
+        inspectorY += 18.0f;
+    };
+
+    if (m_selectedObject >= 0 &&
+        m_selectedObject < static_cast<int>(m_objects.size())) {
+        const RenderObject& object =
+            m_objects[static_cast<std::size_t>(m_selectedObject)];
+        UIText::renderTextWithColor(
+            truncateHudText(object.name, inspectorCharacters),
+            inspectorX, inspectorY, headingScale,
+            1.0f, 0.86f, 0.60f);
+        inspectorY += 22.0f;
+
+        std::ostringstream objectNumber;
+        objectNumber << "OBJECT " << m_selectedObject + 1
+                     << " / " << m_objects.size();
+        inspectorLine(objectNumber.str());
+        inspectorLine("MESH  " + object.meshAsset);
+
+        inspectorHeading("TRANSFORM");
+        std::ostringstream position;
+        position << std::fixed << std::setprecision(2)
+                 << "P  " << object.position.x << "  "
+                 << object.position.y << "  " << object.position.z;
+        inspectorLine(position.str());
+        std::ostringstream rotation;
+        rotation << std::fixed << std::setprecision(1)
+                 << "R  " << object.rotationDeg.x << "  "
+                 << object.rotationDeg.y << "  " << object.rotationDeg.z;
+        inspectorLine(rotation.str());
+        std::ostringstream scale;
+        scale << "S  " << formatScaleComponent(object.scale.x) << "  "
+              << formatScaleComponent(object.scale.y) << "  "
+              << formatScaleComponent(object.scale.z);
+        inspectorLine(scale.str());
+
+        inspectorHeading("MATERIAL");
+        if (const Material* material = selectedMaterial()) {
+            inspectorLine(material->id);
+            std::ostringstream properties;
+            properties << std::fixed << std::setprecision(1)
+                       << "SHINE " << material->shininess
+                       << "  METAL " << material->metallic;
+            inspectorLine(properties.str());
+            std::ostringstream roughness;
+            roughness << std::fixed << std::setprecision(1)
+                      << "ROUGH " << material->roughness;
+            inspectorLine(roughness.str());
+        } else {
+            inspectorLine("IMPORTED MATERIALS");
+        }
+
+        inspectorHeading("LIGHTING");
+        inspectorLine(
+            std::string("DIRECTIONAL ") +
+            (m_dirLight.enabled ? "ON" : "OFF") +
+            "  POINT " + (m_pointLight.enabled ? "ON" : "OFF"));
+    } else {
+        inspectorLine("NO OBJECT SELECTED");
+    }
+
+    const float shortcutY = static_cast<float>(
+        layout.inspector.y + layout.inspector.height - 72);
+    UIText::renderTextWithColor(
+        "ARROWS MOVE  Q/E ROTATE\n-/+ SCALE    DEL REMOVE\nCTRL+Z/Y UNDO/REDO",
+        inspectorX, shortcutY, textScale,
+        mutedRed, mutedGreen, mutedBlue);
+
+    std::ostringstream viewportLabel;
+    viewportLabel << "PERSPECTIVE  |  " << shaderViewModeName(m_shaderViewMode)
+                  << "  |  POST "
+                  << PostProcessor::effectName(m_postProcessEffect);
+    const std::size_t viewportCharacters = (std::max<std::size_t>)(
+        12, static_cast<std::size_t>(layout.viewport.width / 8) - 4);
+    UIText::renderTextWithColor(
+        truncateHudText(viewportLabel.str(), viewportCharacters),
+        static_cast<float>(layout.viewport.x) + 12.0f,
+        static_cast<float>(layout.viewport.y) + 10.0f,
+        textScale, mutedRed, mutedGreen, mutedBlue);
+
+    if (m_reloadMessageTime > 0.0f) {
+        UIText::renderTextWithColor(
+            truncateHudText(m_reloadMessage, viewportCharacters),
+            static_cast<float>(layout.viewport.x) + 12.0f,
+            static_cast<float>(layout.viewport.y) + 32.0f,
+            textScale,
+            m_reloadSucceeded ? 0.35f : 1.0f,
+            m_reloadSucceeded ? 1.0f : 0.35f,
+            0.25f);
+    }
+    if (m_sceneMessageTime > 0.0f) {
+        UIText::renderTextWithColor(
+            truncateHudText(m_sceneMessage, viewportCharacters),
+            static_cast<float>(layout.viewport.x) + 12.0f,
+            static_cast<float>(layout.viewport.y) + 50.0f,
+            textScale,
+            m_sceneOperationSucceeded ? 0.35f : 1.0f,
+            m_sceneOperationSucceeded ? 1.0f : 0.35f,
+            0.25f);
+    }
+    UIText::renderTextWithColor(
+        "RMB LOOK  |  WASD MOVE  |  WHEEL FOV  |  F9 DETAILS",
+        static_cast<float>(layout.viewport.x) + 12.0f,
+        static_cast<float>(layout.viewport.y + layout.viewport.height) - 22.0f,
+        textScale, mutedRed, mutedGreen, mutedBlue);
+
+    std::ostringstream status;
+    status << std::fixed << std::setprecision(1);
+    status << (m_hasFrameStatistics ? std::to_string(
+        static_cast<int>(std::lround(m_currentFPS))) : std::string("--"))
+           << " FPS";
+    status << "  |  FRAME ";
+    if (m_hasFrameStatistics) {
+        status << std::setprecision(2) << m_cpuFrameTimeMs << " MS";
+    } else {
+        status << "-- MS";
+    }
+    status << "  |  GPU ";
+    if (m_renderer != nullptr && m_renderer->hasGpuFrameTime()) {
+        status << std::setprecision(2) << m_renderer->gpuFrameTimeMs() << " MS";
+    } else {
+        status << "-- MS";
+    }
+    status << "  |  " << layout.viewport.width << "x" << layout.viewport.height
+           << "  |  VSYNC " << (m_windowSettings.vsync ? "ON" : "OFF")
+           << "  |  " << (m_fullscreen ? "FULLSCREEN" : "WINDOWED");
+    const std::size_t statusCharacters = (std::max<std::size_t>)(
+        12, static_cast<std::size_t>(layout.statusBar.width / 8) - 3);
+    UIText::renderTextWithColor(
+        truncateHudText(status.str(), statusCharacters),
+        12.0f, static_cast<float>(layout.statusBar.y) + 8.0f,
+        textScale, 0.74f, 0.80f, 0.88f);
 }
 
 void Application::framebufferSizeCallback(GLFWwindow* window, int width, int height) {
@@ -2854,6 +3140,27 @@ void Application::onKey(int key, int action, int mods) {
     }
 }
 
+core::EditorPoint Application::cursorFramebufferPosition() const {
+    if (m_window == nullptr) {
+        return {};
+    }
+
+    double cursorX = 0.0;
+    double cursorY = 0.0;
+    int windowWidth = 0;
+    int windowHeight = 0;
+    int framebufferWidth = 0;
+    int framebufferHeight = 0;
+    glfwGetCursorPos(m_window, &cursorX, &cursorY);
+    glfwGetWindowSize(m_window, &windowWidth, &windowHeight);
+    glfwGetFramebufferSize(
+        m_window, &framebufferWidth, &framebufferHeight);
+    return core::mapWindowPointToFramebuffer(
+        {cursorX, cursorY},
+        windowWidth, windowHeight,
+        framebufferWidth, framebufferHeight);
+}
+
 void Application::onMouseMove(double xpos, double ypos) {
     if (m_camera == nullptr) return;
 
@@ -2890,25 +3197,89 @@ void Application::onMouseMove(double xpos, double ypos) {
 
 void Application::onMouseButton(int button, int action, int mods) {
     (void)mods;
-    if (button == GLFW_MOUSE_BUTTON_RIGHT && !m_benchmarkEnabled &&
-        !Menu::isOpen()) {
-        if (action == GLFW_PRESS) {
-            setCameraInputActive(true);
-        } else if (action == GLFW_RELEASE) {
+    const core::EditorLayout layout =
+        core::calculateEditorLayout(m_width, m_height);
+    const core::EditorPoint cursor = cursorFramebufferPosition();
+
+    if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+        if (action == GLFW_RELEASE) {
             setCameraInputActive(false);
+        } else if (action == GLFW_PRESS && !m_benchmarkEnabled &&
+                   !Menu::isOpen() && layout.viewport.contains(cursor)) {
+            setCameraInputActive(true);
         }
         return;
     }
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS &&
-        !m_benchmarkEnabled && !Menu::isOpen()) {
+        !m_benchmarkEnabled) {
         m_activeTransformKey = GLFW_KEY_UNKNOWN;
         m_activeTransformObjectId = 0;
-        selectObjectUnderCrosshair();
+
+        const core::EditorToolbarAction toolbarAction =
+            core::editorToolbarActionAt(layout, cursor);
+        if (toolbarAction == core::EditorToolbarAction::ToggleAssets) {
+            setCameraInputActive(false);
+            Menu::toggle();
+            return;
+        }
+        if (Menu::isOpen()) {
+            return;
+        }
+
+        switch (toolbarAction) {
+            case core::EditorToolbarAction::CreateObject:
+                createCubeObject();
+                return;
+            case core::EditorToolbarAction::SaveScene:
+                saveQuickScene();
+                return;
+            case core::EditorToolbarAction::LoadScene:
+                loadQuickScene();
+                return;
+            case core::EditorToolbarAction::ToggleGrid:
+                checkpointScene();
+                m_showCoordinateGrid = !m_showCoordinateGrid;
+                m_sceneOperationSucceeded = true;
+                m_sceneMessage = m_showCoordinateGrid
+                    ? "Coordinate grid enabled"
+                    : "Coordinate grid disabled";
+                m_sceneMessageTime = 1.5f;
+                return;
+            case core::EditorToolbarAction::ToggleAssets:
+                return;
+            case core::EditorToolbarAction::ToggleBenchmark:
+                toggleBenchmark();
+                return;
+            case core::EditorToolbarAction::None:
+                break;
+        }
+
+        const std::size_t firstVisible = core::firstVisibleEditorObject(
+            layout, m_objects.size(), m_selectedObject);
+        if (const auto objectIndex = core::editorHierarchyObjectAt(
+                layout, cursor, m_objects.size(), firstVisible);
+            objectIndex.has_value()) {
+            m_selectedObject = static_cast<int>(*objectIndex);
+            syncSelectedObjectToMenu();
+            m_sceneOperationSucceeded = true;
+            m_sceneMessage = "Selected: " + m_objects[*objectIndex].name;
+            m_sceneMessageTime = 1.5f;
+            return;
+        }
+
+        if (layout.viewport.contains(cursor)) {
+            selectObjectUnderCrosshair();
+        }
     }
 }
 
 void Application::onScroll(double xoffset, double yoffset) {
     (void)xoffset;
     if (m_camera == nullptr || m_benchmarkEnabled || Menu::isOpen()) return;
+    const core::EditorLayout layout =
+        core::calculateEditorLayout(m_width, m_height);
+    if (!layout.viewport.contains(cursorFramebufferPosition())) {
+        return;
+    }
     m_camera->processScroll(static_cast<float>(yoffset));
 }

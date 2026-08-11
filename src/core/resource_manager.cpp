@@ -35,6 +35,7 @@ std::unordered_map<ShaderCacheKey, std::shared_ptr<Shader>, ShaderCacheKeyHash> 
 enum class ShaderKind {
     Mesh,
     UiText,
+    UiRect,
     PostProcess
 };
 
@@ -101,6 +102,30 @@ void main() {
 }
 )";
 
+constexpr const char* kUiRectFallbackVertex = R"(
+#version 330 core
+layout(location = 0) in vec2 aPos;
+layout(location = 1) in vec3 aColor;
+
+out vec3 RectColor;
+uniform mat4 projection;
+
+void main() {
+    RectColor = aColor;
+    gl_Position = projection * vec4(aPos, 0.0, 1.0);
+}
+)";
+
+constexpr const char* kUiRectFallbackFragment = R"(
+#version 330 core
+in vec3 RectColor;
+out vec4 FragColor;
+
+void main() {
+    FragColor = vec4(RectColor, 1.0);
+}
+)";
+
 constexpr const char* kPostProcessFallbackVertex = R"(
 #version 330 core
 out vec2 TexCoord;
@@ -141,6 +166,9 @@ ShaderKind shaderKind(const ShaderCacheKey& key) {
     if (vertexFilename == "ui_text.vert" && fragmentFilename == "ui_text.frag") {
         return ShaderKind::UiText;
     }
+    if (vertexFilename == "ui_rect.vert" && fragmentFilename == "ui_rect.frag") {
+        return ShaderKind::UiRect;
+    }
     if (vertexFilename == "post_process.vert" && fragmentFilename == "post_process.frag") {
         return ShaderKind::PostProcess;
     }
@@ -166,9 +194,17 @@ bool hasPostProcessInterface(const Shader& shader) {
            glGetUniformLocation(shader.m_id, "u_Time") >= 0;
 }
 
+bool hasUiRectInterface(const Shader& shader) {
+    return shader.m_id != 0 &&
+           glGetAttribLocation(shader.m_id, "aPos") == 0 &&
+           glGetAttribLocation(shader.m_id, "aColor") == 1 &&
+           glGetUniformLocation(shader.m_id, "projection") >= 0;
+}
+
 bool hasExpectedInterface(const Shader& shader, ShaderKind kind) {
     switch (kind) {
         case ShaderKind::UiText: return hasUiTextInterface(shader);
+        case ShaderKind::UiRect: return hasUiRectInterface(shader);
         case ShaderKind::PostProcess: return hasPostProcessInterface(shader);
         case ShaderKind::Mesh:
         default: return shader.m_id != 0;
@@ -179,6 +215,9 @@ bool loadFallback(Shader& shader, ShaderKind kind) {
     switch (kind) {
         case ShaderKind::UiText:
             return shader.loadFromSource(kUiFallbackVertex, kUiFallbackFragment);
+        case ShaderKind::UiRect:
+            return shader.loadFromSource(
+                kUiRectFallbackVertex, kUiRectFallbackFragment);
         case ShaderKind::PostProcess:
             return shader.loadFromSource(
                 kPostProcessFallbackVertex, kPostProcessFallbackFragment);

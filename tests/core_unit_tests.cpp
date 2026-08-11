@@ -1,5 +1,6 @@
 #include "core/benchmark_report.h"
 #include "core/editor_camera.h"
+#include "core/editor_layout.h"
 #include "core/editor_placement.h"
 #include "core/editor_transform.h"
 #include "core/scene_document.h"
@@ -143,6 +144,71 @@ core::SceneDocument validScene() {
     scene.objects.push_back(object);
     scene.selectedObject = 0;
     return scene;
+}
+
+void testEditorLayoutAndHitTesting() {
+    const core::EditorLayout layout =
+        core::calculateEditorLayout(1280, 720);
+    require(layout.toolbar.x == 0 && layout.toolbar.y == 0 &&
+                layout.toolbar.width == 1280 && layout.toolbar.height == 44,
+            "editor toolbar bounds are incorrect");
+    require(layout.statusBar.y == 692 && layout.statusBar.height == 28,
+            "editor status bar bounds are incorrect");
+    require(layout.hierarchy.width == 230 &&
+                layout.inspector.x == 986 && layout.inspector.width == 294,
+            "editor side panel bounds are incorrect");
+    require(layout.viewport.x == 231 && layout.viewport.y == 44 &&
+                layout.viewport.width == 754 && layout.viewport.height == 648,
+            "editor viewport bounds are incorrect");
+    require(layout.viewport.contains({500.0, 300.0}) &&
+                !layout.viewport.contains({100.0, 300.0}) &&
+                !layout.viewport.contains({1100.0, 300.0}),
+            "editor viewport hit testing crossed panel boundaries");
+
+    const core::EditorPoint framebufferPoint =
+        core::mapWindowPointToFramebuffer(
+            {320.0, 180.0}, 640, 360, 1280, 720);
+    require(framebufferPoint.x == 640.0 && framebufferPoint.y == 360.0,
+            "high-DPI cursor mapping is incorrect");
+    const core::EditorPoint invalidPoint =
+        core::mapWindowPointToFramebuffer(
+            {10.0, 10.0}, 0, 360, 1280, 720);
+    require(invalidPoint.x < 0.0 && invalidPoint.y < 0.0,
+            "invalid cursor dimensions produced a usable point");
+
+    require(core::editorToolbarActionAt(
+                layout,
+                {layout.createButton.x + 2.0, layout.createButton.y + 2.0}) ==
+                core::EditorToolbarAction::CreateObject &&
+                core::editorToolbarActionAt(
+                    layout,
+                    {layout.gridButton.x + 2.0, layout.gridButton.y + 2.0}) ==
+                core::EditorToolbarAction::ToggleGrid &&
+                core::editorToolbarActionAt(layout, {20.0, 20.0}) ==
+                core::EditorToolbarAction::None,
+            "editor toolbar action hit testing is incorrect");
+
+    const std::size_t visibleRows =
+        core::editorHierarchyVisibleRowCount(layout);
+    require(visibleRows == 24,
+            "editor hierarchy visible row count is incorrect");
+    const std::size_t firstVisible =
+        core::firstVisibleEditorObject(layout, 30, 29);
+    require(firstVisible == 6,
+            "editor hierarchy did not keep the selected object visible");
+    const core::EditorRect lastRow =
+        core::editorHierarchyRowRect(layout, visibleRows - 1);
+    const auto selectedObject = core::editorHierarchyObjectAt(
+        layout,
+        {lastRow.x + 4.0, lastRow.y + 4.0},
+        30, firstVisible);
+    require(selectedObject.has_value() && *selectedObject == 29,
+            "editor hierarchy row hit the wrong scene object");
+
+    const core::EditorLayout compact =
+        core::calculateEditorLayout(500, 300);
+    require(compact.viewport.width >= 320 && compact.viewport.height > 0,
+            "compact editor layout collapsed the viewport");
 }
 
 void testWindowSettingsPersistence() {
@@ -1152,6 +1218,7 @@ void testEditorCameraFraming() {
 
 int main() {
     const std::vector<std::pair<std::string, std::function<void()>>> tests = {
+        {"editor layout and hit testing", testEditorLayoutAndHitTesting},
         {"window settings persistence", testWindowSettingsPersistence},
         {"benchmark statistics", testBenchmarkStatistics},
         {"benchmark JSON/CSV round-trip", testBenchmarkRoundTripAndMultilineCsv},

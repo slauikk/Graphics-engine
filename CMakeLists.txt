@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.31)
 
-project(Graphics_engine VERSION 0.10.0 LANGUAGES CXX)
+project(Graphics_engine VERSION 0.11.0 LANGUAGES CXX)
 
 include(CTest)
 
@@ -17,6 +17,7 @@ set(GRAPHICS_ENGINE_SOURCES
         src/core/asset_paths.cpp
         src/core/benchmark_report.cpp
         src/core/editor_camera.cpp
+        src/core/editor_layout.cpp
         src/core/editor_placement.cpp
         src/core/editor_transform.cpp
         src/core/scene_document.cpp
@@ -26,6 +27,7 @@ set(GRAPHICS_ENGINE_SOURCES
         src/core/resource_manager.cpp
         src/renderer/renderer.cpp
         src/renderer/coordinate_grid.cpp
+        src/renderer/editor_chrome.cpp
         src/renderer/selection_outline.cpp
         src/renderer/framebuffer.cpp
         src/renderer/post_processor.cpp
@@ -125,6 +127,7 @@ if(BUILD_TESTING)
         tests/core_unit_tests.cpp
         src/core/benchmark_report.cpp
         src/core/editor_camera.cpp
+        src/core/editor_layout.cpp
         src/core/editor_placement.cpp
         src/core/editor_transform.cpp
         src/core/scene_document.cpp
