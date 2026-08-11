@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.31)
 
-project(Graphics_engine VERSION 0.19.10 LANGUAGES CXX)
+project(Graphics_engine VERSION 0.19.11 LANGUAGES CXX)
 
 include(CTest)
 
@@ -126,6 +126,7 @@ endif()
 if(BUILD_TESTING)
     add_executable(Graphics_engine_core_tests
         tests/core_unit_tests.cpp
+        src/core/asset_paths.cpp
         src/core/benchmark_report.cpp
         src/core/editor_camera.cpp
         src/core/editor_gizmo.cpp

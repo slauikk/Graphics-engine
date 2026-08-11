@@ -1,3 +1,4 @@
+#include "core/asset_paths.h"
 #include "core/benchmark_report.h"
 #include "core/editor_camera.h"
 #include "core/editor_gizmo.h"
@@ -145,6 +146,60 @@ core::SceneDocument validScene() {
     scene.objects.push_back(object);
     scene.selectedObject = 0;
     return scene;
+}
+
+void testAssetPathContainment() {
+    TemporaryDirectory temporary;
+    const std::filesystem::path assetsRoot = temporary.path() / "assets";
+    const std::filesystem::path models = assetsRoot / "models";
+    const std::filesystem::path textures = assetsRoot / "textures";
+    const std::filesystem::path outside = temporary.path() / "outside";
+    const std::filesystem::path lookalike = temporary.path() / "assets_backup";
+    std::filesystem::create_directories(models);
+    std::filesystem::create_directories(textures);
+    std::filesystem::create_directories(outside);
+    std::filesystem::create_directories(lookalike);
+
+    const std::filesystem::path material = models / "sample.mtl";
+    const std::filesystem::path texture = textures / "albedo.png";
+    const std::filesystem::path secret = outside / "secret.bin";
+    const std::filesystem::path lookalikeFile = lookalike / "decoy.bin";
+    std::ofstream(material) << "material";
+    std::ofstream(texture) << "texture";
+    std::ofstream(secret) << "secret";
+    std::ofstream(lookalikeFile) << "decoy";
+
+    const auto localDependency = core::resolveContainedPath(
+        assetsRoot, models, "sample.mtl");
+    require(localDependency.has_value() &&
+                std::filesystem::equivalent(*localDependency, material),
+            "same-directory asset dependency was rejected");
+
+    const auto siblingDependency = core::resolveContainedPath(
+        assetsRoot, models, "../textures/albedo.png");
+    require(siblingDependency.has_value() &&
+                std::filesystem::equivalent(*siblingDependency, texture),
+            "contained sibling asset dependency was rejected");
+
+    require(core::resolveContainedPath(assetsRoot, models, texture).has_value(),
+            "absolute path inside the assets root was rejected");
+    require(!core::resolveContainedPath(
+                 assetsRoot, models, "../../outside/secret.bin").has_value(),
+            "parent traversal escaped the assets root");
+    require(!core::resolveContainedPath(assetsRoot, models, secret).has_value(),
+            "absolute path outside the assets root was accepted");
+    require(!core::resolveContainedPath(
+                 assetsRoot, models, lookalikeFile).has_value(),
+            "lookalike assets directory prefix bypassed containment");
+    require(!core::resolveContainedPath(
+                 assetsRoot, models, std::filesystem::path()).has_value(),
+            "empty dependency path was accepted");
+#ifdef _WIN32
+    require(!core::resolveContainedPath(
+                 assetsRoot, models, std::filesystem::path(L"\\outside\\secret.bin"))
+                 .has_value(),
+            "root-relative Windows dependency path was accepted");
+#endif
 }
 
 void testEditorLayoutAndHitTesting() {
@@ -1616,6 +1671,7 @@ void testEditorCameraFraming() {
 
 int main() {
     const std::vector<std::pair<std::string, std::function<void()>>> tests = {
+        {"asset path containment", testAssetPathContainment},
         {"editor layout and hit testing", testEditorLayoutAndHitTesting},
         {"editor translation gizmo", testEditorTranslationGizmo},
         {"window settings persistence", testWindowSettingsPersistence},

@@ -35,12 +35,12 @@ constexpr std::size_t kMaxAssetReferenceLength = 1'024;
 constexpr float kMaxCoordinate = 1'000'000.0f;
 constexpr float kMaxColorComponent = 100.0f;
 
-std::string normalizedFileKey(const char* filePath) {
+std::string normalizedFileKey(const std::filesystem::path& filePath) {
     std::error_code error;
     std::filesystem::path normalized = std::filesystem::weakly_canonical(
-        std::filesystem::path(filePath), error);
+        filePath, error);
     if (error) {
-        normalized = std::filesystem::path(filePath).lexically_normal();
+        normalized = filePath.lexically_normal();
     }
     std::string key = normalized.generic_string();
 #ifdef _WIN32
@@ -54,8 +54,19 @@ std::string normalizedFileKey(const char* filePath) {
 
 class LimitedIOSystem final : public Assimp::IOSystem {
 public:
+    LimitedIOSystem(std::filesystem::path assetsRoot,
+                    std::filesystem::path modelDirectory)
+        : m_assetsRoot(std::move(assetsRoot)),
+          m_modelDirectory(std::move(modelDirectory)) {
+    }
+
     bool Exists(const char* filePath) const override {
-        return m_delegate.Exists(filePath);
+        const auto resolved = resolve(filePath);
+        if (!resolved) {
+            return false;
+        }
+        const std::string nativePath = resolved->string();
+        return m_delegate.Exists(nativePath.c_str());
     }
 
     char getOsSeparator() const override {
@@ -63,12 +74,24 @@ public:
     }
 
     Assimp::IOStream* Open(const char* filePath, const char* mode) override {
-        Assimp::IOStream* stream = m_delegate.Open(filePath, mode);
+        const char* accessMode = mode != nullptr ? mode : "rb";
+        const std::string_view access(accessMode);
+        if (access != "r" && access != "rb" && access != "rt") {
+            m_policyViolated = true;
+            return nullptr;
+        }
+
+        const auto resolved = resolve(filePath);
+        if (!resolved) {
+            return nullptr;
+        }
+        const std::string nativePath = resolved->string();
+        Assimp::IOStream* stream = m_delegate.Open(nativePath.c_str(), accessMode);
         if (stream == nullptr) {
             return nullptr;
         }
 
-        const std::string key = normalizedFileKey(filePath);
+        const std::string key = normalizedFileKey(*resolved);
         if (!m_countedFiles.contains(key)) {
             const std::size_t fileSize = stream->FileSize();
             const std::size_t byteLimit = static_cast<std::size_t>(kMaxModelFileSize);
@@ -95,11 +118,31 @@ public:
         return m_limitExceeded;
     }
 
+    bool policyViolated() const {
+        return m_policyViolated;
+    }
+
 private:
+    std::optional<std::filesystem::path> resolve(const char* filePath) const {
+        if (filePath == nullptr || filePath[0] == '\0') {
+            m_policyViolated = true;
+            return std::nullopt;
+        }
+        auto resolved = core::resolveContainedPath(
+            m_assetsRoot, m_modelDirectory, std::filesystem::path(filePath));
+        if (!resolved) {
+            m_policyViolated = true;
+        }
+        return resolved;
+    }
+
     Assimp::DefaultIOSystem m_delegate;
+    std::filesystem::path m_assetsRoot;
+    std::filesystem::path m_modelDirectory;
     std::unordered_set<std::string> m_countedFiles;
     std::size_t m_totalBytes = 0;
     bool m_limitExceeded = false;
+    mutable bool m_policyViolated = false;
 };
 
 bool isSafeAssetReference(std::string_view value) {
@@ -332,8 +375,9 @@ ModelLoadResult load(const std::string& assetReference) {
         return result;
     }
 
+    const std::filesystem::path assetsRoot = core::findAssetsRoot();
     Assimp::Importer importer;
-    auto* limitedIo = new LimitedIOSystem();
+    auto* limitedIo = new LimitedIOSystem(assetsRoot, modelPath.parent_path());
     importer.SetIOHandler(limitedIo);
     importer.SetPropertyInteger(
         AI_CONFIG_PP_SBP_REMOVE, aiPrimitiveType_POINT | aiPrimitiveType_LINE);
@@ -348,6 +392,10 @@ ModelLoadResult load(const std::string& assetReference) {
         aiProcess_PreTransformVertices |
         aiProcess_ValidateDataStructure;
     const aiScene* scene = importer.ReadFile(modelPath.string(), flags);
+    if (limitedIo->policyViolated()) {
+        result.error = "model or dependency attempted file access outside the assets directory";
+        return result;
+    }
     if (scene == nullptr || scene->mRootNode == nullptr) {
         result.error = limitedIo->limitExceeded()
             ? "model dependencies exceed the 512 MiB total limit"

@@ -204,6 +204,49 @@ namespace core {
         return findAssetsRoot() / relativePath;
     }
 
+    std::optional<std::filesystem::path> resolveContainedPath(
+        const std::filesystem::path& root,
+        const std::filesystem::path& relativeBase,
+        const std::filesystem::path& requestedPath) {
+        if (root.empty() || relativeBase.empty() || requestedPath.empty()) {
+            return std::nullopt;
+        }
+        if (!requestedPath.is_absolute() &&
+            (requestedPath.has_root_name() || requestedPath.has_root_directory())) {
+            return std::nullopt;
+        }
+
+        std::error_code error;
+        const std::filesystem::path resolvedRoot =
+            std::filesystem::weakly_canonical(root, error);
+        if (error || resolvedRoot.empty() || !resolvedRoot.is_absolute()) {
+            return std::nullopt;
+        }
+
+        const std::filesystem::path candidate = requestedPath.is_absolute()
+            ? requestedPath
+            : relativeBase / requestedPath;
+        error.clear();
+        const std::filesystem::path resolvedCandidate =
+            std::filesystem::weakly_canonical(candidate, error);
+        if (error || resolvedCandidate.empty() || !resolvedCandidate.is_absolute()) {
+            return std::nullopt;
+        }
+
+        error.clear();
+        const std::filesystem::path relative =
+            std::filesystem::relative(resolvedCandidate, resolvedRoot, error);
+        if (error || relative.empty() || relative.is_absolute()) {
+            return std::nullopt;
+        }
+        for (const auto& component : relative) {
+            if (component == "..") {
+                return std::nullopt;
+            }
+        }
+        return resolvedCandidate;
+    }
+
     std::filesystem::path benchmarkResultsDir() {
 #ifdef GRAPHICS_ENGINE_SOURCE_ASSETS_DIR
         return normalizedPath(std::filesystem::path(GRAPHICS_ENGINE_SOURCE_ASSETS_DIR))
