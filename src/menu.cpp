@@ -100,6 +100,8 @@ int itemCountForState(Menu::MenuState state, int optionCount) {
 bool Menu::m_isOpen = false;
 Menu::MenuState Menu::m_currentState = MAIN_MENU;
 int Menu::m_selectedIndex = 0;
+float Menu::m_renderX = 200.0f;
+float Menu::m_renderY = 200.0f;
 std::vector<Menu::TextureOption> Menu::m_textures;
 std::vector<Menu::ModelOption> Menu::m_models;
 bool Menu::m_needsReload = false;
@@ -246,8 +248,8 @@ void Menu::render() {
 }
 
 void Menu::renderMainMenu() {
-    float x = 200.0f;
-    float y = 200.0f;
+    float x = m_renderX;
+    float y = m_renderY;
     float lineHeight = 14.0f * 1.5f;
     
     std::string header = "Main Menu:\n\n";
@@ -272,8 +274,8 @@ void Menu::renderMainMenu() {
 }
 
 void Menu::renderTexturesMenu() {
-    float x = 200.0f;
-    float y = 200.0f;
+    float x = m_renderX;
+    float y = m_renderY;
     float lineHeight = 14.0f * 1.5f;
     
     std::string header = "Texture Selection:\n\n";
@@ -298,8 +300,8 @@ void Menu::renderTexturesMenu() {
 }
 
 void Menu::renderModelsMenu() {
-    float x = 200.0f;
-    float y = 200.0f;
+    float x = m_renderX;
+    float y = m_renderY;
     const float lineHeight = 14.0f * 1.5f;
 
     UIText::renderText("Model Selection:\n\n", x, y, 1.5f);
@@ -349,8 +351,8 @@ void Menu::renderModelsMenu() {
 }
 
 void Menu::renderMovementRootMenu() {
-    float x = 200.0f;
-    float y = 200.0f;
+    float x = m_renderX;
+    float y = m_renderY;
     float lineHeight = 14.0f * 1.5f;
     
     std::string header = "Movement:\n\n";
@@ -375,8 +377,8 @@ void Menu::renderMovementRootMenu() {
 }
 
 void Menu::renderCubeMenu() {
-    float x = 200.0f;
-    float y = 200.0f;
+    float x = m_renderX;
+    float y = m_renderY;
     float lineHeight = 14.0f * 1.5f;
     
     std::string header = "Object Control:\n\n";
@@ -418,8 +420,8 @@ void Menu::renderCubeMenu() {
 }
 
 void Menu::renderLightMenu() {
-    float x = 200.0f;
-    float y = 200.0f;
+    float x = m_renderX;
+    float y = m_renderY;
     float lineHeight = 14.0f * 1.5f;
     
     std::string header = "Light Control:\n\n";
@@ -451,6 +453,11 @@ void Menu::renderLightMenu() {
 
 bool Menu::isOpen() {
     return m_isOpen;
+}
+
+void Menu::setRenderOrigin(float x, float y) {
+    m_renderX = x;
+    m_renderY = y;
 }
 
 void Menu::toggle() {
@@ -729,8 +736,8 @@ void Menu::getLightPosition(float& x, float& y, float& z) {
 }
 
 void Menu::renderLightingMenu() {
-    float x = 200.0f;
-    float y = 200.0f;
+    float x = m_renderX;
+    float y = m_renderY;
     float lineHeight = 14.0f * 1.5f;
     
     std::string header = "Lighting Control:\n\n";

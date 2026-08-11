@@ -88,6 +88,7 @@ public:
     static void update();
     static void render();
     static bool isOpen();
+    static void setRenderOrigin(float x, float y);
     static void toggle();
     static void processKey(int key);
     static std::string getSelectedTexturePath();
@@ -122,6 +123,8 @@ private:
     static bool m_isOpen;
     static MenuState m_currentState;
     static int m_selectedIndex;
+    static float m_renderX;
+    static float m_renderY;
     static std::vector<TextureOption> m_textures;
     static std::vector<ModelOption> m_models;
     static bool m_needsReload;

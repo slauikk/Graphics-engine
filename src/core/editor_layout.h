@@ -48,6 +48,7 @@ struct EditorLayout {
     EditorRect inspectorHeader;
     EditorRect inspectorContent;
     EditorRect statusBar;
+    EditorRect modalOverlay;
     EditorRect createButton;
     EditorRect saveButton;
     EditorRect loadButton;

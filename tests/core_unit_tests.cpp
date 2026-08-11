@@ -160,6 +160,10 @@ void testEditorLayoutAndHitTesting() {
     require(layout.viewport.x == 231 && layout.viewport.y == 44 &&
                 layout.viewport.width == 754 && layout.viewport.height == 648,
             "editor viewport bounds are incorrect");
+    require(layout.modalOverlay.x == 348 && layout.modalOverlay.y == 118 &&
+                layout.modalOverlay.width == 520 &&
+                layout.modalOverlay.height == 500,
+            "editor modal overlay bounds are incorrect");
     require(layout.viewport.contains({500.0, 300.0}) &&
                 !layout.viewport.contains({100.0, 300.0}) &&
                 !layout.viewport.contains({1100.0, 300.0}),
@@ -681,6 +685,35 @@ void testRuntimeObjectLookup() {
 }
 
 void testSpatialQueries() {
+    const glm::mat4 identityView(1.0f);
+    const glm::mat4 squareProjection = glm::perspective(
+        glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+    const auto centerRay = core::calculateViewportRayDirection(
+        50.0f, 50.0f, 100.0f, 100.0f,
+        identityView, squareProjection);
+    require(centerRay.has_value() &&
+                almostEqual(centerRay->x, 0.0) &&
+                almostEqual(centerRay->y, 0.0) &&
+                almostEqual(centerRay->z, -1.0),
+            "viewport center did not produce a forward ray");
+    const auto upperRightRay = core::calculateViewportRayDirection(
+        75.0f, 25.0f, 100.0f, 100.0f,
+        identityView, squareProjection);
+    require(upperRightRay.has_value() &&
+                upperRightRay->x > 0.0f && upperRightRay->y > 0.0f &&
+                upperRightRay->z < 0.0f,
+            "viewport point did not produce the expected ray quadrant");
+    require(!core::calculateViewportRayDirection(
+                -1.0f, 50.0f, 100.0f, 100.0f,
+                identityView, squareProjection).has_value() &&
+                !core::calculateViewportRayDirection(
+                    50.0f, 50.0f, 0.0f, 100.0f,
+                    identityView, squareProjection).has_value() &&
+                !core::calculateViewportRayDirection(
+                    50.0f, 50.0f, 100.0f, 100.0f,
+                    identityView, glm::mat4(0.0f)).has_value(),
+            "invalid viewport ray inputs were accepted");
+
     geometry::AxisAlignedBounds bounds;
     bounds.minimum = glm::vec3(-1.0f);
     bounds.maximum = glm::vec3(1.0f);

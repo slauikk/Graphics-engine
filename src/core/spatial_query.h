@@ -11,6 +11,14 @@
 
 namespace core {
 
+std::optional<glm::vec3> calculateViewportRayDirection(
+    float x,
+    float y,
+    float viewportWidth,
+    float viewportHeight,
+    const glm::mat4& view,
+    const glm::mat4& projection);
+
 std::optional<geometry::AxisAlignedBounds> calculateIndexedBounds(
     std::span<const float> interleavedVertices,
     std::size_t componentsPerVertex,

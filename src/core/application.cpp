@@ -783,7 +783,7 @@ void Application::selectObject(int direction) {
     syncSelectedObjectToMenu();
 }
 
-void Application::selectObjectUnderCrosshair() {
+void Application::selectObjectAtViewportPoint(core::EditorPoint point) {
     m_sceneMessageTime = 1.5f;
     if (m_camera == nullptr || m_objects.empty()) {
         m_sceneOperationSucceeded = false;
@@ -791,14 +791,32 @@ void Application::selectObjectUnderCrosshair() {
         return;
     }
 
-    const float directionLength = glm::length(m_camera->front);
-    if (!std::isfinite(directionLength) || directionLength <= 0.000001f) {
+    const core::EditorRect viewport =
+        core::calculateEditorLayout(m_width, m_height).viewport;
+    if (!viewport.contains(point)) {
         m_sceneOperationSucceeded = false;
-        m_sceneMessage = "Selection failed: invalid camera direction";
+        m_sceneMessage = "Selection failed: cursor is outside the viewport";
         return;
     }
 
-    const glm::vec3 direction = m_camera->front / directionLength;
+    const float aspect = static_cast<float>(viewport.width) /
+                         static_cast<float>(viewport.height);
+    const glm::mat4 projection = glm::perspective(
+        glm::radians(m_camera->fov), aspect,
+        kCameraNearPlane, kCameraFarPlane);
+    const std::optional<glm::vec3> rayDirection =
+        core::calculateViewportRayDirection(
+            static_cast<float>(point.x) - static_cast<float>(viewport.x),
+            static_cast<float>(point.y) - static_cast<float>(viewport.y),
+            static_cast<float>(viewport.width),
+            static_cast<float>(viewport.height),
+            m_camera->getViewMatrix(), projection);
+    if (!rayDirection.has_value()) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Selection failed: invalid viewport ray";
+        return;
+    }
+
     float nearestDistance = kCameraFarPlane;
     int nearestObject = -1;
 
@@ -810,7 +828,7 @@ void Application::selectObjectUnderCrosshair() {
                 return;
             }
             const std::optional<float> hit = core::intersectRayTransformedIndexedMesh(
-                m_camera->position, direction, mesh->bounds(),
+                m_camera->position, *rayDirection, mesh->bounds(),
                 mesh->pickingPositions(), mesh->pickingIndices(), transform,
                 kCameraNearPlane, nearestDistance);
             if (hit.has_value() && *hit < nearestDistance) {
@@ -830,7 +848,7 @@ void Application::selectObjectUnderCrosshair() {
 
     if (nearestObject < 0) {
         m_sceneOperationSucceeded = false;
-        m_sceneMessage = "No object under crosshair";
+        m_sceneMessage = "No object under cursor";
         return;
     }
 
@@ -2352,6 +2370,11 @@ void Application::render() {
     }
     
     Menu::update();
+    if (!m_benchmarkEnabled && editorLayout.modalOverlay.valid()) {
+        Menu::setRenderOrigin(
+            static_cast<float>(editorLayout.modalOverlay.x) + 20.0f,
+            static_cast<float>(editorLayout.modalOverlay.y) + 20.0f);
+    }
     m_renderer->beginUiPass();
     if (!m_benchmarkEnabled && m_editorChrome != nullptr) {
         m_editorChrome->render(
@@ -2359,7 +2382,8 @@ void Application::render() {
             m_selectedObject,
             core::firstVisibleEditorObject(
                 editorLayout, m_objects.size(), m_selectedObject),
-            m_showCoordinateGrid);
+            m_showCoordinateGrid,
+            Menu::isOpen());
     }
     UIText::beginFrame();
 
@@ -2802,7 +2826,7 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
             0.25f);
     }
     UIText::renderTextWithColor(
-        "RMB LOOK  |  WASD MOVE  |  WHEEL FOV  |  F9 DETAILS",
+        "LMB SELECT  |  RMB LOOK  |  WASD MOVE  |  WHEEL FOV  |  F9 DETAILS",
         static_cast<float>(layout.viewport.x) + 12.0f,
         static_cast<float>(layout.viewport.y + layout.viewport.height) - 22.0f,
         textScale, mutedRed, mutedGreen, mutedBlue);
@@ -3268,7 +3292,7 @@ void Application::onMouseButton(int button, int action, int mods) {
         }
 
         if (layout.viewport.contains(cursor)) {
-            selectObjectUnderCrosshair();
+            selectObjectAtViewportPoint(cursor);
         }
     }
 }

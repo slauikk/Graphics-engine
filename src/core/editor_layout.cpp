@@ -102,6 +102,16 @@ EditorLayout calculateEditorLayout(int width, int height) {
         (std::max)(0, layout.inspector.width - 24),
         (std::max)(0, layout.inspector.height - inspectorHeaderHeight - 20)};
 
+    const int modalWidth = (std::min)(
+        520, (std::max)(0, layout.viewport.width - 48));
+    const int modalHeight = (std::min)(
+        500, (std::max)(0, layout.viewport.height - 48));
+    layout.modalOverlay = {
+        layout.viewport.x + (layout.viewport.width - modalWidth) / 2,
+        layout.viewport.y + (layout.viewport.height - modalHeight) / 2,
+        modalWidth,
+        modalHeight};
+
     int buttonX = 172;
     layout.createButton = toolbarButton(buttonX, 88);
     layout.saveButton = toolbarButton(buttonX, 72);

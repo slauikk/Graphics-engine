@@ -80,7 +80,7 @@ private:
         std::string& error);
     void loadSelectedModel(const std::string& assetReference);
     void selectObject(int direction);
-    void selectObjectUnderCrosshair();
+    void selectObjectAtViewportPoint(core::EditorPoint point);
     void createCubeObject();
     void focusSelectedObject();
     bool transformSelectedObject(

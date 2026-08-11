@@ -25,6 +25,8 @@ constexpr Color kButtonActiveColor{0.255f, 0.176f, 0.071f};
 constexpr Color kSelectionColor{0.235f, 0.153f, 0.047f};
 constexpr Color kSeparatorColor{0.184f, 0.220f, 0.275f};
 constexpr Color kViewportBorderColor{0.714f, 0.463f, 0.110f};
+constexpr Color kModalShadowColor{0.020f, 0.024f, 0.031f};
+constexpr Color kModalColor{0.055f, 0.067f, 0.086f};
 
 class ScopedChromeRenderState {
 public:
@@ -148,7 +150,8 @@ void EditorChrome::render(
     const core::EditorLayout& layout,
     int selectedObject,
     std::size_t firstVisibleObject,
-    bool gridEnabled) {
+    bool gridEnabled,
+    bool menuOpen) {
     if (layout.width <= 0 || layout.height <= 0 ||
         !m_shader || m_shader->m_id == 0 ||
         m_vertexArray == 0 || m_vertexBuffer == 0) {
@@ -205,6 +208,15 @@ void EditorChrome::render(
     appendColorRect(
         {0, layout.statusBar.y - 1, layout.width, 1},
         kSeparatorColor);
+
+    if (menuOpen && layout.modalOverlay.valid()) {
+        appendColorRect(
+            {layout.modalOverlay.x + 8, layout.modalOverlay.y + 8,
+             layout.modalOverlay.width, layout.modalOverlay.height},
+            kModalShadowColor);
+        appendColorRect(layout.modalOverlay, kModalColor);
+        appendColorOutline(layout.modalOverlay, kViewportBorderColor);
+    }
 
     if (m_vertices.empty()) {
         return;

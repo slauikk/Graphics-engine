@@ -22,7 +22,8 @@ public:
         const core::EditorLayout& layout,
         int selectedObject,
         std::size_t firstVisibleObject,
-        bool gridEnabled);
+        bool gridEnabled,
+        bool menuOpen);
 
 private:
     void appendRect(const core::EditorRect& rect, float red, float green, float blue);

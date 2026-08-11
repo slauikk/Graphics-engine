@@ -66,6 +66,52 @@ std::optional<LocalRay> transformRay(
 
 } // namespace
 
+std::optional<glm::vec3> calculateViewportRayDirection(
+    float x,
+    float y,
+    float viewportWidth,
+    float viewportHeight,
+    const glm::mat4& view,
+    const glm::mat4& projection) {
+    if (!std::isfinite(x) || !std::isfinite(y) ||
+        !std::isfinite(viewportWidth) || !std::isfinite(viewportHeight) ||
+        viewportWidth <= 0.0f || viewportHeight <= 0.0f ||
+        x < 0.0f || y < 0.0f || x >= viewportWidth || y >= viewportHeight ||
+        !isFinite(view) || !isFinite(projection)) {
+        return std::nullopt;
+    }
+
+    const float normalizedX = 2.0f * x / viewportWidth - 1.0f;
+    const float normalizedY = 1.0f - 2.0f * y / viewportHeight;
+    const glm::mat4 clipToWorld = glm::inverse(projection * view);
+    if (!isFinite(clipToWorld)) {
+        return std::nullopt;
+    }
+
+    const glm::vec4 nearHomogeneous =
+        clipToWorld * glm::vec4(normalizedX, normalizedY, -1.0f, 1.0f);
+    const glm::vec4 farHomogeneous =
+        clipToWorld * glm::vec4(normalizedX, normalizedY, 1.0f, 1.0f);
+    if (!std::isfinite(nearHomogeneous.w) ||
+        !std::isfinite(farHomogeneous.w) ||
+        std::abs(nearHomogeneous.w) <= 0.000001f ||
+        std::abs(farHomogeneous.w) <= 0.000001f) {
+        return std::nullopt;
+    }
+
+    const glm::vec3 nearPoint =
+        glm::vec3(nearHomogeneous) / nearHomogeneous.w;
+    const glm::vec3 farPoint =
+        glm::vec3(farHomogeneous) / farHomogeneous.w;
+    const glm::vec3 direction = farPoint - nearPoint;
+    const float directionLength = glm::length(direction);
+    if (!isFinite(nearPoint) || !isFinite(farPoint) ||
+        !std::isfinite(directionLength) || directionLength <= 0.000001f) {
+        return std::nullopt;
+    }
+    return direction / directionLength;
+}
+
 std::optional<geometry::AxisAlignedBounds> calculateIndexedBounds(
     std::span<const float> interleavedVertices,
     std::size_t componentsPerVertex,

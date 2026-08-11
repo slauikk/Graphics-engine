@@ -37,7 +37,7 @@ executable, assets, third-party DLLs, and the MSVC runtime libraries.
 - `Alt+Enter`: toggle between the remembered windowed layout and fullscreen.
 - `V`: toggle VSync; GPU benchmark mode temporarily disables it.
 - Mouse and wheel: look around and change field of view.
-- Left mouse button: select the nearest object under the center crosshair.
+- Left mouse button: select the nearest object under the cursor inside the viewport.
 - `Insert` / `C`: create and select a cube on the nearest free grid position.
 - `F`: frame the selected object in the camera view.
 - Arrow keys and `PageUp` / `PageDown`: move the selected object on `X/Z` and `Y`.
