@@ -505,6 +505,20 @@ void testWindowSettingsPersistence() {
                 fittedSmall.width == 1024 && fittedSmall.height == 650,
             "window dimensions were not fitted to a smaller work area");
 
+    const core::WindowSettings fittedTiny =
+        core::fitWindowSettingsToWorkArea(
+            defaults, core::WindowWorkArea{-640, 0, 640, 480});
+    require(fittedTiny.x == -640 && fittedTiny.y == 0 &&
+                fittedTiny.width == 640 && fittedTiny.height == 480 &&
+                core::validateWindowSettings(fittedTiny, error),
+            "sub-minimum work area produced settings that cannot be persisted");
+    const core::WindowSettings expandedTiny =
+        core::fitWindowSettingsToWorkArea(
+            fittedTiny, core::WindowWorkArea{0, 0, 1024, 768});
+    require(expandedTiny.width == core::kMinimumEditorWindowWidth &&
+                expandedTiny.height == core::kMinimumEditorWindowHeight,
+            "stored small window was not restored to the editor minimum");
+
     const std::vector<core::WindowWorkArea> workAreas = {
         {-1920, 0, 1920, 1080},
         {0, 0, 2560, 1400}};
@@ -540,6 +554,17 @@ void testWindowSettingsPersistence() {
     require(!missing.loaded && missing.error.empty() &&
                 missing.settings.width == core::kDefaultEditorWindowWidth,
             "missing window settings did not return clean defaults");
+
+    const std::filesystem::path tinySettingsPath =
+        temporary.path() / "tiny_editor_settings.json";
+    const core::WindowSettingsSaveResult tinySaved =
+        core::saveWindowSettings(fittedTiny, tinySettingsPath);
+    const core::WindowSettingsLoadResult tinyLoaded =
+        core::loadWindowSettings(tinySettingsPath);
+    require(tinySaved.success && tinyLoaded.loaded &&
+                tinyLoaded.settings.width == 640 &&
+                tinyLoaded.settings.height == 480,
+            "small work-area settings did not survive persistence");
 
     core::WindowSettings source = clamped;
     source.fullscreen = true;
@@ -599,7 +624,7 @@ void testWindowSettingsPersistence() {
             "malformed window settings were accepted");
 
     core::WindowSettings invalid = defaults;
-    invalid.width = 100;
+    invalid.width = 0;
     const core::WindowSettingsSaveResult invalidSave =
         core::saveWindowSettings(invalid, settingsPath);
     require(!invalidSave.success && !invalidSave.error.empty(),

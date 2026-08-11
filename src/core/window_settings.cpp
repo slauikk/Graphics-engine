@@ -82,8 +82,8 @@ bool validateWindowSettings(
     if (settings.schemaVersion != kCurrentWindowSettingsSchemaVersion) {
         return setError(error, "unsupported window settings schema version");
     }
-    if (settings.width < kMinimumEditorWindowWidth ||
-        settings.height < kMinimumEditorWindowHeight ||
+    if (settings.width <= 0 ||
+        settings.height <= 0 ||
         settings.width > kMaximumEditorWindowDimension ||
         settings.height > kMaximumEditorWindowDimension) {
         return setError(error, "window dimensions are outside the supported range");
@@ -110,8 +110,12 @@ WindowSettings fitWindowSettingsToWorkArea(
         return fitted;
     }
 
-    fitted.width = (std::min)(fitted.width, workArea.width);
-    fitted.height = (std::min)(fitted.height, workArea.height);
+    const int minimumWidth = (std::min)(
+        kMinimumEditorWindowWidth, workArea.width);
+    const int minimumHeight = (std::min)(
+        kMinimumEditorWindowHeight, workArea.height);
+    fitted.width = std::clamp(fitted.width, minimumWidth, workArea.width);
+    fitted.height = std::clamp(fitted.height, minimumHeight, workArea.height);
     if (!fitted.hasPosition) {
         fitted.x = workArea.x + (workArea.width - fitted.width) / 2;
         fitted.y = workArea.y + (workArea.height - fitted.height) / 2;
