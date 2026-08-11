@@ -29,14 +29,14 @@ void applyChannelSwizzle(int channels) {
 
 Texture2D::Texture2D(const std::filesystem::path& path, bool flipY)
     : id(0), width(0), height(0), channels(0) {
-    loadFromFile(path, flipY);
+    static_cast<void>(loadFromFile(path, flipY));
 }
 
 Texture2D::Texture2D() 
     : id(0), width(0), height(0), channels(0) {
 }
 
-void Texture2D::loadFromFile(const std::filesystem::path& path, bool flipY) {
+bool Texture2D::loadFromFile(const std::filesystem::path& path, bool flipY) {
     if (id != 0) {
         glDeleteTextures(1, &id);
         id = 0;
@@ -48,7 +48,7 @@ void Texture2D::loadFromFile(const std::filesystem::path& path, bool flipY) {
     if (imageFile == nullptr) {
         std::cerr << "Failed to open texture: " << path << "\n";
         createMagentaFallback();
-        return;
+        return false;
     }
 
     unsigned char* data = stbi_load_from_file(imageFile, &width, &height, &channels, 0);
@@ -58,7 +58,7 @@ void Texture2D::loadFromFile(const std::filesystem::path& path, bool flipY) {
         std::cerr << "Failed to load texture: " << path << "\n";
         std::cerr << "stbi_failure_reason: " << stbi_failure_reason() << "\n";
         createMagentaFallback();
-        return;
+        return false;
     }
     
     glGenTextures(1, &id);
@@ -88,6 +88,7 @@ void Texture2D::loadFromFile(const std::filesystem::path& path, bool flipY) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     
     stbi_image_free(data);
+    return true;
 }
 
 void Texture2D::loadGeneratedGrid() {

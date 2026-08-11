@@ -236,12 +236,20 @@ std::shared_ptr<Texture2D> getTexture(const std::string& relativePath) {
     }
 
     auto texture = std::make_shared<Texture2D>();
+    if (relativePath == "textures/generated_grid") {
+        texture->loadGeneratedGrid();
+        textureCache[relativePath] = texture;
+        return texture;
+    }
+
     const std::filesystem::path fullPath = core::assetPath(relativePath);
     std::error_code filesystemError;
-    if (std::filesystem::is_regular_file(fullPath, filesystemError) && !filesystemError) {
-        texture->loadFromFile(fullPath);
-    } else {
-        texture->loadGeneratedGrid();
+    if (!std::filesystem::is_regular_file(fullPath, filesystemError) || filesystemError) {
+        std::cerr << "[ResourceManager] Texture file is missing: " << fullPath << "\n";
+        return nullptr;
+    }
+    if (!texture->loadFromFile(fullPath)) {
+        return nullptr;
     }
 
     textureCache[relativePath] = texture;

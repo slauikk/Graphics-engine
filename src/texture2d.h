@@ -21,7 +21,7 @@ public:
     Texture2D(Texture2D&& other) noexcept;
     Texture2D& operator=(Texture2D&& other) noexcept;
     
-    void loadFromFile(const std::filesystem::path& path, bool flipY = true);
+    bool loadFromFile(const std::filesystem::path& path, bool flipY = true);
     void loadGeneratedGrid();
     void bind(uint32_t slot = 0) const;
     
