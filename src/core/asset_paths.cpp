@@ -238,4 +238,13 @@ namespace core {
                "saved-scenes" / "quick_save.scene.json";
     }
 
+    std::filesystem::path editorSettingsPath() {
+#ifdef GRAPHICS_ENGINE_SOURCE_ASSETS_DIR
+        return normalizedPath(std::filesystem::path(GRAPHICS_ENGINE_SOURCE_ASSETS_DIR))
+            .parent_path() / "out" / "runtime" / "editor_settings.json";
+#else
+        return benchmarkResultsDir().parent_path() / "editor_settings.json";
+#endif
+    }
+
 } // namespace core

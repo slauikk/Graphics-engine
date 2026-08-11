@@ -15,6 +15,7 @@
 #include "editor_transform.h"
 #include "scene_document.h"
 #include "scene_history.h"
+#include "window_settings.h"
 
 class Camera;
 class Shader;
@@ -93,12 +94,17 @@ private:
     void updateBenchmarkCapture();
     void recordBenchmarkFrameSample(float frameIntervalMs, float cpuWorkMs, float presentMs);
     void toggleBenchmark();
+    void toggleFullscreen();
+    void toggleVsync();
+    void persistWindowSettings();
+    void setCameraInputActive(bool active);
     void processInput(float dt);
     void update(float dt);
     void render();
     
     // GLFW callbacks (static)
     static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
+    static void windowFocusCallback(GLFWwindow* window, int focused);
     static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
     static void mouseCallback(GLFWwindow* window, double xpos, double ypos);
     static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
@@ -107,6 +113,7 @@ private:
     
     // Instance callbacks
     void onFramebufferResize(int width, int height);
+    void onWindowFocus(int focused);
     void onKey(int key, int action, int mods);
     void onMouseMove(double xpos, double ypos);
     void onMouseButton(int button, int action, int mods);
@@ -118,6 +125,9 @@ private:
     bool m_initialized = false;
     int m_width = 1280;
     int m_height = 720;
+    core::WindowSettings m_windowSettings;
+    bool m_fullscreen = false;
+    bool m_cameraInputActive = false;
     
     float m_deltaTime = 0.0f;
     float m_lastFrame = 0.0f;

@@ -5,6 +5,7 @@
 #include "core/scene_document.h"
 #include "core/scene_history.h"
 #include "core/spatial_query.h"
+#include "core/window_settings.h"
 
 #include <algorithm>
 #include <array>
@@ -142,6 +143,83 @@ core::SceneDocument validScene() {
     scene.objects.push_back(object);
     scene.selectedObject = 0;
     return scene;
+}
+
+void testWindowSettingsPersistence() {
+    core::WindowSettings defaults;
+    std::string error;
+    require(core::validateWindowSettings(defaults, error),
+            "default window settings are invalid: " + error);
+
+    const core::WindowWorkArea workArea{100, 50, 1920, 1040};
+    const core::WindowSettings centered =
+        core::fitWindowSettingsToWorkArea(defaults, workArea);
+    require(centered.hasPosition && centered.x == 420 && centered.y == 210 &&
+                centered.width == 1280 && centered.height == 720,
+            "default window was not centered in the monitor work area");
+
+    core::WindowSettings offscreen = defaults;
+    offscreen.hasPosition = true;
+    offscreen.x = 999'999;
+    offscreen.y = -999'999;
+    offscreen.width = 1600;
+    offscreen.height = 900;
+    const core::WindowSettings clamped =
+        core::fitWindowSettingsToWorkArea(offscreen, workArea);
+    require(clamped.x == 420 && clamped.y == 50 &&
+                clamped.width == 1600 && clamped.height == 900,
+            "off-screen window bounds were not clamped to the work area");
+
+    const core::WindowSettings fittedSmall =
+        core::fitWindowSettingsToWorkArea(
+            defaults, core::WindowWorkArea{0, 0, 1024, 650});
+    require(fittedSmall.x == 0 && fittedSmall.y == 0 &&
+                fittedSmall.width == 1024 && fittedSmall.height == 650,
+            "window dimensions were not fitted to a smaller work area");
+
+    TemporaryDirectory temporary;
+    const std::filesystem::path settingsPath =
+        temporary.path() / "editor_settings.json";
+    const core::WindowSettingsLoadResult missing =
+        core::loadWindowSettings(settingsPath);
+    require(!missing.loaded && missing.error.empty() &&
+                missing.settings.width == core::kDefaultEditorWindowWidth,
+            "missing window settings did not return clean defaults");
+
+    core::WindowSettings source = clamped;
+    source.fullscreen = true;
+    source.vsync = false;
+    const core::WindowSettingsSaveResult saved =
+        core::saveWindowSettings(source, settingsPath);
+    require(saved.success, "window settings save failed: " + saved.error);
+    const core::WindowSettingsLoadResult loaded =
+        core::loadWindowSettings(settingsPath);
+    require(loaded.loaded && loaded.error.empty() &&
+                loaded.settings.x == source.x &&
+                loaded.settings.y == source.y &&
+                loaded.settings.width == source.width &&
+                loaded.settings.height == source.height &&
+                loaded.settings.hasPosition == source.hasPosition &&
+                loaded.settings.fullscreen == source.fullscreen &&
+                loaded.settings.vsync == source.vsync,
+            "window settings round-trip changed persisted values");
+
+    {
+        std::ofstream malformed(settingsPath, std::ios::binary | std::ios::trunc);
+        malformed << "{ not valid json";
+    }
+    const core::WindowSettingsLoadResult malformed =
+        core::loadWindowSettings(settingsPath);
+    require(!malformed.loaded && !malformed.error.empty() &&
+                malformed.settings.width == core::kDefaultEditorWindowWidth,
+            "malformed window settings were accepted");
+
+    core::WindowSettings invalid = defaults;
+    invalid.width = 100;
+    const core::WindowSettingsSaveResult invalidSave =
+        core::saveWindowSettings(invalid, settingsPath);
+    require(!invalidSave.success && !invalidSave.error.empty(),
+            "invalid window settings were saved");
 }
 
 void testBenchmarkStatistics() {
@@ -1074,6 +1152,7 @@ void testEditorCameraFraming() {
 
 int main() {
     const std::vector<std::pair<std::string, std::function<void()>>> tests = {
+        {"window settings persistence", testWindowSettingsPersistence},
         {"benchmark statistics", testBenchmarkStatistics},
         {"benchmark JSON/CSV round-trip", testBenchmarkRoundTripAndMultilineCsv},
         {"benchmark invalid report rejection", testBenchmarkRejectsInvalidReports},

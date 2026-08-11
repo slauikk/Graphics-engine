@@ -51,6 +51,24 @@ constexpr GLsizei kBenchmarkHeight = 900;
 constexpr double kBenchmarkWarmupSeconds = 2.0;
 constexpr std::size_t kBenchmarkCaptureSamples = 300;
 
+core::WindowWorkArea monitorWorkArea(GLFWmonitor* monitor) {
+    core::WindowWorkArea area;
+    if (monitor == nullptr) {
+        return area;
+    }
+    glfwGetMonitorWorkarea(
+        monitor, &area.x, &area.y, &area.width, &area.height);
+    if (area.width <= 0 || area.height <= 0) {
+        if (const GLFWvidmode* mode = glfwGetVideoMode(monitor)) {
+            area.x = 0;
+            area.y = 0;
+            area.width = mode->width;
+            area.height = mode->height;
+        }
+    }
+    return area;
+}
+
 glm::mat4 objectTransform(const RenderObject& object) {
     glm::mat4 model(1.0f);
     model = glm::translate(model, object.position);
@@ -276,6 +294,14 @@ bool Application::init() {
 #endif
     glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
     glfwWindowHint(GLFW_STENCIL_BITS, 8);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+
+    const core::WindowSettingsLoadResult settingsResult =
+        core::loadWindowSettings(core::editorSettingsPath());
+    m_windowSettings = settingsResult.settings;
+    if (!settingsResult.error.empty()) {
+        std::cerr << "Window settings ignored: " << settingsResult.error << "\n";
+    }
 
     GLFWmonitor* monitor = glfwGetPrimaryMonitor();
     if (!monitor) {
@@ -289,19 +315,39 @@ bool Application::init() {
         return false;
     }
 
-    m_window = glfwCreateWindow(mode->width, mode->height, "Graphics_engine", monitor, nullptr);
+    m_windowSettings = core::fitWindowSettingsToWorkArea(
+        m_windowSettings, monitorWorkArea(monitor));
+    m_fullscreen = m_windowSettings.fullscreen;
+    const int initialWidth = m_fullscreen
+        ? mode->width
+        : m_windowSettings.width;
+    const int initialHeight = m_fullscreen
+        ? mode->height
+        : m_windowSettings.height;
+    m_window = glfwCreateWindow(
+        initialWidth, initialHeight, "Graphics Engine Editor",
+        m_fullscreen ? monitor : nullptr, nullptr);
     if (!m_window) {
         std::cerr << "Failed to create GLFW window\n";
         return false;
+    }
+    const core::WindowWorkArea workArea = monitorWorkArea(monitor);
+    glfwSetWindowSizeLimits(
+        m_window,
+        std::min(core::kMinimumEditorWindowWidth, workArea.width),
+        std::min(core::kMinimumEditorWindowHeight, workArea.height),
+        GLFW_DONT_CARE, GLFW_DONT_CARE);
+    if (!m_fullscreen) {
+        glfwSetWindowPos(m_window, m_windowSettings.x, m_windowSettings.y);
     }
 
     glfwMakeContextCurrent(m_window);
     glfwSetWindowUserPointer(m_window, this);
     glfwSetFramebufferSizeCallback(m_window, framebufferSizeCallback);
+    glfwSetWindowFocusCallback(m_window, windowFocusCallback);
     glfwSetKeyCallback(m_window, keyCallback);
 
-    // VSync 1 - on 0 - off
-    glfwSwapInterval(0);
+    glfwSwapInterval(m_windowSettings.vsync ? 1 : 0);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cerr << "Failed to initialize GLAD\n";
@@ -338,7 +384,7 @@ bool Application::init() {
     glfwSetCursorPosCallback(m_window, mouseCallback);
     glfwSetMouseButtonCallback(m_window, mouseButtonCallback);
     glfwSetScrollCallback(m_window, scrollCallback);
-    glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
     // Shaders
     m_shader = ResourceManager::getShader("shaders/textured.vert", "shaders/textured.frag");
@@ -517,6 +563,9 @@ void main() {
     Menu::setLightPosition(m_pointLight.position.x, m_pointLight.position.y,
                            m_pointLight.position.z);
     syncSelectedObjectToMenu();
+
+    glfwShowWindow(m_window);
+    glfwFocusWindow(m_window);
 
     return true;
 }
@@ -1515,11 +1564,14 @@ void Application::toggleBenchmark() {
     if (m_benchmarkEnabled && Menu::isOpen()) {
         Menu::toggle();
     }
+    setCameraInputActive(false);
     m_firstMouse = true;
     resetFrameStatistics();
     if (m_benchmarkEnabled) {
+        glfwSwapInterval(0);
         restartBenchmarkCapture();
     } else {
+        glfwSwapInterval(m_windowSettings.vsync ? 1 : 0);
         m_benchmarkCpuCaptureActive = false;
         m_benchmarkCaptureState = BenchmarkCaptureState::Idle;
     }
@@ -1527,8 +1579,99 @@ void Application::toggleBenchmark() {
     std::cout << "GPU benchmark " << (m_benchmarkEnabled ? "enabled" : "disabled") << "\n";
 }
 
+void Application::toggleFullscreen() {
+    if (m_window == nullptr) {
+        return;
+    }
+    setCameraInputActive(false);
+
+    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode* mode = monitor != nullptr
+        ? glfwGetVideoMode(monitor)
+        : nullptr;
+    if (monitor == nullptr || mode == nullptr) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Fullscreen failed: no monitor mode";
+        m_sceneMessageTime = 2.0f;
+        return;
+    }
+
+    if (!m_fullscreen) {
+        glfwGetWindowPos(m_window, &m_windowSettings.x, &m_windowSettings.y);
+        glfwGetWindowSize(
+            m_window, &m_windowSettings.width, &m_windowSettings.height);
+        m_windowSettings.hasPosition = true;
+        glfwSetWindowMonitor(
+            m_window, monitor, 0, 0, mode->width, mode->height,
+            mode->refreshRate);
+        m_fullscreen = true;
+    } else {
+        m_windowSettings = core::fitWindowSettingsToWorkArea(
+            m_windowSettings, monitorWorkArea(monitor));
+        glfwSetWindowMonitor(
+            m_window, nullptr, m_windowSettings.x, m_windowSettings.y,
+            m_windowSettings.width, m_windowSettings.height, GLFW_DONT_CARE);
+        m_fullscreen = false;
+    }
+
+    m_windowSettings.fullscreen = m_fullscreen;
+    m_firstMouse = true;
+    m_skipNextFrameSample = true;
+    resetFrameStatistics();
+    persistWindowSettings();
+    m_sceneOperationSucceeded = true;
+    m_sceneMessage = m_fullscreen ? "Fullscreen enabled" : "Windowed mode enabled";
+    m_sceneMessageTime = 2.0f;
+}
+
+void Application::toggleVsync() {
+    m_windowSettings.vsync = !m_windowSettings.vsync;
+    if (!m_benchmarkEnabled) {
+        glfwSwapInterval(m_windowSettings.vsync ? 1 : 0);
+    }
+    persistWindowSettings();
+    resetFrameStatistics();
+    m_sceneOperationSucceeded = true;
+    m_sceneMessage = m_windowSettings.vsync ? "VSync enabled" : "VSync disabled";
+    m_sceneMessageTime = 2.0f;
+}
+
+void Application::persistWindowSettings() {
+    if (m_window == nullptr) {
+        return;
+    }
+    if (!m_fullscreen) {
+        glfwGetWindowPos(m_window, &m_windowSettings.x, &m_windowSettings.y);
+        glfwGetWindowSize(
+            m_window, &m_windowSettings.width, &m_windowSettings.height);
+        m_windowSettings.hasPosition = true;
+    }
+    m_windowSettings.fullscreen = m_fullscreen;
+
+    const core::WindowSettingsSaveResult result = core::saveWindowSettings(
+        m_windowSettings, core::editorSettingsPath());
+    if (!result.success) {
+        std::cerr << "Failed to save window settings: " << result.error << "\n";
+    }
+}
+
+void Application::setCameraInputActive(bool active) {
+    if (m_window == nullptr || m_cameraInputActive == active) {
+        return;
+    }
+    m_cameraInputActive = active;
+    glfwSetInputMode(
+        m_window, GLFW_CURSOR,
+        active ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+    m_firstMouse = true;
+}
+
 void Application::shutdown() {
     m_initialized = false;
+
+    if (m_window != nullptr) {
+        persistWindowSettings();
+    }
 
     if (m_contextReady && m_window) {
         glfwMakeContextCurrent(m_window);
@@ -1691,7 +1834,7 @@ void Application::processInput(float dt) {
     }
     
     // Keep menu navigation from moving the camera behind the overlay.
-    if (!Menu::isOpen()) {
+    if (!Menu::isOpen() && m_cameraInputActive) {
         const bool controlPressed =
             glfwGetKey(m_window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
             glfwGetKey(m_window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
@@ -2230,6 +2373,9 @@ void Application::render() {
     oss << "\nBenchmark: " << (m_benchmarkEnabled ? "ON" : "OFF") << " [F7]";
     if (!m_benchmarkEnabled) {
         oss << "\nGrid: " << (m_showCoordinateGrid ? "ON" : "OFF") << " [G]";
+        oss << "\nWindow: " << (m_fullscreen ? "Fullscreen" : "Windowed")
+            << " | VSync: " << (m_windowSettings.vsync ? "ON" : "OFF")
+            << " [Alt+Enter/V]";
     }
     if (m_benchmarkEnabled) {
         oss << "\nTarget: " << kBenchmarkWidth << "x" << kBenchmarkHeight;
@@ -2381,7 +2527,8 @@ void Application::render() {
                   << m_sceneHistory.redoDepth() << " redo";
 
         std::ostringstream controlsOss;
-        controlsOss << "Select: click / Tab / Shift+Tab"
+        controlsOss << "Camera: hold RMB + mouse / WASD"
+                    << "\nSelect: click / Tab / Shift+Tab"
                     << "\nCreate: Insert/C | Focus: F"
                     << "\nMove: arrows / PgUp / PgDn"
                     << "\nRotate Y: Q/E | Scale: -/="
@@ -2405,6 +2552,13 @@ void Application::render() {
 void Application::framebufferSizeCallback(GLFWwindow* window, int width, int height) {
     auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
     app->onFramebufferResize(width, height);
+}
+
+void Application::windowFocusCallback(GLFWwindow* window, int focused) {
+    auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
+    if (app != nullptr) {
+        app->onWindowFocus(focused);
+    }
 }
 
 void Application::keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
@@ -2446,6 +2600,12 @@ void Application::onFramebufferResize(int width, int height) {
     m_height = height;
 }
 
+void Application::onWindowFocus(int focused) {
+    if (focused == GLFW_FALSE) {
+        setCameraInputActive(false);
+    }
+}
+
 void Application::onKey(int key, int action, int mods) {
     if (action == GLFW_RELEASE) {
         if (key == m_activeTransformKey) {
@@ -2479,7 +2639,17 @@ void Application::onKey(int key, int action, int mods) {
     m_activeTransformKey = GLFW_KEY_UNKNOWN;
     m_activeTransformObjectId = 0;
 
+    const bool altPressed = (mods & GLFW_MOD_ALT) != 0;
+    const bool otherModifierPressed =
+        (mods & (GLFW_MOD_SHIFT | GLFW_MOD_CONTROL | GLFW_MOD_SUPER)) != 0;
+    if (altPressed && !otherModifierPressed &&
+        (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER)) {
+        toggleFullscreen();
+        return;
+    }
+
     if (key == GLFW_KEY_F8 && !m_benchmarkEnabled) {
+        setCameraInputActive(false);
         Menu::toggle();
         return;
     }
@@ -2510,6 +2680,10 @@ void Application::onKey(int key, int action, int mods) {
         }
     }
     if (!m_benchmarkEnabled && !Menu::isOpen() && key == GLFW_KEY_ESCAPE) {
+        if (m_cameraInputActive) {
+            setCameraInputActive(false);
+            return;
+        }
         glfwSetWindowShouldClose(m_window, true);
         return;
     }
@@ -2533,6 +2707,10 @@ void Application::onKey(int key, int action, int mods) {
         }
         if (key == GLFW_KEY_F && noModifiers) {
             focusSelectedObject();
+            return;
+        }
+        if (key == GLFW_KEY_V && noModifiers) {
+            toggleVsync();
             return;
         }
         if (noModifiers) {
@@ -2688,6 +2866,12 @@ void Application::onMouseMove(double xpos, double ypos) {
         m_firstMouse = true;
         return;
     }
+    if (!m_cameraInputActive) {
+        m_lastX = static_cast<float>(xpos);
+        m_lastY = static_cast<float>(ypos);
+        m_firstMouse = true;
+        return;
+    }
     
     if (m_firstMouse) {
         m_lastX = static_cast<float>(xpos);
@@ -2706,6 +2890,15 @@ void Application::onMouseMove(double xpos, double ypos) {
 
 void Application::onMouseButton(int button, int action, int mods) {
     (void)mods;
+    if (button == GLFW_MOUSE_BUTTON_RIGHT && !m_benchmarkEnabled &&
+        !Menu::isOpen()) {
+        if (action == GLFW_PRESS) {
+            setCameraInputActive(true);
+        } else if (action == GLFW_RELEASE) {
+            setCameraInputActive(false);
+        }
+        return;
+    }
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS &&
         !m_benchmarkEnabled && !Menu::isOpen()) {
         m_activeTransformKey = GLFW_KEY_UNKNOWN;

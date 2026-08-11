@@ -31,7 +31,9 @@ executable, assets, third-party DLLs, and the MSVC runtime libraries.
 
 ## Controls
 
-- `W/A/S/D`, `Shift`, `Ctrl`: move the camera.
+- Hold the right mouse button and use the mouse / `W/A/S/D`, `Shift`, `Ctrl`: look and move the editor camera.
+- `Alt+Enter`: toggle between the remembered windowed layout and fullscreen.
+- `V`: toggle VSync; GPU benchmark mode temporarily disables it.
 - Mouse and wheel: look around and change field of view.
 - Left mouse button: select the nearest object under the center crosshair.
 - `Insert` / `C`: create and select a cube on the nearest free grid position.

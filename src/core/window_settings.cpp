@@ -1,0 +1,251 @@
+#include "window_settings.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <fstream>
+#include <limits>
+
+#include <nlohmann/json.hpp>
+
+#ifdef _WIN32
+#include <Windows.h>
+#endif
+
+namespace {
+
+using Json = nlohmann::json;
+constexpr std::uintmax_t kMaximumWindowSettingsFileSize = 64U * 1024U;
+constexpr int kMaximumStoredWindowPosition = 1'000'000;
+
+bool setError(std::string& error, const char* message) {
+    error = message;
+    return false;
+}
+
+bool readInteger(const Json& object, const char* key, int& destination) {
+    const auto value = object.find(key);
+    if (value == object.end() || !value->is_number()) {
+        return false;
+    }
+    const double number = value->get<double>();
+    if (!std::isfinite(number) || std::trunc(number) != number ||
+        number < static_cast<double>((std::numeric_limits<int>::min)()) ||
+        number > static_cast<double>((std::numeric_limits<int>::max)())) {
+        return false;
+    }
+    destination = static_cast<int>(number);
+    return true;
+}
+
+bool readBoolean(const Json& object, const char* key, bool& destination) {
+    const auto value = object.find(key);
+    if (value == object.end() || !value->is_boolean()) {
+        return false;
+    }
+    destination = value->get<bool>();
+    return true;
+}
+
+bool replaceFile(
+    const std::filesystem::path& temporary,
+    const std::filesystem::path& destination,
+    std::string& error) {
+#ifdef _WIN32
+    if (MoveFileExW(
+            temporary.c_str(), destination.c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE) {
+        return true;
+    }
+    error = "failed to replace window settings: " +
+        std::error_code(
+            static_cast<int>(GetLastError()), std::system_category())
+            .message();
+#else
+    std::error_code filesystemError;
+    std::filesystem::rename(temporary, destination, filesystemError);
+    if (!filesystemError) {
+        return true;
+    }
+    error = "failed to replace window settings: " + filesystemError.message();
+#endif
+    return false;
+}
+
+} // namespace
+
+namespace core {
+
+bool validateWindowSettings(
+    const WindowSettings& settings,
+    std::string& error) {
+    if (settings.schemaVersion != kCurrentWindowSettingsSchemaVersion) {
+        return setError(error, "unsupported window settings schema version");
+    }
+    if (settings.width < kMinimumEditorWindowWidth ||
+        settings.height < kMinimumEditorWindowHeight ||
+        settings.width > kMaximumEditorWindowDimension ||
+        settings.height > kMaximumEditorWindowDimension) {
+        return setError(error, "window dimensions are outside the supported range");
+    }
+    if (settings.x < -kMaximumStoredWindowPosition ||
+        settings.x > kMaximumStoredWindowPosition ||
+        settings.y < -kMaximumStoredWindowPosition ||
+        settings.y > kMaximumStoredWindowPosition) {
+        return setError(error, "window position is outside the supported range");
+    }
+    error.clear();
+    return true;
+}
+
+WindowSettings fitWindowSettingsToWorkArea(
+    const WindowSettings& settings,
+    const WindowWorkArea& workArea) {
+    WindowSettings fitted = settings;
+    std::string validationError;
+    if (!validateWindowSettings(fitted, validationError)) {
+        fitted = WindowSettings{};
+    }
+    if (workArea.width <= 0 || workArea.height <= 0) {
+        return fitted;
+    }
+
+    fitted.width = (std::min)(fitted.width, workArea.width);
+    fitted.height = (std::min)(fitted.height, workArea.height);
+    if (!fitted.hasPosition) {
+        fitted.x = workArea.x + (workArea.width - fitted.width) / 2;
+        fitted.y = workArea.y + (workArea.height - fitted.height) / 2;
+    } else {
+        const std::int64_t maximumX =
+            static_cast<std::int64_t>(workArea.x) + workArea.width - fitted.width;
+        const std::int64_t maximumY =
+            static_cast<std::int64_t>(workArea.y) + workArea.height - fitted.height;
+        fitted.x = static_cast<int>(std::clamp<std::int64_t>(
+            fitted.x, workArea.x, maximumX));
+        fitted.y = static_cast<int>(std::clamp<std::int64_t>(
+            fitted.y, workArea.y, maximumY));
+    }
+    fitted.hasPosition = true;
+    return fitted;
+}
+
+WindowSettingsLoadResult loadWindowSettings(
+    const std::filesystem::path& path) {
+    WindowSettingsLoadResult result;
+    if (path.empty()) {
+        result.error = "window settings path is empty";
+        return result;
+    }
+
+    std::error_code filesystemError;
+    if (!std::filesystem::exists(path, filesystemError)) {
+        if (filesystemError) {
+            result.error = "failed to inspect window settings: " +
+                filesystemError.message();
+        }
+        return result;
+    }
+    const std::uintmax_t fileSize =
+        std::filesystem::file_size(path, filesystemError);
+    if (filesystemError) {
+        result.error = "failed to inspect window settings size: " +
+            filesystemError.message();
+        return result;
+    }
+    if (fileSize > kMaximumWindowSettingsFileSize) {
+        result.error = "window settings exceed the 64 KiB limit";
+        return result;
+    }
+
+    std::ifstream input(path, std::ios::binary);
+    if (!input) {
+        result.error = "failed to open window settings";
+        return result;
+    }
+    const Json value = Json::parse(input, nullptr, false);
+    if (value.is_discarded() || !value.is_object()) {
+        result.error = "window settings contain invalid JSON";
+        return result;
+    }
+
+    WindowSettings settings;
+    if (!readInteger(value, "schema_version", settings.schemaVersion) ||
+        !readInteger(value, "x", settings.x) ||
+        !readInteger(value, "y", settings.y) ||
+        !readInteger(value, "width", settings.width) ||
+        !readInteger(value, "height", settings.height) ||
+        !readBoolean(value, "has_position", settings.hasPosition) ||
+        !readBoolean(value, "fullscreen", settings.fullscreen) ||
+        !readBoolean(value, "vsync", settings.vsync)) {
+        result.error = "window settings have missing or invalid fields";
+        return result;
+    }
+    if (!validateWindowSettings(settings, result.error)) {
+        return result;
+    }
+
+    result.settings = settings;
+    result.loaded = true;
+    return result;
+}
+
+WindowSettingsSaveResult saveWindowSettings(
+    const WindowSettings& settings,
+    const std::filesystem::path& path) {
+    WindowSettingsSaveResult result;
+    if (path.empty()) {
+        result.error = "window settings path is empty";
+        return result;
+    }
+    if (!validateWindowSettings(settings, result.error)) {
+        result.error = "window settings validation failed: " + result.error;
+        return result;
+    }
+
+    const Json value = {
+        {"schema_version", settings.schemaVersion},
+        {"x", settings.x},
+        {"y", settings.y},
+        {"width", settings.width},
+        {"height", settings.height},
+        {"has_position", settings.hasPosition},
+        {"fullscreen", settings.fullscreen},
+        {"vsync", settings.vsync}};
+    const std::string serialized = value.dump(2);
+
+    std::error_code filesystemError;
+    if (!path.parent_path().empty()) {
+        std::filesystem::create_directories(
+            path.parent_path(), filesystemError);
+        if (filesystemError) {
+            result.error = "failed to create window settings directory: " +
+                filesystemError.message();
+            return result;
+        }
+    }
+
+    std::filesystem::path temporary = path;
+    temporary += ".tmp";
+    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+    if (!output) {
+        result.error = "failed to open temporary window settings";
+        return result;
+    }
+    output.write(serialized.data(), static_cast<std::streamsize>(serialized.size()));
+    output.put('\n');
+    output.close();
+    if (!output) {
+        result.error = "failed to write temporary window settings";
+        std::filesystem::remove(temporary, filesystemError);
+        return result;
+    }
+    if (!replaceFile(temporary, path, result.error)) {
+        std::filesystem::remove(temporary, filesystemError);
+        return result;
+    }
+
+    result.success = true;
+    return result;
+}
+
+} // namespace core
