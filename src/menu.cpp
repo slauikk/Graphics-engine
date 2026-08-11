@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <sstream>
 #include <iomanip>
 #include <iostream>
@@ -102,6 +103,8 @@ Menu::MenuState Menu::m_currentState = MAIN_MENU;
 int Menu::m_selectedIndex = 0;
 float Menu::m_renderX = 200.0f;
 float Menu::m_renderY = 200.0f;
+float Menu::m_renderWidth = 480.0f;
+float Menu::m_renderHeight = 460.0f;
 std::vector<Menu::TextureOption> Menu::m_textures;
 std::vector<Menu::ModelOption> Menu::m_models;
 bool Menu::m_needsReload = false;
@@ -455,9 +458,74 @@ bool Menu::isOpen() {
     return m_isOpen;
 }
 
-void Menu::setRenderOrigin(float x, float y) {
+void Menu::setRenderArea(float x, float y, float width, float height) {
     m_renderX = x;
     m_renderY = y;
+    m_renderWidth = width;
+    m_renderHeight = height;
+}
+
+bool Menu::processClick(float x, float y) {
+    if (!m_isOpen || !std::isfinite(x) || !std::isfinite(y) ||
+        x < m_renderX || y < m_renderY ||
+        x >= m_renderX + m_renderWidth ||
+        y >= m_renderY + m_renderHeight) {
+        return false;
+    }
+
+    constexpr float rowHeight = 14.0f * 1.5f;
+    float firstRowY = m_renderY + rowHeight * 2.0f;
+    if (m_currentState == MOVEMENT_CUBE) {
+        firstRowY += rowHeight * 2.0f;
+    }
+    if (y < firstRowY) {
+        return false;
+    }
+
+    const std::size_t visualRow = static_cast<std::size_t>(
+        (y - firstRowY) / rowHeight);
+    if (m_currentState == MODELS) {
+        if (m_models.empty()) {
+            return false;
+        }
+
+        std::size_t firstVisible = 0;
+        if (m_models.size() > kVisibleModelRows) {
+            const std::size_t selected = static_cast<std::size_t>(std::clamp(
+                m_selectedIndex, 0, static_cast<int>(m_models.size() - 1)));
+            if (selected > kVisibleModelRows / 2) {
+                firstVisible = selected - kVisibleModelRows / 2;
+            }
+            firstVisible = std::min(
+                firstVisible, m_models.size() - kVisibleModelRows);
+        }
+        const std::size_t lastVisible = std::min(
+            firstVisible + kVisibleModelRows, m_models.size());
+        const bool hasLeadingEllipsis = firstVisible > 0;
+        const std::size_t modelRow = hasLeadingEllipsis
+            ? (visualRow == 0 ? m_models.size() : visualRow - 1)
+            : visualRow;
+        if (modelRow >= lastVisible - firstVisible) {
+            return false;
+        }
+        m_selectedIndex = static_cast<int>(firstVisible + modelRow);
+        processKey(GLFW_KEY_ENTER);
+        return true;
+    }
+
+    int optionCount = 0;
+    if (m_currentState == TEXTURES) {
+        optionCount = static_cast<int>(m_textures.size());
+    } else {
+        optionCount = itemCountForState(m_currentState, 0);
+    }
+    if (visualRow >= static_cast<std::size_t>((std::max)(0, optionCount))) {
+        return false;
+    }
+
+    m_selectedIndex = static_cast<int>(visualRow);
+    processKey(GLFW_KEY_ENTER);
+    return true;
 }
 
 void Menu::toggle() {

@@ -2371,9 +2371,11 @@ void Application::render() {
     
     Menu::update();
     if (!m_benchmarkEnabled && editorLayout.modalOverlay.valid()) {
-        Menu::setRenderOrigin(
+        Menu::setRenderArea(
             static_cast<float>(editorLayout.modalOverlay.x) + 20.0f,
-            static_cast<float>(editorLayout.modalOverlay.y) + 20.0f);
+            static_cast<float>(editorLayout.modalOverlay.y) + 20.0f,
+            static_cast<float>(editorLayout.modalOverlay.width) - 40.0f,
+            static_cast<float>(editorLayout.modalOverlay.height) - 40.0f);
     }
     m_renderer->beginUiPass();
     if (!m_benchmarkEnabled && m_editorChrome != nullptr) {
@@ -2382,8 +2384,10 @@ void Application::render() {
             m_selectedObject,
             core::firstVisibleEditorObject(
                 editorLayout, m_objects.size(), m_selectedObject),
+            m_objects.size(),
             m_showCoordinateGrid,
-            Menu::isOpen());
+            Menu::isOpen(),
+            cursorFramebufferPosition());
     }
     UIText::beginFrame();
 
@@ -3288,6 +3292,9 @@ void Application::onMouseButton(int button, int action, int mods) {
             return;
         }
         if (Menu::isOpen()) {
+            Menu::processClick(
+                static_cast<float>(cursor.x),
+                static_cast<float>(cursor.y));
             return;
         }
 

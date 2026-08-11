@@ -21,7 +21,9 @@ constexpr Color kPanelColor{0.067f, 0.082f, 0.106f};
 constexpr Color kPanelHeaderColor{0.086f, 0.106f, 0.137f};
 constexpr Color kStatusColor{0.039f, 0.047f, 0.063f};
 constexpr Color kButtonColor{0.114f, 0.137f, 0.176f};
+constexpr Color kButtonHoverColor{0.173f, 0.216f, 0.282f};
 constexpr Color kButtonActiveColor{0.255f, 0.176f, 0.071f};
+constexpr Color kHierarchyHoverColor{0.125f, 0.153f, 0.196f};
 constexpr Color kSelectionColor{0.235f, 0.153f, 0.047f};
 constexpr Color kSeparatorColor{0.184f, 0.220f, 0.275f};
 constexpr Color kViewportBorderColor{0.714f, 0.463f, 0.110f};
@@ -150,8 +152,10 @@ void EditorChrome::render(
     const core::EditorLayout& layout,
     int selectedObject,
     std::size_t firstVisibleObject,
+    std::size_t objectCount,
     bool gridEnabled,
-    bool menuOpen) {
+    bool menuOpen,
+    core::EditorPoint cursor) {
     if (layout.width <= 0 || layout.height <= 0 ||
         !m_shader || m_shader->m_id == 0 ||
         m_vertexArray == 0 || m_vertexBuffer == 0) {
@@ -175,22 +179,31 @@ void EditorChrome::render(
     appendColorRect(layout.inspectorHeader, kPanelHeaderColor);
     appendColorRect(layout.statusBar, kStatusColor);
 
-    const auto appendButton = [&](const core::EditorRect& button, bool active) {
+    const auto appendButton = [&](
+        const core::EditorRect& button, bool active, bool interactive = true) {
+        const bool hovered = interactive && button.contains(cursor);
         appendColorRect(
-            button, active ? kButtonActiveColor : kButtonColor);
+            button,
+            active ? kButtonActiveColor
+                   : (hovered ? kButtonHoverColor : kButtonColor));
         appendColorOutline(button, kSeparatorColor);
     };
-    appendButton(layout.createButton, false);
-    appendButton(layout.saveButton, false);
-    appendButton(layout.loadButton, false);
-    appendButton(layout.gridButton, gridEnabled);
-    appendButton(layout.assetsButton, false);
-    appendButton(layout.benchmarkButton, false);
+    appendButton(layout.createButton, false, !menuOpen);
+    appendButton(layout.saveButton, false, !menuOpen);
+    appendButton(layout.loadButton, false, !menuOpen);
+    appendButton(layout.gridButton, gridEnabled, !menuOpen);
+    appendButton(layout.assetsButton, menuOpen, true);
+    appendButton(layout.benchmarkButton, false, !menuOpen);
 
     const bool inspectorEnabled = selectedObject >= 0;
     const auto appendInspectorButton = [&](const core::EditorRect& button) {
+        const bool hovered = inspectorEnabled && !menuOpen &&
+            button.contains(cursor);
         appendColorRect(
-            button, inspectorEnabled ? kButtonColor : kPanelHeaderColor);
+            button,
+            inspectorEnabled
+                ? (hovered ? kButtonHoverColor : kButtonColor)
+                : kPanelHeaderColor);
         appendColorOutline(button, kSeparatorColor);
     };
     for (const core::EditorRect& button : layout.inspectorMoveButtons) {
@@ -201,6 +214,18 @@ void EditorChrome::render(
     }
     for (const core::EditorRect& button : layout.inspectorSnapResetButtons) {
         appendInspectorButton(button);
+    }
+
+    if (!menuOpen && layout.hierarchyList.contains(cursor)) {
+        const int relativeY =
+            static_cast<int>(cursor.y) - layout.hierarchyList.y;
+        const std::size_t visibleRow = static_cast<std::size_t>(
+            relativeY / core::kEditorHierarchyRowHeight);
+        if (firstVisibleObject + visibleRow < objectCount) {
+            appendColorRect(
+                core::editorHierarchyRowRect(layout, visibleRow),
+                kHierarchyHoverColor);
+        }
     }
 
     if (selectedObject >= 0 &&
