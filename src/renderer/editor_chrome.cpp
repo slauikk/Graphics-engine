@@ -187,6 +187,22 @@ void EditorChrome::render(
     appendButton(layout.assetsButton, false);
     appendButton(layout.benchmarkButton, false);
 
+    const bool inspectorEnabled = selectedObject >= 0;
+    const auto appendInspectorButton = [&](const core::EditorRect& button) {
+        appendColorRect(
+            button, inspectorEnabled ? kButtonColor : kPanelHeaderColor);
+        appendColorOutline(button, kSeparatorColor);
+    };
+    for (const core::EditorRect& button : layout.inspectorMoveButtons) {
+        appendInspectorButton(button);
+    }
+    for (const core::EditorRect& button : layout.inspectorRotateScaleButtons) {
+        appendInspectorButton(button);
+    }
+    for (const core::EditorRect& button : layout.inspectorSnapResetButtons) {
+        appendInspectorButton(button);
+    }
+
     if (selectedObject >= 0 &&
         static_cast<std::size_t>(selectedObject) >= firstVisibleObject) {
         const std::size_t visibleRow =

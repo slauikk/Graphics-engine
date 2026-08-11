@@ -16,6 +16,9 @@ constexpr int kHierarchyTopPadding = 8;
 constexpr int kToolbarButtonY = 8;
 constexpr int kToolbarButtonHeight = 28;
 constexpr int kToolbarButtonGap = 8;
+constexpr int kInspectorButtonGap = 4;
+constexpr int kInspectorButtonHeight = 24;
+constexpr int kInspectorButtonRowGap = 6;
 
 core::EditorRect toolbarButton(int& x, int width) {
     const core::EditorRect button{x, kToolbarButtonY, width, kToolbarButtonHeight};
@@ -119,6 +122,47 @@ EditorLayout calculateEditorLayout(int width, int height) {
     layout.gridButton = toolbarButton(buttonX, 82);
     layout.assetsButton = toolbarButton(buttonX, 88);
     layout.benchmarkButton = toolbarButton(buttonX, 104);
+
+    const int controlsTop = (std::max)(
+        layout.inspectorContent.y,
+        (std::min)(
+            layout.inspectorContent.y + 300,
+            layout.inspector.y + layout.inspector.height - 150));
+    const int moveButtonWidth = (std::max)(
+        0,
+        (layout.inspectorContent.width - 5 * kInspectorButtonGap) / 6);
+    int moveButtonX = layout.inspectorContent.x;
+    for (core::EditorRect& button : layout.inspectorMoveButtons) {
+        button = {
+            moveButtonX, controlsTop,
+            moveButtonWidth, kInspectorButtonHeight};
+        moveButtonX += moveButtonWidth + kInspectorButtonGap;
+    }
+
+    const int rotateScaleY =
+        controlsTop + kInspectorButtonHeight + kInspectorButtonRowGap;
+    const int rotateScaleButtonWidth = (std::max)(
+        0,
+        (layout.inspectorContent.width - 3 * kInspectorButtonGap) / 4);
+    int rotateScaleX = layout.inspectorContent.x;
+    for (core::EditorRect& button : layout.inspectorRotateScaleButtons) {
+        button = {
+            rotateScaleX, rotateScaleY,
+            rotateScaleButtonWidth, kInspectorButtonHeight};
+        rotateScaleX += rotateScaleButtonWidth + kInspectorButtonGap;
+    }
+
+    const int snapResetY =
+        rotateScaleY + kInspectorButtonHeight + kInspectorButtonRowGap;
+    const int snapResetButtonWidth = (std::max)(
+        0,
+        (layout.inspectorContent.width - kInspectorButtonGap) / 2);
+    layout.inspectorSnapResetButtons[0] = {
+        layout.inspectorContent.x, snapResetY,
+        snapResetButtonWidth, kInspectorButtonHeight};
+    layout.inspectorSnapResetButtons[1] = {
+        layout.inspectorContent.x + snapResetButtonWidth + kInspectorButtonGap,
+        snapResetY, snapResetButtonWidth, kInspectorButtonHeight};
     return layout;
 }
 
@@ -217,6 +261,43 @@ std::optional<std::size_t> editorHierarchyObjectAt(
         return std::nullopt;
     }
     return objectIndex;
+}
+
+std::optional<ObjectTransformCommand> editorInspectorTransformAt(
+    const EditorLayout& layout,
+    EditorPoint point) {
+    constexpr std::array<ObjectTransformCommand, 6> moveCommands = {
+        ObjectTransformCommand::MoveNegativeX,
+        ObjectTransformCommand::MovePositiveX,
+        ObjectTransformCommand::MoveNegativeY,
+        ObjectTransformCommand::MovePositiveY,
+        ObjectTransformCommand::MoveNegativeZ,
+        ObjectTransformCommand::MovePositiveZ};
+    for (std::size_t index = 0; index < moveCommands.size(); ++index) {
+        if (layout.inspectorMoveButtons[index].contains(point)) {
+            return moveCommands[index];
+        }
+    }
+
+    constexpr std::array<ObjectTransformCommand, 4> rotateScaleCommands = {
+        ObjectTransformCommand::RotateNegativeY,
+        ObjectTransformCommand::RotatePositiveY,
+        ObjectTransformCommand::ScaleDown,
+        ObjectTransformCommand::ScaleUp};
+    for (std::size_t index = 0;
+         index < rotateScaleCommands.size(); ++index) {
+        if (layout.inspectorRotateScaleButtons[index].contains(point)) {
+            return rotateScaleCommands[index];
+        }
+    }
+
+    if (layout.inspectorSnapResetButtons[0].contains(point)) {
+        return ObjectTransformCommand::Snap;
+    }
+    if (layout.inspectorSnapResetButtons[1].contains(point)) {
+        return ObjectTransformCommand::Reset;
+    }
+    return std::nullopt;
 }
 
 } // namespace core

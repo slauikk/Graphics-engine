@@ -1,6 +1,9 @@
 #ifndef CORE_EDITOR_LAYOUT_H
 #define CORE_EDITOR_LAYOUT_H
 
+#include "editor_transform.h"
+
+#include <array>
 #include <cstddef>
 #include <optional>
 
@@ -55,6 +58,9 @@ struct EditorLayout {
     EditorRect gridButton;
     EditorRect assetsButton;
     EditorRect benchmarkButton;
+    std::array<EditorRect, 6> inspectorMoveButtons;
+    std::array<EditorRect, 4> inspectorRotateScaleButtons;
+    std::array<EditorRect, 2> inspectorSnapResetButtons;
 };
 
 EditorLayout calculateEditorLayout(int width, int height);
@@ -86,6 +92,10 @@ std::optional<std::size_t> editorHierarchyObjectAt(
     EditorPoint point,
     std::size_t objectCount,
     std::size_t firstVisibleObject);
+
+std::optional<ObjectTransformCommand> editorInspectorTransformAt(
+    const EditorLayout& layout,
+    EditorPoint point);
 
 } // namespace core
 

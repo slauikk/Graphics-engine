@@ -2786,6 +2786,47 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
         inspectorLine("NO OBJECT SELECTED");
     }
 
+    const bool inspectorEnabled = m_selectedObject >= 0 &&
+        m_selectedObject < static_cast<int>(m_objects.size());
+    if (!layout.inspectorMoveButtons.empty() &&
+        layout.inspectorMoveButtons.front().valid()) {
+        UIText::renderTextWithColor(
+            "QUICK EDIT",
+            inspectorX,
+            static_cast<float>(layout.inspectorMoveButtons.front().y) - 20.0f,
+            textScale, accentRed, accentGreen, accentBlue);
+    }
+    const auto renderInspectorButtonLabel = [&](
+        const core::EditorRect& button, const std::string& label) {
+        const float labelWidth = static_cast<float>(label.size()) * 8.0f;
+        const float x = static_cast<float>(button.x) +
+            (static_cast<float>(button.width) - labelWidth) * 0.5f;
+        UIText::renderTextWithColor(
+            label, x, static_cast<float>(button.y) + 6.0f, textScale,
+            inspectorEnabled ? 0.88f : 0.42f,
+            inspectorEnabled ? 0.91f : 0.46f,
+            inspectorEnabled ? 0.96f : 0.52f);
+    };
+    constexpr const char* moveLabels[] = {
+        "X-", "X+", "Y-", "Y+", "Z-", "Z+"};
+    for (std::size_t index = 0;
+         index < layout.inspectorMoveButtons.size(); ++index) {
+        renderInspectorButtonLabel(
+            layout.inspectorMoveButtons[index], moveLabels[index]);
+    }
+    constexpr const char* rotateScaleLabels[] = {
+        "R-", "R+", "S-", "S+"};
+    for (std::size_t index = 0;
+         index < layout.inspectorRotateScaleButtons.size(); ++index) {
+        renderInspectorButtonLabel(
+            layout.inspectorRotateScaleButtons[index],
+            rotateScaleLabels[index]);
+    }
+    renderInspectorButtonLabel(
+        layout.inspectorSnapResetButtons[0], "SNAP");
+    renderInspectorButtonLabel(
+        layout.inspectorSnapResetButtons[1], "RESET");
+
     const float shortcutY = static_cast<float>(
         layout.inspector.y + layout.inspector.height - 72);
     UIText::renderTextWithColor(
@@ -3276,6 +3317,16 @@ void Application::onMouseButton(int button, int action, int mods) {
                 return;
             case core::EditorToolbarAction::None:
                 break;
+        }
+
+        if (m_selectedObject >= 0 &&
+            m_selectedObject < static_cast<int>(m_objects.size())) {
+            if (const auto transform =
+                    core::editorInspectorTransformAt(layout, cursor);
+                transform.has_value()) {
+                transformSelectedObject(*transform);
+                return;
+            }
         }
 
         const std::size_t firstVisible = core::firstVisibleEditorObject(

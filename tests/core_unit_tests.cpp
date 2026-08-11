@@ -192,6 +192,25 @@ void testEditorLayoutAndHitTesting() {
                 core::EditorToolbarAction::None,
             "editor toolbar action hit testing is incorrect");
 
+    const core::EditorRect moveNegativeX =
+        layout.inspectorMoveButtons[0];
+    const core::EditorRect reset =
+        layout.inspectorSnapResetButtons[1];
+    require(core::editorInspectorTransformAt(
+                layout,
+                {moveNegativeX.x + moveNegativeX.width * 0.5,
+                 moveNegativeX.y + moveNegativeX.height * 0.5}) ==
+                core::ObjectTransformCommand::MoveNegativeX &&
+                core::editorInspectorTransformAt(
+                    layout,
+                    {reset.x + reset.width * 0.5,
+                     reset.y + reset.height * 0.5}) ==
+                core::ObjectTransformCommand::Reset &&
+                !core::editorInspectorTransformAt(
+                    layout, {layout.viewport.x + 4.0,
+                             layout.viewport.y + 4.0}).has_value(),
+            "editor inspector transform hit testing is incorrect");
+
     const std::size_t visibleRows =
         core::editorHierarchyVisibleRowCount(layout);
     require(visibleRows == 24,
