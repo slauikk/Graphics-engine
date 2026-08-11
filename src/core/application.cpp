@@ -815,7 +815,10 @@ void Application::selectObjectAtViewportPoint(core::EditorPoint point) {
     }
 
     const core::EditorRect viewport =
-        core::calculateEditorLayout(m_width, m_height).viewport;
+        core::calculateEditorLayout(
+            m_width, m_height,
+            m_windowSettings.hierarchyExpanded,
+            m_windowSettings.inspectorExpanded).viewport;
     if (!viewport.contains(point)) {
         m_sceneOperationSucceeded = false;
         m_sceneMessage = "Selection failed: cursor is outside the viewport";
@@ -981,7 +984,10 @@ void Application::focusSelectedObject() {
     const std::optional<geometry::AxisAlignedBounds> worldBounds =
         objectWorldBounds(selected);
     const core::EditorRect viewport =
-        core::calculateEditorLayout(m_width, m_height).viewport;
+        core::calculateEditorLayout(
+            m_width, m_height,
+            m_windowSettings.hierarchyExpanded,
+            m_windowSettings.inspectorExpanded).viewport;
     const float aspectRatio = viewport.height > 0
         ? static_cast<float>(viewport.width) / static_cast<float>(viewport.height)
         : 1.0f;
@@ -2240,7 +2246,10 @@ void Application::render() {
     }
 
     const core::EditorLayout editorLayout =
-        core::calculateEditorLayout(width, height);
+        core::calculateEditorLayout(
+            width, height,
+            m_windowSettings.hierarchyExpanded,
+            m_windowSettings.inspectorExpanded);
     const core::EditorRect sceneViewport = editorLayout.viewport.valid()
         ? editorLayout.viewport
         : core::EditorRect{0, 0, width, height};
@@ -2694,8 +2703,15 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
         layout.gridButton, m_showCoordinateGrid ? "GRID ON" : "GRID OFF");
     renderButtonLabel(layout.assetsButton, "ASSETS");
     renderButtonLabel(layout.benchmarkButton, "BENCH");
+    renderButtonLabel(
+        layout.hierarchyToggleButton,
+        layout.hierarchyExpanded ? "<" : ">");
+    renderButtonLabel(
+        layout.inspectorToggleButton,
+        layout.inspectorExpanded ? ">" : "<");
 
-    UIText::renderTextWithColor(
+    if (layout.hierarchyExpanded) {
+        UIText::renderTextWithColor(
         "SCENE", 12.0f,
         static_cast<float>(layout.hierarchyHeader.y) + 10.0f,
         headingScale, accentRed, accentGreen, accentBlue);
@@ -2764,10 +2780,12 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
         static_cast<float>(layout.hierarchy.x) + 12.0f,
         static_cast<float>(layout.hierarchy.y + layout.hierarchy.height) - 22.0f,
         textScale, mutedRed, mutedGreen, mutedBlue);
+    }
 
-    UIText::renderTextWithColor(
+    if (layout.inspectorExpanded) {
+        UIText::renderTextWithColor(
         "INSPECTOR",
-        static_cast<float>(layout.inspectorHeader.x) + 12.0f,
+        static_cast<float>(layout.inspectorHeader.x) + 42.0f,
         static_cast<float>(layout.inspectorHeader.y) + 10.0f,
         headingScale, accentRed, accentGreen, accentBlue);
 
@@ -2894,6 +2912,7 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
         "ARROWS MOVE  Q/E ROTATE\n-/+ SCALE    DEL REMOVE\nCTRL+Z/Y UNDO/REDO",
         inspectorX, shortcutY, textScale,
         mutedRed, mutedGreen, mutedBlue);
+    }
 
     std::ostringstream viewportLabel;
     viewportLabel << "PERSPECTIVE  |  " << shaderViewModeName(m_shaderViewMode)
@@ -3324,7 +3343,10 @@ void Application::onMouseMove(double xpos, double ypos) {
 void Application::onMouseButton(int button, int action, int mods) {
     (void)mods;
     const core::EditorLayout layout =
-        core::calculateEditorLayout(m_width, m_height);
+        core::calculateEditorLayout(
+            m_width, m_height,
+            m_windowSettings.hierarchyExpanded,
+            m_windowSettings.inspectorExpanded);
     const core::EditorPoint cursor = cursorFramebufferPosition();
 
     if (button == GLFW_MOUSE_BUTTON_RIGHT) {
@@ -3352,6 +3374,31 @@ void Application::onMouseButton(int button, int action, int mods) {
             Menu::processClick(
                 static_cast<float>(cursor.x),
                 static_cast<float>(cursor.y));
+            return;
+        }
+
+        const core::EditorPanelAction panelAction =
+            core::editorPanelActionAt(layout, cursor);
+        if (panelAction == core::EditorPanelAction::ToggleHierarchy) {
+            m_windowSettings.hierarchyExpanded =
+                !m_windowSettings.hierarchyExpanded;
+            persistWindowSettings();
+            m_sceneOperationSucceeded = true;
+            m_sceneMessage = m_windowSettings.hierarchyExpanded
+                ? "Scene panel expanded"
+                : "Scene panel collapsed";
+            m_sceneMessageTime = 1.5f;
+            return;
+        }
+        if (panelAction == core::EditorPanelAction::ToggleInspector) {
+            m_windowSettings.inspectorExpanded =
+                !m_windowSettings.inspectorExpanded;
+            persistWindowSettings();
+            m_sceneOperationSucceeded = true;
+            m_sceneMessage = m_windowSettings.inspectorExpanded
+                ? "Inspector panel expanded"
+                : "Inspector panel collapsed";
+            m_sceneMessageTime = 1.5f;
             return;
         }
 
@@ -3435,7 +3482,10 @@ void Application::onScroll(double xoffset, double yoffset) {
     (void)xoffset;
     if (m_camera == nullptr || m_benchmarkEnabled || Menu::isOpen()) return;
     const core::EditorLayout layout =
-        core::calculateEditorLayout(m_width, m_height);
+        core::calculateEditorLayout(
+            m_width, m_height,
+            m_windowSettings.hierarchyExpanded,
+            m_windowSettings.inspectorExpanded);
     if (!layout.viewport.contains(cursorFramebufferPosition())) {
         return;
     }

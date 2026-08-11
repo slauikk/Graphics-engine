@@ -230,6 +230,18 @@ WindowSettingsLoadResult loadWindowSettings(
         result.error = "window settings have missing or invalid fields";
         return result;
     }
+    if (settings.schemaVersion == 1) {
+        settings.schemaVersion = kCurrentWindowSettingsSchemaVersion;
+    } else if (settings.schemaVersion ==
+               kCurrentWindowSettingsSchemaVersion) {
+        if (!readBoolean(
+                value, "hierarchy_expanded", settings.hierarchyExpanded) ||
+            !readBoolean(
+                value, "inspector_expanded", settings.inspectorExpanded)) {
+            result.error = "window settings have missing or invalid panel state";
+            return result;
+        }
+    }
     if (!validateWindowSettings(settings, result.error)) {
         return result;
     }
@@ -260,7 +272,9 @@ WindowSettingsSaveResult saveWindowSettings(
         {"height", settings.height},
         {"has_position", settings.hasPosition},
         {"fullscreen", settings.fullscreen},
-        {"vsync", settings.vsync}};
+        {"vsync", settings.vsync},
+        {"hierarchy_expanded", settings.hierarchyExpanded},
+        {"inspector_expanded", settings.inspectorExpanded}};
     const std::string serialized = value.dump(2);
 
     std::error_code filesystemError;

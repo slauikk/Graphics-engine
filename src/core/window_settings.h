@@ -8,7 +8,7 @@
 
 namespace core {
 
-inline constexpr int kCurrentWindowSettingsSchemaVersion = 1;
+inline constexpr int kCurrentWindowSettingsSchemaVersion = 2;
 inline constexpr int kDefaultEditorWindowWidth = 1280;
 inline constexpr int kDefaultEditorWindowHeight = 720;
 inline constexpr int kMinimumEditorWindowWidth = 800;
@@ -24,6 +24,8 @@ struct WindowSettings {
     bool hasPosition = false;
     bool fullscreen = false;
     bool vsync = true;
+    bool hierarchyExpanded = true;
+    bool inspectorExpanded = true;
 };
 
 struct WindowWorkArea {

@@ -209,6 +209,23 @@ void testEditorLayoutAndHitTesting() {
                 core::EditorHierarchyAction::None,
             "editor hierarchy action hit testing is incorrect");
 
+    require(core::editorPanelActionAt(
+                layout,
+                {layout.hierarchyToggleButton.x + 2.0,
+                 layout.hierarchyToggleButton.y + 2.0}) ==
+                core::EditorPanelAction::ToggleHierarchy &&
+                core::editorPanelActionAt(
+                    layout,
+                    {layout.inspectorToggleButton.x + 2.0,
+                     layout.inspectorToggleButton.y + 2.0}) ==
+                core::EditorPanelAction::ToggleInspector &&
+                core::editorPanelActionAt(
+                    layout,
+                    {layout.viewport.x + 2.0,
+                     layout.viewport.y + 2.0}) ==
+                core::EditorPanelAction::None,
+            "editor panel toggle hit testing is incorrect");
+
     const core::EditorRect moveNegativeX =
         layout.inspectorMoveButtons[0];
     const core::EditorRect reset =
@@ -249,6 +266,23 @@ void testEditorLayoutAndHitTesting() {
         core::calculateEditorLayout(500, 300);
     require(compact.viewport.width >= 320 && compact.viewport.height > 0,
             "compact editor layout collapsed the viewport");
+
+    const core::EditorLayout collapsed =
+        core::calculateEditorLayout(1280, 720, false, false);
+    require(!collapsed.hierarchyExpanded && !collapsed.inspectorExpanded &&
+                collapsed.hierarchy.width ==
+                    core::kEditorCollapsedPanelWidth &&
+                collapsed.inspector.width ==
+                    core::kEditorCollapsedPanelWidth &&
+                collapsed.viewport.x == 35 &&
+                collapsed.viewport.width == 1210,
+            "collapsed panels did not expand the editor viewport");
+    require(!collapsed.hierarchyList.valid() &&
+                !collapsed.hierarchyDuplicateButton.valid() &&
+                !collapsed.inspectorContent.valid() &&
+                collapsed.hierarchyToggleButton.valid() &&
+                collapsed.inspectorToggleButton.valid(),
+            "collapsed panel controls have invalid visibility");
 }
 
 void testWindowSettingsPersistence() {
@@ -322,6 +356,8 @@ void testWindowSettingsPersistence() {
     core::WindowSettings source = clamped;
     source.fullscreen = true;
     source.vsync = false;
+    source.hierarchyExpanded = false;
+    source.inspectorExpanded = false;
     const core::WindowSettingsSaveResult saved =
         core::saveWindowSettings(source, settingsPath);
     require(saved.success, "window settings save failed: " + saved.error);
@@ -334,8 +370,35 @@ void testWindowSettingsPersistence() {
                 loaded.settings.height == source.height &&
                 loaded.settings.hasPosition == source.hasPosition &&
                 loaded.settings.fullscreen == source.fullscreen &&
-                loaded.settings.vsync == source.vsync,
+                loaded.settings.vsync == source.vsync &&
+                loaded.settings.hierarchyExpanded ==
+                    source.hierarchyExpanded &&
+                loaded.settings.inspectorExpanded ==
+                    source.inspectorExpanded,
             "window settings round-trip changed persisted values");
+
+    {
+        std::ofstream legacy(settingsPath, std::ios::binary | std::ios::trunc);
+        legacy << R"({
+  "schema_version": 1,
+  "x": -1759,
+  "y": 87,
+  "width": 1280,
+  "height": 720,
+  "has_position": true,
+  "fullscreen": false,
+  "vsync": true
+})";
+    }
+    const core::WindowSettingsLoadResult migrated =
+        core::loadWindowSettings(settingsPath);
+    require(migrated.loaded && migrated.error.empty() &&
+                migrated.settings.schemaVersion ==
+                    core::kCurrentWindowSettingsSchemaVersion &&
+                migrated.settings.x == -1759 &&
+                migrated.settings.hierarchyExpanded &&
+                migrated.settings.inspectorExpanded,
+            "schema-1 window settings were not migrated safely");
 
     {
         std::ofstream malformed(settingsPath, std::ios::binary | std::ios::trunc);

@@ -13,6 +13,7 @@ inline constexpr int kEditorToolbarHeight = 44;
 inline constexpr int kEditorStatusBarHeight = 28;
 inline constexpr int kEditorPanelHeaderHeight = 34;
 inline constexpr int kEditorHierarchyRowHeight = 24;
+inline constexpr int kEditorCollapsedPanelWidth = 34;
 
 struct EditorPoint {
     double x = -1.0;
@@ -45,18 +46,28 @@ enum class EditorHierarchyAction {
     DeleteObject
 };
 
+enum class EditorPanelAction {
+    None,
+    ToggleHierarchy,
+    ToggleInspector
+};
+
 struct EditorLayout {
     int width = 0;
     int height = 0;
+    bool hierarchyExpanded = true;
+    bool inspectorExpanded = true;
     EditorRect toolbar;
     EditorRect hierarchy;
     EditorRect hierarchyHeader;
+    EditorRect hierarchyToggleButton;
     EditorRect hierarchyList;
     EditorRect hierarchyDuplicateButton;
     EditorRect hierarchyDeleteButton;
     EditorRect viewport;
     EditorRect inspector;
     EditorRect inspectorHeader;
+    EditorRect inspectorToggleButton;
     EditorRect inspectorContent;
     EditorRect statusBar;
     EditorRect modalOverlay;
@@ -71,7 +82,11 @@ struct EditorLayout {
     std::array<EditorRect, 2> inspectorSnapResetButtons;
 };
 
-EditorLayout calculateEditorLayout(int width, int height);
+EditorLayout calculateEditorLayout(
+    int width,
+    int height,
+    bool hierarchyExpanded = true,
+    bool inspectorExpanded = true);
 
 EditorPoint mapWindowPointToFramebuffer(
     EditorPoint point,
@@ -85,6 +100,10 @@ EditorToolbarAction editorToolbarActionAt(
     EditorPoint point);
 
 EditorHierarchyAction editorHierarchyActionAt(
+    const EditorLayout& layout,
+    EditorPoint point);
+
+EditorPanelAction editorPanelActionAt(
     const EditorLayout& layout,
     EditorPoint point);
 

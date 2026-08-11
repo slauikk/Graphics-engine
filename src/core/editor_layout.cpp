@@ -22,6 +22,7 @@ constexpr int kToolbarButtonGap = 8;
 constexpr int kInspectorButtonGap = 4;
 constexpr int kInspectorButtonHeight = 24;
 constexpr int kInspectorButtonRowGap = 6;
+constexpr int kPanelTogglePadding = 4;
 
 core::EditorRect toolbarButton(int& x, int width) {
     const core::EditorRect button{x, kToolbarButtonY, width, kToolbarButtonHeight};
@@ -45,7 +46,11 @@ bool EditorRect::valid() const {
     return width > 0 && height > 0;
 }
 
-EditorLayout calculateEditorLayout(int width, int height) {
+EditorLayout calculateEditorLayout(
+    int width,
+    int height,
+    bool hierarchyExpanded,
+    bool inspectorExpanded) {
     EditorLayout layout;
     if (width <= 0 || height <= 0) {
         return layout;
@@ -53,16 +58,26 @@ EditorLayout calculateEditorLayout(int width, int height) {
 
     layout.width = width;
     layout.height = height;
+    layout.hierarchyExpanded = hierarchyExpanded;
+    layout.inspectorExpanded = inspectorExpanded;
 
     const int toolbarHeight = (std::min)(kEditorToolbarHeight, height);
     const int statusHeight = (std::min)(
         kEditorStatusBarHeight, (std::max)(0, height - toolbarHeight));
     const int workspaceHeight = (std::max)(0, height - toolbarHeight - statusHeight);
 
-    int hierarchyWidth = std::clamp(
-        width * 18 / 100, kHierarchyMinimumWidth, kHierarchyMaximumWidth);
-    int inspectorWidth = std::clamp(
-        width * 23 / 100, kInspectorMinimumWidth, kInspectorMaximumWidth);
+    int hierarchyWidth = hierarchyExpanded
+        ? std::clamp(
+              width * 18 / 100,
+              kHierarchyMinimumWidth,
+              kHierarchyMaximumWidth)
+        : kEditorCollapsedPanelWidth;
+    int inspectorWidth = inspectorExpanded
+        ? std::clamp(
+              width * 23 / 100,
+              kInspectorMinimumWidth,
+              kInspectorMaximumWidth)
+        : kEditorCollapsedPanelWidth;
     const int maximumPanelWidth = (std::max)(
         0, width - kMinimumViewportWidth - 2 * kPanelSeparatorWidth);
     const int desiredPanelWidth = hierarchyWidth + inspectorWidth;
@@ -91,48 +106,84 @@ EditorLayout calculateEditorLayout(int width, int height) {
         layout.hierarchy.x, layout.hierarchy.y,
         layout.hierarchy.width, hierarchyHeaderHeight};
 
-    const int hierarchyBottom =
-        layout.hierarchy.y + layout.hierarchy.height;
-    const int hierarchyActionY = (std::max)(
-        layout.hierarchy.y + hierarchyHeaderHeight,
-        hierarchyBottom - kHierarchyActionBottomOffset);
-    const int hierarchyActionWidth = (std::max)(
-        0,
-        (layout.hierarchy.width - 2 * kHierarchyHorizontalPadding -
-         kHierarchyActionButtonGap) /
-            2);
-    layout.hierarchyDuplicateButton = {
-        layout.hierarchy.x + kHierarchyHorizontalPadding,
-        hierarchyActionY,
-        hierarchyActionWidth,
-        kHierarchyActionButtonHeight};
-    layout.hierarchyDeleteButton = {
-        layout.hierarchyDuplicateButton.x + hierarchyActionWidth +
-            kHierarchyActionButtonGap,
-        hierarchyActionY,
-        hierarchyActionWidth,
-        kHierarchyActionButtonHeight};
+    const int hierarchyToggleWidth = (std::min)(
+        26,
+        (std::max)(0, layout.hierarchyHeader.width -
+                          2 * kPanelTogglePadding));
+    const int hierarchyToggleHeight = (std::min)(
+        26,
+        (std::max)(0, layout.hierarchyHeader.height -
+                          2 * kPanelTogglePadding));
+    layout.hierarchyToggleButton = {
+        layout.hierarchyHeader.x + layout.hierarchyHeader.width -
+            kPanelTogglePadding - hierarchyToggleWidth,
+        layout.hierarchyHeader.y + kPanelTogglePadding,
+        hierarchyToggleWidth,
+        hierarchyToggleHeight};
 
-    const int hierarchyListY =
-        layout.hierarchy.y + hierarchyHeaderHeight + kHierarchyTopPadding;
-    layout.hierarchyList = {
-        layout.hierarchy.x + kHierarchyHorizontalPadding,
-        hierarchyListY,
-        (std::max)(0, layout.hierarchy.width - 2 * kHierarchyHorizontalPadding),
-        (std::max)(
+    if (hierarchyExpanded) {
+        const int hierarchyBottom =
+            layout.hierarchy.y + layout.hierarchy.height;
+        const int hierarchyActionY = (std::max)(
+            layout.hierarchy.y + hierarchyHeaderHeight,
+            hierarchyBottom - kHierarchyActionBottomOffset);
+        const int hierarchyActionWidth = (std::max)(
             0,
-            hierarchyActionY - kHierarchyTopPadding - hierarchyListY)};
+            (layout.hierarchy.width - 2 * kHierarchyHorizontalPadding -
+             kHierarchyActionButtonGap) /
+                2);
+        layout.hierarchyDuplicateButton = {
+            layout.hierarchy.x + kHierarchyHorizontalPadding,
+            hierarchyActionY,
+            hierarchyActionWidth,
+            kHierarchyActionButtonHeight};
+        layout.hierarchyDeleteButton = {
+            layout.hierarchyDuplicateButton.x + hierarchyActionWidth +
+                kHierarchyActionButtonGap,
+            hierarchyActionY,
+            hierarchyActionWidth,
+            kHierarchyActionButtonHeight};
+
+        const int hierarchyListY =
+            layout.hierarchy.y + hierarchyHeaderHeight + kHierarchyTopPadding;
+        layout.hierarchyList = {
+            layout.hierarchy.x + kHierarchyHorizontalPadding,
+            hierarchyListY,
+            (std::max)(
+                0,
+                layout.hierarchy.width - 2 * kHierarchyHorizontalPadding),
+            (std::max)(
+                0,
+                hierarchyActionY - kHierarchyTopPadding - hierarchyListY)};
+    }
 
     const int inspectorHeaderHeight = (std::min)(
         kEditorPanelHeaderHeight, layout.inspector.height);
     layout.inspectorHeader = {
         layout.inspector.x, layout.inspector.y,
         layout.inspector.width, inspectorHeaderHeight};
-    layout.inspectorContent = {
-        layout.inspector.x + 12,
-        layout.inspector.y + inspectorHeaderHeight + 10,
-        (std::max)(0, layout.inspector.width - 24),
-        (std::max)(0, layout.inspector.height - inspectorHeaderHeight - 20)};
+    const int inspectorToggleWidth = (std::min)(
+        26,
+        (std::max)(0, layout.inspectorHeader.width -
+                          2 * kPanelTogglePadding));
+    const int inspectorToggleHeight = (std::min)(
+        26,
+        (std::max)(0, layout.inspectorHeader.height -
+                          2 * kPanelTogglePadding));
+    layout.inspectorToggleButton = {
+        layout.inspectorHeader.x + kPanelTogglePadding,
+        layout.inspectorHeader.y + kPanelTogglePadding,
+        inspectorToggleWidth,
+        inspectorToggleHeight};
+    if (inspectorExpanded) {
+        layout.inspectorContent = {
+            layout.inspector.x + 12,
+            layout.inspector.y + inspectorHeaderHeight + 10,
+            (std::max)(0, layout.inspector.width - 24),
+            (std::max)(
+                0,
+                layout.inspector.height - inspectorHeaderHeight - 20)};
+    }
 
     const int modalWidth = (std::min)(
         520, (std::max)(0, layout.viewport.width - 48));
@@ -152,46 +203,49 @@ EditorLayout calculateEditorLayout(int width, int height) {
     layout.assetsButton = toolbarButton(buttonX, 88);
     layout.benchmarkButton = toolbarButton(buttonX, 104);
 
-    const int controlsTop = (std::max)(
-        layout.inspectorContent.y,
-        (std::min)(
-            layout.inspectorContent.y + 300,
-            layout.inspector.y + layout.inspector.height - 150));
-    const int moveButtonWidth = (std::max)(
-        0,
-        (layout.inspectorContent.width - 5 * kInspectorButtonGap) / 6);
-    int moveButtonX = layout.inspectorContent.x;
-    for (core::EditorRect& button : layout.inspectorMoveButtons) {
-        button = {
-            moveButtonX, controlsTop,
-            moveButtonWidth, kInspectorButtonHeight};
-        moveButtonX += moveButtonWidth + kInspectorButtonGap;
-    }
+    if (layout.inspectorContent.valid()) {
+        const int controlsTop = (std::max)(
+            layout.inspectorContent.y,
+            (std::min)(
+                layout.inspectorContent.y + 300,
+                layout.inspector.y + layout.inspector.height - 150));
+        const int moveButtonWidth = (std::max)(
+            0,
+            (layout.inspectorContent.width - 5 * kInspectorButtonGap) / 6);
+        int moveButtonX = layout.inspectorContent.x;
+        for (core::EditorRect& button : layout.inspectorMoveButtons) {
+            button = {
+                moveButtonX, controlsTop,
+                moveButtonWidth, kInspectorButtonHeight};
+            moveButtonX += moveButtonWidth + kInspectorButtonGap;
+        }
 
-    const int rotateScaleY =
-        controlsTop + kInspectorButtonHeight + kInspectorButtonRowGap;
-    const int rotateScaleButtonWidth = (std::max)(
-        0,
-        (layout.inspectorContent.width - 3 * kInspectorButtonGap) / 4);
-    int rotateScaleX = layout.inspectorContent.x;
-    for (core::EditorRect& button : layout.inspectorRotateScaleButtons) {
-        button = {
-            rotateScaleX, rotateScaleY,
-            rotateScaleButtonWidth, kInspectorButtonHeight};
-        rotateScaleX += rotateScaleButtonWidth + kInspectorButtonGap;
-    }
+        const int rotateScaleY =
+            controlsTop + kInspectorButtonHeight + kInspectorButtonRowGap;
+        const int rotateScaleButtonWidth = (std::max)(
+            0,
+            (layout.inspectorContent.width - 3 * kInspectorButtonGap) / 4);
+        int rotateScaleX = layout.inspectorContent.x;
+        for (core::EditorRect& button : layout.inspectorRotateScaleButtons) {
+            button = {
+                rotateScaleX, rotateScaleY,
+                rotateScaleButtonWidth, kInspectorButtonHeight};
+            rotateScaleX += rotateScaleButtonWidth + kInspectorButtonGap;
+        }
 
-    const int snapResetY =
-        rotateScaleY + kInspectorButtonHeight + kInspectorButtonRowGap;
-    const int snapResetButtonWidth = (std::max)(
-        0,
-        (layout.inspectorContent.width - kInspectorButtonGap) / 2);
-    layout.inspectorSnapResetButtons[0] = {
-        layout.inspectorContent.x, snapResetY,
-        snapResetButtonWidth, kInspectorButtonHeight};
-    layout.inspectorSnapResetButtons[1] = {
-        layout.inspectorContent.x + snapResetButtonWidth + kInspectorButtonGap,
-        snapResetY, snapResetButtonWidth, kInspectorButtonHeight};
+        const int snapResetY =
+            rotateScaleY + kInspectorButtonHeight + kInspectorButtonRowGap;
+        const int snapResetButtonWidth = (std::max)(
+            0,
+            (layout.inspectorContent.width - kInspectorButtonGap) / 2);
+        layout.inspectorSnapResetButtons[0] = {
+            layout.inspectorContent.x, snapResetY,
+            snapResetButtonWidth, kInspectorButtonHeight};
+        layout.inspectorSnapResetButtons[1] = {
+            layout.inspectorContent.x + snapResetButtonWidth +
+                kInspectorButtonGap,
+            snapResetY, snapResetButtonWidth, kInspectorButtonHeight};
+    }
     return layout;
 }
 
@@ -247,6 +301,18 @@ EditorHierarchyAction editorHierarchyActionAt(
         return EditorHierarchyAction::DeleteObject;
     }
     return EditorHierarchyAction::None;
+}
+
+EditorPanelAction editorPanelActionAt(
+    const EditorLayout& layout,
+    EditorPoint point) {
+    if (layout.hierarchyToggleButton.contains(point)) {
+        return EditorPanelAction::ToggleHierarchy;
+    }
+    if (layout.inspectorToggleButton.contains(point)) {
+        return EditorPanelAction::ToggleInspector;
+    }
+    return EditorPanelAction::None;
 }
 
 std::size_t editorHierarchyVisibleRowCount(const EditorLayout& layout) {

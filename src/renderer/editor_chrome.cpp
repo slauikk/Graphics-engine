@@ -196,6 +196,8 @@ void EditorChrome::render(
     appendButton(layout.gridButton, gridEnabled, !menuOpen);
     appendButton(layout.assetsButton, menuOpen, true);
     appendButton(layout.benchmarkButton, false, !menuOpen);
+    appendButton(layout.hierarchyToggleButton, false, !menuOpen);
+    appendButton(layout.inspectorToggleButton, false, !menuOpen);
 
     const auto appendHierarchyButton = [&](
         const core::EditorRect& button, bool enabled) {
