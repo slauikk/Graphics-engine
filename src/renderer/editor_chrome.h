@@ -23,6 +23,8 @@ public:
         int selectedObject,
         std::size_t firstVisibleObject,
         std::size_t objectCount,
+        bool canDuplicateObject,
+        bool canDeleteObject,
         bool gridEnabled,
         bool menuOpen,
         core::EditorPoint cursor);

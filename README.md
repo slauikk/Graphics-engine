@@ -34,6 +34,7 @@ executable, assets, third-party DLLs, and the MSVC runtime libraries.
 - The editor toolbar and Scene object rows are clickable; the 3D camera and wheel only react inside the central viewport.
 - Toolbar actions: create a cube, quick-save/load the scene, toggle the grid, open Assets, or start the GPU benchmark.
 - Inspector quick-edit buttons move, rotate, scale, snap, or reset the selected object and participate in undo/redo history.
+- Scene buttons duplicate or delete the selected object with the same undo/redo behavior as the keyboard shortcuts.
 - Buttons and Scene rows show hover feedback, and Assets menu entries can be opened with the mouse or keyboard.
 - Hold the right mouse button and use the mouse / `W/A/S/D`, `Shift`, `Ctrl`: look and move the editor camera.
 - `Alt+Enter`: toggle between the remembered windowed layout and fullscreen.

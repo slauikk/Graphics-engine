@@ -192,6 +192,23 @@ void testEditorLayoutAndHitTesting() {
                 core::EditorToolbarAction::None,
             "editor toolbar action hit testing is incorrect");
 
+    require(core::editorHierarchyActionAt(
+                layout,
+                {layout.hierarchyDuplicateButton.x + 2.0,
+                 layout.hierarchyDuplicateButton.y + 2.0}) ==
+                core::EditorHierarchyAction::DuplicateObject &&
+                core::editorHierarchyActionAt(
+                    layout,
+                    {layout.hierarchyDeleteButton.x + 2.0,
+                     layout.hierarchyDeleteButton.y + 2.0}) ==
+                core::EditorHierarchyAction::DeleteObject &&
+                core::editorHierarchyActionAt(
+                    layout,
+                    {layout.hierarchyList.x + 2.0,
+                     layout.hierarchyList.y + 2.0}) ==
+                core::EditorHierarchyAction::None,
+            "editor hierarchy action hit testing is incorrect");
+
     const core::EditorRect moveNegativeX =
         layout.inspectorMoveButtons[0];
     const core::EditorRect reset =
@@ -213,11 +230,11 @@ void testEditorLayoutAndHitTesting() {
 
     const std::size_t visibleRows =
         core::editorHierarchyVisibleRowCount(layout);
-    require(visibleRows == 24,
+    require(visibleRows == 22,
             "editor hierarchy visible row count is incorrect");
     const std::size_t firstVisible =
         core::firstVisibleEditorObject(layout, 30, 29);
-    require(firstVisible == 6,
+    require(firstVisible == 8,
             "editor hierarchy did not keep the selected object visible");
     const core::EditorRect lastRow =
         core::editorHierarchyRowRect(layout, visibleRows - 1);

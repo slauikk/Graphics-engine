@@ -13,6 +13,9 @@ constexpr int kInspectorMaximumWidth = 340;
 constexpr int kPanelSeparatorWidth = 1;
 constexpr int kHierarchyHorizontalPadding = 8;
 constexpr int kHierarchyTopPadding = 8;
+constexpr int kHierarchyActionButtonHeight = 26;
+constexpr int kHierarchyActionButtonGap = 8;
+constexpr int kHierarchyActionBottomOffset = 58;
 constexpr int kToolbarButtonY = 8;
 constexpr int kToolbarButtonHeight = 28;
 constexpr int kToolbarButtonGap = 8;
@@ -87,12 +90,38 @@ EditorLayout calculateEditorLayout(int width, int height) {
     layout.hierarchyHeader = {
         layout.hierarchy.x, layout.hierarchy.y,
         layout.hierarchy.width, hierarchyHeaderHeight};
+
+    const int hierarchyBottom =
+        layout.hierarchy.y + layout.hierarchy.height;
+    const int hierarchyActionY = (std::max)(
+        layout.hierarchy.y + hierarchyHeaderHeight,
+        hierarchyBottom - kHierarchyActionBottomOffset);
+    const int hierarchyActionWidth = (std::max)(
+        0,
+        (layout.hierarchy.width - 2 * kHierarchyHorizontalPadding -
+         kHierarchyActionButtonGap) /
+            2);
+    layout.hierarchyDuplicateButton = {
+        layout.hierarchy.x + kHierarchyHorizontalPadding,
+        hierarchyActionY,
+        hierarchyActionWidth,
+        kHierarchyActionButtonHeight};
+    layout.hierarchyDeleteButton = {
+        layout.hierarchyDuplicateButton.x + hierarchyActionWidth +
+            kHierarchyActionButtonGap,
+        hierarchyActionY,
+        hierarchyActionWidth,
+        kHierarchyActionButtonHeight};
+
+    const int hierarchyListY =
+        layout.hierarchy.y + hierarchyHeaderHeight + kHierarchyTopPadding;
     layout.hierarchyList = {
         layout.hierarchy.x + kHierarchyHorizontalPadding,
-        layout.hierarchy.y + hierarchyHeaderHeight + kHierarchyTopPadding,
+        hierarchyListY,
         (std::max)(0, layout.hierarchy.width - 2 * kHierarchyHorizontalPadding),
-        (std::max)(0, layout.hierarchy.height - hierarchyHeaderHeight -
-                           2 * kHierarchyTopPadding)};
+        (std::max)(
+            0,
+            hierarchyActionY - kHierarchyTopPadding - hierarchyListY)};
 
     const int inspectorHeaderHeight = (std::min)(
         kEditorPanelHeaderHeight, layout.inspector.height);
@@ -206,6 +235,18 @@ EditorToolbarAction editorToolbarActionAt(
         return EditorToolbarAction::ToggleBenchmark;
     }
     return EditorToolbarAction::None;
+}
+
+EditorHierarchyAction editorHierarchyActionAt(
+    const EditorLayout& layout,
+    EditorPoint point) {
+    if (layout.hierarchyDuplicateButton.contains(point)) {
+        return EditorHierarchyAction::DuplicateObject;
+    }
+    if (layout.hierarchyDeleteButton.contains(point)) {
+        return EditorHierarchyAction::DeleteObject;
+    }
+    return EditorHierarchyAction::None;
 }
 
 std::size_t editorHierarchyVisibleRowCount(const EditorLayout& layout) {

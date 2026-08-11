@@ -153,6 +153,8 @@ void EditorChrome::render(
     int selectedObject,
     std::size_t firstVisibleObject,
     std::size_t objectCount,
+    bool canDuplicateObject,
+    bool canDeleteObject,
     bool gridEnabled,
     bool menuOpen,
     core::EditorPoint cursor) {
@@ -195,7 +197,23 @@ void EditorChrome::render(
     appendButton(layout.assetsButton, menuOpen, true);
     appendButton(layout.benchmarkButton, false, !menuOpen);
 
-    const bool inspectorEnabled = selectedObject >= 0;
+    const auto appendHierarchyButton = [&](
+        const core::EditorRect& button, bool enabled) {
+        const bool hovered = enabled && !menuOpen && button.contains(cursor);
+        appendColorRect(
+            button,
+            enabled
+                ? (hovered ? kButtonHoverColor : kButtonColor)
+                : kPanelHeaderColor);
+        appendColorOutline(button, kSeparatorColor);
+    };
+    appendHierarchyButton(
+        layout.hierarchyDuplicateButton, canDuplicateObject);
+    appendHierarchyButton(
+        layout.hierarchyDeleteButton, canDeleteObject);
+
+    const bool inspectorEnabled = selectedObject >= 0 &&
+        static_cast<std::size_t>(selectedObject) < objectCount;
     const auto appendInspectorButton = [&](const core::EditorRect& button) {
         const bool hovered = inspectorEnabled && !menuOpen &&
             button.contains(cursor);

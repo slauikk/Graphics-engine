@@ -39,6 +39,12 @@ enum class EditorToolbarAction {
     ToggleBenchmark
 };
 
+enum class EditorHierarchyAction {
+    None,
+    DuplicateObject,
+    DeleteObject
+};
+
 struct EditorLayout {
     int width = 0;
     int height = 0;
@@ -46,6 +52,8 @@ struct EditorLayout {
     EditorRect hierarchy;
     EditorRect hierarchyHeader;
     EditorRect hierarchyList;
+    EditorRect hierarchyDuplicateButton;
+    EditorRect hierarchyDeleteButton;
     EditorRect viewport;
     EditorRect inspector;
     EditorRect inspectorHeader;
@@ -73,6 +81,10 @@ EditorPoint mapWindowPointToFramebuffer(
     int framebufferHeight);
 
 EditorToolbarAction editorToolbarActionAt(
+    const EditorLayout& layout,
+    EditorPoint point);
+
+EditorHierarchyAction editorHierarchyActionAt(
     const EditorLayout& layout,
     EditorPoint point);
 

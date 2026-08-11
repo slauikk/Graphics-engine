@@ -2385,6 +2385,11 @@ void Application::render() {
             core::firstVisibleEditorObject(
                 editorLayout, m_objects.size(), m_selectedObject),
             m_objects.size(),
+            m_selectedObject >= 0 &&
+                m_selectedObject < static_cast<int>(m_objects.size()) &&
+                m_objects.size() < core::kMaxSceneObjectCount,
+            m_selectedObject >= 0 &&
+                m_selectedObject < static_cast<int>(m_objects.size()),
             m_showCoordinateGrid,
             Menu::isOpen(),
             cursorFramebufferPosition());
@@ -2700,6 +2705,32 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
                 textScale, 0.80f, 0.84f, 0.90f);
         }
     }
+    const bool hasSelectedObject = m_selectedObject >= 0 &&
+        m_selectedObject < static_cast<int>(m_objects.size());
+    const bool canDuplicateObject = hasSelectedObject &&
+        m_objects.size() < core::kMaxSceneObjectCount;
+    const auto renderHierarchyButtonLabel = [&](
+        const core::EditorRect& button,
+        const std::string& label,
+        bool enabled) {
+        const float labelWidth = static_cast<float>(label.size()) * 8.0f;
+        const float x = static_cast<float>(button.x) +
+            (static_cast<float>(button.width) - labelWidth) * 0.5f;
+        UIText::renderTextWithColor(
+            label, x, static_cast<float>(button.y) + 7.0f, textScale,
+            enabled ? 0.88f : 0.42f,
+            enabled ? 0.91f : 0.46f,
+            enabled ? 0.96f : 0.52f);
+    };
+    renderHierarchyButtonLabel(
+        layout.hierarchyDuplicateButton,
+        layout.hierarchyDuplicateButton.width >= 80 ? "DUPLICATE" : "DUP",
+        canDuplicateObject);
+    renderHierarchyButtonLabel(
+        layout.hierarchyDeleteButton,
+        layout.hierarchyDeleteButton.width >= 64 ? "DELETE" : "DEL",
+        hasSelectedObject);
+
     std::ostringstream sceneFooter;
     sceneFooter << m_objects.size() << " OBJECTS  |  TAB CYCLE";
     UIText::renderTextWithColor(
@@ -3324,6 +3355,25 @@ void Application::onMouseButton(int button, int action, int mods) {
                 return;
             case core::EditorToolbarAction::None:
                 break;
+        }
+
+        const core::EditorHierarchyAction hierarchyAction =
+            core::editorHierarchyActionAt(layout, cursor);
+        const bool hasSelectedObject = m_selectedObject >= 0 &&
+            m_selectedObject < static_cast<int>(m_objects.size());
+        if (hierarchyAction ==
+                core::EditorHierarchyAction::DuplicateObject) {
+            if (hasSelectedObject &&
+                m_objects.size() < core::kMaxSceneObjectCount) {
+                duplicateSelectedObject();
+            }
+            return;
+        }
+        if (hierarchyAction == core::EditorHierarchyAction::DeleteObject) {
+            if (hasSelectedObject) {
+                deleteSelectedObject();
+            }
+            return;
         }
 
         if (m_selectedObject >= 0 &&
