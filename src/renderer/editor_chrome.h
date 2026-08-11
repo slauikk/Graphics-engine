@@ -2,6 +2,7 @@
 #define EDITOR_CHROME_H
 
 #include "../core/editor_layout.h"
+#include "../core/editor_gizmo.h"
 
 #include <cstddef>
 #include <memory>
@@ -27,11 +28,20 @@ public:
         bool canDeleteObject,
         bool gridEnabled,
         bool menuOpen,
-        core::EditorPoint cursor);
+        core::EditorPoint cursor,
+        const core::EditorTranslationGizmo& gizmo,
+        core::EditorGizmoAxis activeGizmoAxis);
 
 private:
     void appendRect(const core::EditorRect& rect, float red, float green, float blue);
     void appendOutline(const core::EditorRect& rect, float red, float green, float blue);
+    void appendLine(
+        core::EditorPoint start,
+        core::EditorPoint end,
+        float thickness,
+        float red,
+        float green,
+        float blue);
 
     unsigned int m_vertexArray = 0;
     unsigned int m_vertexBuffer = 0;

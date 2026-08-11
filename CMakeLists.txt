@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.31)
 
-project(Graphics_engine VERSION 0.17.0 LANGUAGES CXX)
+project(Graphics_engine VERSION 0.18.0 LANGUAGES CXX)
 
 include(CTest)
 
@@ -17,6 +17,7 @@ set(GRAPHICS_ENGINE_SOURCES
         src/core/asset_paths.cpp
         src/core/benchmark_report.cpp
         src/core/editor_camera.cpp
+        src/core/editor_gizmo.cpp
         src/core/editor_layout.cpp
         src/core/editor_placement.cpp
         src/core/editor_transform.cpp
@@ -127,6 +128,7 @@ if(BUILD_TESTING)
         tests/core_unit_tests.cpp
         src/core/benchmark_report.cpp
         src/core/editor_camera.cpp
+        src/core/editor_gizmo.cpp
         src/core/editor_layout.cpp
         src/core/editor_placement.cpp
         src/core/editor_transform.cpp

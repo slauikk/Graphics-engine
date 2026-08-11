@@ -13,6 +13,7 @@
 #include "renderer/light.h"
 #include "renderer/post_processor.h"
 #include "editor_transform.h"
+#include "editor_gizmo.h"
 #include "editor_layout.h"
 #include "scene_document.h"
 #include "scene_history.h"
@@ -104,6 +105,9 @@ private:
     void update(float dt);
     void render();
     void renderEditorOverlay(const core::EditorLayout& layout);
+    core::EditorTranslationGizmo selectedObjectGizmo(
+        const core::EditorLayout& layout) const;
+    void clearGizmoDrag();
     core::EditorPoint cursorFramebufferPosition() const;
     
     // GLFW callbacks (static)
@@ -177,6 +181,13 @@ private:
     int m_selectedObject = 0;
     int m_activeTransformKey = GLFW_KEY_UNKNOWN;
     std::uint64_t m_activeTransformObjectId = 0;
+    core::EditorGizmoAxis m_activeGizmoAxis =
+        core::EditorGizmoAxis::None;
+    core::EditorTranslationGizmo m_activeGizmo;
+    core::EditorPoint m_gizmoDragStartCursor;
+    glm::vec3 m_gizmoDragStartPosition = glm::vec3(0.0f);
+    std::uint64_t m_activeGizmoObjectId = 0;
+    bool m_gizmoHistoryRecorded = false;
     std::uint64_t m_nextObjectId = 1;
     core::SceneHistory m_sceneHistory;
     

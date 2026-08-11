@@ -1,5 +1,6 @@
 #include "core/benchmark_report.h"
 #include "core/editor_camera.h"
+#include "core/editor_gizmo.h"
 #include "core/editor_layout.h"
 #include "core/editor_placement.h"
 #include "core/editor_transform.h"
@@ -283,6 +284,95 @@ void testEditorLayoutAndHitTesting() {
                 collapsed.hierarchyToggleButton.valid() &&
                 collapsed.inspectorToggleButton.valid(),
             "collapsed panel controls have invalid visibility");
+}
+
+void testEditorTranslationGizmo() {
+    const core::EditorRect viewport{100, 50, 800, 600};
+    const glm::mat4 view = glm::lookAt(
+        glm::vec3(4.0f, 3.0f, 6.0f),
+        glm::vec3(0.0f),
+        glm::vec3(0.0f, 1.0f, 0.0f));
+    const glm::mat4 projection = glm::perspective(
+        glm::radians(45.0f), 4.0f / 3.0f, 0.1f, 100.0f);
+    const core::EditorTranslationGizmo gizmo =
+        core::calculateEditorTranslationGizmo(
+            viewport, glm::vec3(0.0f), view, projection);
+    require(gizmo.valid && viewport.contains(gizmo.origin),
+            "visible object did not produce a translation gizmo");
+
+    constexpr std::array<core::EditorGizmoAxis, 3> axes = {
+        core::EditorGizmoAxis::X,
+        core::EditorGizmoAxis::Y,
+        core::EditorGizmoAxis::Z};
+    for (std::size_t index = 0; index < axes.size(); ++index) {
+        require(gizmo.handles[index].valid() &&
+                    gizmo.worldUnitsPerPixel[index] > 0.0f,
+                "projected gizmo axis is invalid");
+        const core::EditorRect& handle = gizmo.handles[index];
+        require(core::editorGizmoAxisAt(
+                    gizmo,
+                    {handle.x + handle.width * 0.5,
+                     handle.y + handle.height * 0.5}) == axes[index],
+                "gizmo handle selected the wrong axis");
+    }
+    const core::EditorRect& xHandle = gizmo.handles[0];
+    require(core::editorGizmoAxisAt(
+                gizmo,
+                {xHandle.x - core::kEditorGizmoHitPadding + 1.0,
+                 xHandle.y + xHandle.height * 0.5}) ==
+                core::EditorGizmoAxis::X,
+            "gizmo high-DPI hit padding is not interactive");
+    core::EditorTranslationGizmo overlapping = gizmo;
+    overlapping.handles[0] = {100, 100, 12, 12};
+    overlapping.handles[1] = {110, 100, 12, 12};
+    overlapping.handles[2] = {};
+    require(core::editorGizmoAxisAt(overlapping, {114.0, 106.0}) ==
+                core::EditorGizmoAxis::Y,
+            "overlapping gizmo handles did not choose the nearest axis");
+    require(core::editorGizmoAxisAt(
+                gizmo, {viewport.x + 2.0, viewport.y + 2.0}) ==
+                core::EditorGizmoAxis::None,
+            "empty viewport space selected a gizmo axis");
+
+    const glm::vec2 xDirection = gizmo.screenDirections[0];
+    const core::EditorPoint draggedCursor{
+        gizmo.origin.x + static_cast<double>(xDirection.x * 40.0f),
+        gizmo.origin.y + static_cast<double>(xDirection.y * 40.0f)};
+    const auto translated = core::calculateEditorGizmoTranslation(
+        gizmo,
+        core::EditorGizmoAxis::X,
+        glm::vec3(1.0f, 2.0f, 3.0f),
+        gizmo.origin,
+        draggedCursor);
+    require(translated.has_value() && translated->x > 1.0f &&
+                almostEqual(translated->y, 2.0) &&
+                almostEqual(translated->z, 3.0),
+            "gizmo drag did not translate only the selected axis");
+    require(!core::calculateEditorGizmoTranslation(
+                 gizmo,
+                 core::EditorGizmoAxis::None,
+                 glm::vec3(0.0f),
+                 gizmo.origin,
+                 draggedCursor)
+                 .has_value(),
+            "gizmo drag accepted the None axis");
+
+    const core::EditorTranslationGizmo hidden =
+        core::calculateEditorTranslationGizmo(
+            viewport,
+            glm::vec3(0.0f, 0.0f, 20.0f),
+            view,
+            projection);
+    require(!hidden.valid,
+            "object behind the camera produced an interactive gizmo");
+    const core::EditorTranslationGizmo beyondFarPlane =
+        core::calculateEditorTranslationGizmo(
+            viewport,
+            glm::vec3(0.0f, 0.0f, -500.0f),
+            view,
+            projection);
+    require(!beyondFarPlane.valid,
+            "object beyond the far plane produced an interactive gizmo");
 }
 
 void testWindowSettingsPersistence() {
@@ -1378,6 +1468,7 @@ void testEditorCameraFraming() {
 int main() {
     const std::vector<std::pair<std::string, std::function<void()>>> tests = {
         {"editor layout and hit testing", testEditorLayoutAndHitTesting},
+        {"editor translation gizmo", testEditorTranslationGizmo},
         {"window settings persistence", testWindowSettingsPersistence},
         {"benchmark statistics", testBenchmarkStatistics},
         {"benchmark JSON/CSV round-trip", testBenchmarkRoundTripAndMultilineCsv},

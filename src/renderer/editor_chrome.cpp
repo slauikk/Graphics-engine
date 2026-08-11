@@ -6,6 +6,8 @@
 #include <glad/glad.h>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <array>
+#include <cmath>
 #include <iterator>
 
 namespace {
@@ -29,6 +31,12 @@ constexpr Color kSeparatorColor{0.184f, 0.220f, 0.275f};
 constexpr Color kViewportBorderColor{0.714f, 0.463f, 0.110f};
 constexpr Color kModalShadowColor{0.020f, 0.024f, 0.031f};
 constexpr Color kModalColor{0.055f, 0.067f, 0.086f};
+constexpr std::array<Color, 3> kGizmoAxisColors = {
+    Color{0.92f, 0.24f, 0.20f},
+    Color{0.24f, 0.82f, 0.36f},
+    Color{0.22f, 0.48f, 0.96f}};
+constexpr Color kGizmoHoverColor{1.0f, 0.82f, 0.26f};
+constexpr Color kGizmoOriginColor{0.92f, 0.94f, 0.98f};
 
 class ScopedChromeRenderState {
 public:
@@ -148,6 +156,41 @@ void EditorChrome::appendOutline(
         red, green, blue);
 }
 
+void EditorChrome::appendLine(
+    core::EditorPoint start,
+    core::EditorPoint end,
+    float thickness,
+    float red,
+    float green,
+    float blue) {
+    const double deltaX = end.x - start.x;
+    const double deltaY = end.y - start.y;
+    const double length = std::hypot(deltaX, deltaY);
+    if (!std::isfinite(length) || length <= 0.0 ||
+        !std::isfinite(thickness) || thickness <= 0.0f) {
+        return;
+    }
+
+    const float halfThickness = thickness * 0.5f;
+    const float normalX =
+        static_cast<float>(-deltaY / length) * halfThickness;
+    const float normalY =
+        static_cast<float>(deltaX / length) * halfThickness;
+    const float startX = static_cast<float>(start.x);
+    const float startY = static_cast<float>(start.y);
+    const float endX = static_cast<float>(end.x);
+    const float endY = static_cast<float>(end.y);
+    const float vertices[] = {
+        startX + normalX, startY + normalY, red, green, blue,
+        endX + normalX,   endY + normalY,   red, green, blue,
+        endX - normalX,   endY - normalY,   red, green, blue,
+        startX + normalX, startY + normalY, red, green, blue,
+        endX - normalX,   endY - normalY,   red, green, blue,
+        startX - normalX, startY - normalY, red, green, blue};
+    m_vertices.insert(
+        m_vertices.end(), std::begin(vertices), std::end(vertices));
+}
+
 void EditorChrome::render(
     const core::EditorLayout& layout,
     int selectedObject,
@@ -157,7 +200,9 @@ void EditorChrome::render(
     bool canDeleteObject,
     bool gridEnabled,
     bool menuOpen,
-    core::EditorPoint cursor) {
+    core::EditorPoint cursor,
+    const core::EditorTranslationGizmo& gizmo,
+    core::EditorGizmoAxis activeGizmoAxis) {
     if (layout.width <= 0 || layout.height <= 0 ||
         !m_shader || m_shader->m_id == 0 ||
         m_vertexArray == 0 || m_vertexBuffer == 0) {
@@ -255,6 +300,36 @@ void EditorChrome::render(
         appendColorRect(
             core::editorHierarchyRowRect(layout, visibleRow),
             kSelectionColor);
+    }
+
+    if (gizmo.valid && !menuOpen) {
+        constexpr std::array<core::EditorGizmoAxis, 3> axes = {
+            core::EditorGizmoAxis::X,
+            core::EditorGizmoAxis::Y,
+            core::EditorGizmoAxis::Z};
+        const core::EditorGizmoAxis hoveredAxis =
+            core::editorGizmoAxisAt(gizmo, cursor);
+        for (std::size_t index = 0; index < axes.size(); ++index) {
+            if (!gizmo.handles[index].valid()) {
+                continue;
+            }
+            const bool highlighted = axes[index] == activeGizmoAxis ||
+                axes[index] == hoveredAxis;
+            const Color color = highlighted
+                ? kGizmoHoverColor
+                : kGizmoAxisColors[index];
+            appendLine(
+                gizmo.origin, gizmo.endpoints[index],
+                highlighted ? 4.0f : 3.0f,
+                color.red, color.green, color.blue);
+            appendColorRect(gizmo.handles[index], color);
+            appendColorOutline(gizmo.handles[index], kModalShadowColor);
+        }
+        appendColorRect(
+            {static_cast<int>(std::lround(gizmo.origin.x)) - 4,
+             static_cast<int>(std::lround(gizmo.origin.y)) - 4,
+             8, 8},
+            kGizmoOriginColor);
     }
 
     appendColorOutline(layout.viewport, kViewportBorderColor);
