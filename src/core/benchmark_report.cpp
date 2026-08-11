@@ -387,11 +387,17 @@ bool summaryIsCompatible(const std::vector<std::string>& fields,
 
     int targetWidth = 0;
     int targetHeight = 0;
+    int displayWidth = 0;
+    int displayHeight = 0;
     int instances = 0;
     int shaderIterations = 0;
     std::size_t sampleCount = 0;
     return parseNumber(fields[5], targetWidth) && targetWidth == current.targetWidth &&
            parseNumber(fields[6], targetHeight) && targetHeight == current.targetHeight &&
+           parseNumber(fields[7], displayWidth) &&
+               displayWidth == current.displayWidth &&
+           parseNumber(fields[8], displayHeight) &&
+               displayHeight == current.displayHeight &&
            parseNumber(fields[9], instances) && instances == current.instances &&
            parseNumber(fields[10], shaderIterations) &&
                shaderIterations == current.shaderIterations &&

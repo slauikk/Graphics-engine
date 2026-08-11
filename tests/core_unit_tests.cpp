@@ -672,6 +672,22 @@ void testBenchmarkRejectsInvalidComparison() {
     require(!core::findLatestCompatibleGpuComparison(
                  validBenchmarkReport(), currentResult).has_value(),
             "negative comparison percentile was accepted");
+
+    {
+        std::ofstream csv(csvPath, std::ios::binary | std::ios::trunc);
+        csv << "timestamp_utc,gpu_vendor,gpu_renderer,opengl_version,workload,"
+               "target_width,target_height,display_width,display_height,instances,"
+               "shader_iterations,warmup_seconds,sample_count,draw_median_ms,"
+               "draw_p95_ms,frame_interval_median_ms,cpu_work_median_ms,"
+               "present_median_ms,gpu_total_median_ms,gpu_scene_median_ms,"
+               "gpu_ui_median_ms,json_file\n"
+               "2026-01-01T00:00:00Z,Other Vendor,Other Renderer,4.6 test,"
+               "core unit test,1600,900,2560,1440,2304,48,2.0,3,2.0,3.0,"
+               "5.0,2.5,0.75,3.5,2.25,0.2,previous.json\n";
+    }
+    require(!core::findLatestCompatibleGpuComparison(
+                 validBenchmarkReport(), currentResult).has_value(),
+            "benchmark comparison accepted a different display resolution");
 }
 
 void testSceneValidationMatrix() {
