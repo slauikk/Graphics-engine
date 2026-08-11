@@ -1215,6 +1215,35 @@ void testEditorCubePlacement() {
         return bounds;
     };
 
+    const auto ordinaryDuplicate = core::calculateDuplicateObjectPosition(
+        glm::vec3(2.0f, 3.0f, -4.0f), core::kMaxSceneCoordinate);
+    require(ordinaryDuplicate.has_value() &&
+                ordinaryDuplicate->x == 2.0f + core::kDuplicateObjectOffset &&
+                ordinaryDuplicate->y == 3.0f &&
+                ordinaryDuplicate->z == -4.0f + core::kDuplicateObjectOffset,
+            "ordinary duplicate position used the wrong offset");
+    const auto boundaryDuplicate = core::calculateDuplicateObjectPosition(
+        glm::vec3(
+            core::kMaxSceneCoordinate,
+            -core::kMaxSceneCoordinate,
+            core::kMaxSceneCoordinate),
+        core::kMaxSceneCoordinate);
+    require(boundaryDuplicate.has_value() &&
+                boundaryDuplicate->x ==
+                    core::kMaxSceneCoordinate - core::kDuplicateObjectOffset &&
+                boundaryDuplicate->y == -core::kMaxSceneCoordinate &&
+                boundaryDuplicate->z ==
+                    core::kMaxSceneCoordinate - core::kDuplicateObjectOffset,
+            "boundary duplicate position exceeded scene limits");
+    require(!core::calculateDuplicateObjectPosition(
+                 glm::vec3(core::kMaxSceneCoordinate + 1.0f, 0.0f, 0.0f),
+                 core::kMaxSceneCoordinate)
+                 .has_value() &&
+                !core::calculateDuplicateObjectPosition(
+                    glm::vec3(0.0f), 0.5f, 1.5f)
+                    .has_value(),
+            "duplicate placement accepted invalid source or offset bounds");
+
     const auto emptyPosition = core::findNearestFreeCubeGridPosition(
         glm::vec3(0.2f, 5.0f, -0.4f), {}, 100.0f, 4, 0.0f);
     require(emptyPosition.has_value() && *emptyPosition == glm::vec3(0.0f),

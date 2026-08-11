@@ -1072,10 +1072,20 @@ void Application::duplicateSelectedObject() {
         return;
     }
 
+    const RenderObject& selected =
+        m_objects[static_cast<std::size_t>(m_selectedObject)];
+    const auto duplicatePosition = core::calculateDuplicateObjectPosition(
+        selected.position, core::kMaxSceneCoordinate);
+    if (!duplicatePosition.has_value()) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessage = "Duplicate failed: no valid offset position";
+        return;
+    }
+
     checkpointScene();
-    RenderObject duplicate = m_objects[static_cast<std::size_t>(m_selectedObject)];
+    RenderObject duplicate = selected;
     duplicate.name = duplicateObjectName(duplicate.name);
-    duplicate.position += glm::vec3(0.75f, 0.0f, 0.75f);
+    duplicate.position = *duplicatePosition;
     duplicate.runtimeId = m_nextObjectId++;
 
     const auto insertion = m_objects.begin() + m_selectedObject + 1;

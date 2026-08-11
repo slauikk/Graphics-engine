@@ -21,6 +21,24 @@ bool isValid(const geometry::AxisAlignedBounds& bounds) {
            bounds.minimum.z <= bounds.maximum.z;
 }
 
+std::optional<float> offsetCoordinate(
+    float value,
+    float maximumCoordinate,
+    float offset) {
+    const double positive =
+        static_cast<double>(value) + static_cast<double>(offset);
+    if (positive <= static_cast<double>(maximumCoordinate)) {
+        return static_cast<float>(positive);
+    }
+
+    const double negative =
+        static_cast<double>(value) - static_cast<double>(offset);
+    if (negative >= -static_cast<double>(maximumCoordinate)) {
+        return static_cast<float>(negative);
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 std::optional<glm::vec3> findNearestFreeCubeGridPosition(
@@ -150,6 +168,28 @@ std::optional<glm::vec3> findNearestFreeCubeGridPosition(
         }
     }
     return bestPosition;
+}
+
+std::optional<glm::vec3> calculateDuplicateObjectPosition(
+    const glm::vec3& sourcePosition,
+    float maximumCoordinate,
+    float offset) {
+    if (!isFinite(sourcePosition) || !std::isfinite(maximumCoordinate) ||
+        maximumCoordinate < 0.0f || !std::isfinite(offset) || offset <= 0.0f ||
+        std::abs(sourcePosition.x) > maximumCoordinate ||
+        std::abs(sourcePosition.y) > maximumCoordinate ||
+        std::abs(sourcePosition.z) > maximumCoordinate) {
+        return std::nullopt;
+    }
+
+    const std::optional<float> x =
+        offsetCoordinate(sourcePosition.x, maximumCoordinate, offset);
+    const std::optional<float> z =
+        offsetCoordinate(sourcePosition.z, maximumCoordinate, offset);
+    if (!x.has_value() || !z.has_value()) {
+        return std::nullopt;
+    }
+    return glm::vec3(*x, sourcePosition.y, *z);
 }
 
 } // namespace core
