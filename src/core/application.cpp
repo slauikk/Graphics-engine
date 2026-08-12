@@ -2843,12 +2843,13 @@ void Application::render() {
     }
     
     Menu::update();
-    if (!m_benchmarkEnabled && editorLayout.modalOverlay.valid()) {
+    if (!m_benchmarkEnabled &&
+        editorLayout.contentBrowserContent.valid()) {
         Menu::setRenderArea(
-            static_cast<float>(editorLayout.modalOverlay.x) + 20.0f,
-            static_cast<float>(editorLayout.modalOverlay.y) + 20.0f,
-            static_cast<float>(editorLayout.modalOverlay.width) - 40.0f,
-            static_cast<float>(editorLayout.modalOverlay.height) - 40.0f);
+            static_cast<float>(editorLayout.contentBrowserContent.x),
+            static_cast<float>(editorLayout.contentBrowserContent.y),
+            static_cast<float>(editorLayout.contentBrowserContent.width),
+            static_cast<float>(editorLayout.contentBrowserContent.height));
     }
     const core::EditorPoint editorCursor = cursorFramebufferPosition();
     const core::EditorTranslationGizmo editorGizmo =
@@ -3484,6 +3485,27 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
         mutedRed, mutedGreen, mutedBlue);
     }
 
+    if (layout.contentBrowserHeader.valid()) {
+        UIText::renderTextWithColor(
+            "Content Browser",
+            static_cast<float>(layout.contentBrowserHeader.x) + 12.0f,
+            static_cast<float>(layout.contentBrowserHeader.y) + 8.0f,
+            headingScale, accentRed, accentGreen, accentBlue);
+        const std::string browserHint = "ASSETS + EDITOR TOOLS  |  F8 CLOSE";
+        const float hintWidth = UIText::measureTextWidth(
+            browserHint, 0.9f);
+        if (hintWidth + 180.0f <
+            static_cast<float>(layout.contentBrowserHeader.width)) {
+            UIText::renderTextWithColor(
+                browserHint,
+                static_cast<float>(layout.contentBrowserHeader.x +
+                                   layout.contentBrowserHeader.width) -
+                    hintWidth - 12.0f,
+                static_cast<float>(layout.contentBrowserHeader.y) + 9.0f,
+                0.9f, mutedRed, mutedGreen, mutedBlue);
+        }
+    }
+
     if (!Menu::isOpen() &&
         m_openEditorMenu == core::EditorMenu::None &&
         !m_closeConfirmationPending) {
@@ -4093,7 +4115,8 @@ core::EditorLayout Application::currentEditorLayout(
         m_windowSettings.hierarchyExpanded,
         m_windowSettings.inspectorExpanded,
         m_windowSettings.hierarchyWidth,
-        m_windowSettings.inspectorWidth);
+        m_windowSettings.inspectorWidth,
+        Menu::isOpen());
 }
 
 void Application::setEditorResizeCursor(bool active) {

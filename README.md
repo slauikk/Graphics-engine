@@ -4,7 +4,8 @@ An interactive C++20/OpenGL renderer with editable materials, post-processing,
 scene save/load, repeatable GPU benchmarks, OBJ/glTF model importing, and a
 world-coordinate grid. Its windowed editor uses a professional graphite shell
 with a menu bar, workspace toolbar, dock-style panels, and a dedicated viewport
-header.
+header. The Content Browser opens as a responsive bottom dock, keeping the
+scene visible while assets and editor tools are browsed.
 
 ## Build
 
@@ -35,13 +36,13 @@ executable, assets, third-party DLLs, and the MSVC runtime libraries.
 
 - The editor toolbar and Scene object rows are clickable; the 3D camera and wheel only react inside the central viewport.
 - `File`, `Edit`, `View`, and `Window` menus expose scene, history, display, content-browser, and panel commands with shortcuts and live enabled/checked states.
-- Toolbar actions: create a cube, quick-save/load the scene, toggle the grid, open Assets, or start the GPU benchmark.
+- Toolbar actions: create a cube, quick-save/load the scene, toggle the grid, open the Content Browser, or start the GPU benchmark.
 - The interface uses antialiased platform TrueType text when available and automatically falls back to its embedded bitmap font.
 - Inspector quick-edit buttons move, rotate, scale, snap, or reset the selected object and participate in undo/redo history.
 - Scene buttons duplicate or delete the selected object with the same undo/redo behavior as the keyboard shortcuts.
 - Scene and Inspector can collapse into narrow rails; their state is restored on the next launch.
 - Drag the separators beside Scene or Inspector to resize the panels; their widths are restored on the next launch.
-- Buttons and Scene rows show hover feedback, and Assets menu entries can be opened with the mouse or keyboard.
+- Buttons and Scene rows show hover feedback, and Content Browser entries can be opened with the mouse or keyboard; long lists follow the selection and show their visible range.
 - The title and status bar show `*` / `UNSAVED` after scene edits and return to a saved state after save, load, or undoing back to the saved content.
 - Hold the right mouse button and use the mouse / `W/A/S/D`, `Shift`, `Ctrl`: look and move the editor camera.
 - `Alt+Enter`: toggle between the remembered windowed layout and fullscreen.
@@ -55,7 +56,7 @@ executable, assets, third-party DLLs, and the MSVC runtime libraries.
 - Arrow keys and `PageUp` / `PageDown`: move the selected object on `X/Z` and `Y`.
 - `Q` / `E` and `-` / `=`: rotate around `Y` and scale the selected object.
 - `End` / `Home`: snap the selected position/rotation to editor steps or reset the transform.
-- `F8`: open the texture, model, object movement, and lighting menu.
+- `F8`: toggle the docked Content Browser for textures, models, object movement, and lighting tools.
 - `Tab` / `Shift+Tab`: select the next / previous scene object.
 - `Ctrl+D`: duplicate the selected object with a small position offset.
 - `Delete` / `X`: remove the selected object.

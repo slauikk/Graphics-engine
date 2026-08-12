@@ -224,6 +224,34 @@ void testEditorLayoutAndHitTesting() {
                 layout.viewport.x == 231 && layout.viewport.y == 98 &&
                 layout.viewport.width == 754 && layout.viewport.height == 598,
             "editor viewport bounds are incorrect");
+    require(!layout.contentBrowser.valid() &&
+                !layout.contentBrowserContent.valid(),
+            "closed content browser reserved editor space");
+    const core::EditorLayout docked = core::calculateEditorLayout(
+        1280,
+        720,
+        true,
+        true,
+        core::kDefaultEditorHierarchyWidth,
+        core::kDefaultEditorInspectorWidth,
+        true);
+    require(docked.contentBrowserOpen &&
+                docked.viewportFrame.x == 231 &&
+                docked.viewportFrame.y == 68 &&
+                docked.viewportFrame.width == 754 &&
+                docked.viewportFrame.height == 407 &&
+                docked.viewport.y == 98 && docked.viewport.height == 377 &&
+                docked.contentBrowser.x == 231 &&
+                docked.contentBrowser.y == 476 &&
+                docked.contentBrowser.width == 754 &&
+                docked.contentBrowser.height == 220 &&
+                docked.contentBrowserHeader.y == 476 &&
+                docked.contentBrowserHeader.height == 30 &&
+                docked.contentBrowserContent.x == 243 &&
+                docked.contentBrowserContent.y == 514 &&
+                docked.contentBrowserContent.width == 730 &&
+                docked.contentBrowserContent.height == 174,
+            "content browser dock geometry is incorrect");
     require(layout.modalOverlay.x == 348 && layout.modalOverlay.y == 147 &&
                 layout.modalOverlay.width == 520 &&
                 layout.modalOverlay.height == 500,
@@ -446,6 +474,24 @@ void testEditorLayoutAndHitTesting() {
                      compact.closeCancelButton.y + 2.0}) ==
                     core::EditorCloseDialogAction::Cancel,
             "compact editor layout lost close dialog mouse controls");
+    const core::EditorLayout compactDock = core::calculateEditorLayout(
+        500,
+        300,
+        true,
+        true,
+        core::kDefaultEditorHierarchyWidth,
+        core::kDefaultEditorInspectorWidth,
+        true);
+    require(compactDock.viewportFrame.height >=
+                core::kEditorViewportHeaderHeight + 120 &&
+                compactDock.contentBrowser.valid() &&
+                compactDock.contentBrowser.y >=
+                    compactDock.viewportFrame.y +
+                        compactDock.viewportFrame.height &&
+                compactDock.contentBrowser.y +
+                        compactDock.contentBrowser.height <=
+                    compactDock.statusBar.y,
+            "compact content browser collapsed or escaped the workspace");
 
     const core::EditorLayout constrained = core::calculateEditorLayout(
         800,

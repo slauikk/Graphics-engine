@@ -200,7 +200,8 @@ EditorLayout calculateEditorLayout(
     bool hierarchyExpanded,
     bool inspectorExpanded,
     int desiredHierarchyWidth,
-    int desiredInspectorWidth) {
+    int desiredInspectorWidth,
+    bool contentBrowserOpen) {
     EditorLayout layout;
     if (width <= 0 || height <= 0) {
         return layout;
@@ -210,6 +211,7 @@ EditorLayout calculateEditorLayout(
     layout.height = height;
     layout.hierarchyExpanded = hierarchyExpanded;
     layout.inspectorExpanded = inspectorExpanded;
+    layout.contentBrowserOpen = contentBrowserOpen;
 
     const int topChromeHeight = (std::min)(kEditorTopChromeHeight, height);
     const int menuBarHeight = (std::min)(kEditorMenuBarHeight, topChromeHeight);
@@ -245,12 +247,28 @@ EditorLayout calculateEditorLayout(
     layout.toolbar = {0, menuBarHeight, width, toolbarHeight};
     layout.statusBar = {0, height - statusHeight, width, statusHeight};
     layout.hierarchy = {0, topChromeHeight, hierarchyWidth, workspaceHeight};
+    const int centerX = hierarchyWidth + kEditorPanelSeparatorWidth;
+    const int centerWidth = (std::max)(
+        0, width - hierarchyWidth - inspectorWidth -
+               2 * kEditorPanelSeparatorWidth);
+    constexpr int minimumViewportFrameHeight =
+        kEditorViewportHeaderHeight + 120;
+    const int maximumContentBrowserHeight = (std::max)(
+        0, workspaceHeight - minimumViewportFrameHeight -
+               kEditorPanelSeparatorWidth);
+    const int contentBrowserHeight = contentBrowserOpen
+        ? (std::min)(kEditorContentBrowserHeight, maximumContentBrowserHeight)
+        : 0;
+    const int contentBrowserSeparator = contentBrowserHeight > 0
+        ? kEditorPanelSeparatorWidth
+        : 0;
+    const int viewportFrameHeight = (std::max)(
+        0, workspaceHeight - contentBrowserHeight - contentBrowserSeparator);
     layout.viewportFrame = {
-        hierarchyWidth + kEditorPanelSeparatorWidth,
+        centerX,
         topChromeHeight,
-        (std::max)(0, width - hierarchyWidth - inspectorWidth -
-                           2 * kEditorPanelSeparatorWidth),
-        workspaceHeight};
+        centerWidth,
+        viewportFrameHeight};
     const int viewportHeaderHeight = (std::min)(
         kEditorViewportHeaderHeight, layout.viewportFrame.height);
     layout.viewportHeader = {
@@ -263,6 +281,29 @@ EditorLayout calculateEditorLayout(
         layout.viewportFrame.y + viewportHeaderHeight,
         layout.viewportFrame.width,
         (std::max)(0, layout.viewportFrame.height - viewportHeaderHeight)};
+    if (contentBrowserHeight > 0) {
+        layout.contentBrowser = {
+            centerX,
+            topChromeHeight + viewportFrameHeight + contentBrowserSeparator,
+            centerWidth,
+            contentBrowserHeight};
+        const int contentBrowserHeaderHeight = (std::min)(
+            kEditorContentBrowserHeaderHeight,
+            layout.contentBrowser.height);
+        layout.contentBrowserHeader = {
+            layout.contentBrowser.x,
+            layout.contentBrowser.y,
+            layout.contentBrowser.width,
+            contentBrowserHeaderHeight};
+        layout.contentBrowserContent = {
+            layout.contentBrowser.x + 12,
+            layout.contentBrowser.y + contentBrowserHeaderHeight + 8,
+            (std::max)(0, layout.contentBrowser.width - 24),
+            (std::max)(
+                0,
+                layout.contentBrowser.height -
+                    contentBrowserHeaderHeight - 16)};
+    }
     layout.inspector = {
         width - inspectorWidth, topChromeHeight, inspectorWidth, workspaceHeight};
 

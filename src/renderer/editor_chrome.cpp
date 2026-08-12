@@ -236,6 +236,8 @@ void EditorChrome::render(
     appendColorRect(layout.hierarchy, kPanelColor);
     appendColorRect(layout.hierarchyHeader, kPanelHeaderColor);
     appendColorRect(layout.viewportHeader, kViewportHeaderColor);
+    appendColorRect(layout.contentBrowser, kPanelColor);
+    appendColorRect(layout.contentBrowserHeader, kPanelHeaderColor);
     appendColorRect(layout.inspector, kPanelColor);
     appendColorRect(layout.inspectorHeader, kPanelHeaderColor);
     appendColorRect(layout.statusBar, kStatusColor);
@@ -389,12 +391,28 @@ void EditorChrome::render(
     }
 
     appendColorOutline(layout.viewportFrame, kViewportBorderColor);
+    appendColorOutline(layout.contentBrowser, kViewportBorderColor);
     appendColorRect(
         {layout.viewportHeader.x,
          layout.viewportHeader.y + layout.viewportHeader.height - 1,
          layout.viewportHeader.width,
          1},
         kSeparatorColor);
+    if (layout.contentBrowserHeader.valid()) {
+        appendColorRect(
+            {layout.contentBrowserHeader.x,
+             layout.contentBrowserHeader.y - 1,
+             layout.contentBrowserHeader.width,
+             1},
+            kSeparatorColor);
+        appendColorRect(
+            {layout.contentBrowserHeader.x,
+             layout.contentBrowserHeader.y +
+                 layout.contentBrowserHeader.height - 1,
+             layout.contentBrowserHeader.width,
+             1},
+            kSeparatorColor);
+    }
     appendColorRect(
         {0, layout.menuBar.y + layout.menuBar.height - 1,
          layout.width, 1},
@@ -441,7 +459,7 @@ void EditorChrome::render(
     appendSplitterHighlight(
         layout.inspectorSplitter, core::EditorPanelSplitter::Inspector);
 
-    if ((menuOpen || closeDialogOpen) && layout.modalOverlay.valid()) {
+    if (closeDialogOpen && layout.modalOverlay.valid()) {
         appendColorRect(
             {layout.modalOverlay.x + 8, layout.modalOverlay.y + 8,
              layout.modalOverlay.width, layout.modalOverlay.height},

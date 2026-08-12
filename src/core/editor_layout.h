@@ -14,6 +14,8 @@ inline constexpr int kEditorToolbarHeight = 44;
 inline constexpr int kEditorTopChromeHeight =
     kEditorMenuBarHeight + kEditorToolbarHeight;
 inline constexpr int kEditorViewportHeaderHeight = 30;
+inline constexpr int kEditorContentBrowserHeight = 220;
+inline constexpr int kEditorContentBrowserHeaderHeight = 30;
 inline constexpr int kEditorStatusBarHeight = 24;
 inline constexpr int kEditorPanelHeaderHeight = 34;
 inline constexpr int kEditorHierarchyRowHeight = 24;
@@ -117,6 +119,7 @@ struct EditorLayout {
     int height = 0;
     bool hierarchyExpanded = true;
     bool inspectorExpanded = true;
+    bool contentBrowserOpen = false;
     EditorRect menuBar;
     EditorRect toolbar;
     EditorRect hierarchy;
@@ -134,6 +137,9 @@ struct EditorLayout {
     EditorRect inspectorSplitter;
     EditorRect viewportFrame;
     EditorRect viewportHeader;
+    EditorRect contentBrowser;
+    EditorRect contentBrowserHeader;
+    EditorRect contentBrowserContent;
     EditorRect statusBar;
     EditorRect modalOverlay;
     EditorRect closeSaveButton;
@@ -157,7 +163,8 @@ EditorLayout calculateEditorLayout(
     bool hierarchyExpanded = true,
     bool inspectorExpanded = true,
     int desiredHierarchyWidth = kDefaultEditorHierarchyWidth,
-    int desiredInspectorWidth = kDefaultEditorInspectorWidth);
+    int desiredInspectorWidth = kDefaultEditorInspectorWidth,
+    bool contentBrowserOpen = false);
 
 EditorPoint mapWindowPointToFramebuffer(
     EditorPoint point,

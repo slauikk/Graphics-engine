@@ -9,6 +9,7 @@
 #include <sstream>
 #include <iomanip>
 #include <iostream>
+#include <string_view>
 #include <utility>
 
 namespace {
@@ -75,6 +76,75 @@ const std::vector<std::string> LIGHTING_MENU_ITEMS = {
 };
 
 constexpr std::size_t kVisibleModelRows = 12;
+constexpr float kDockTextScale = 1.0f;
+constexpr float kDockTitleScale = 1.05f;
+constexpr float kDockHeaderHeight = 28.0f;
+constexpr float kDockFooterHeight = 24.0f;
+constexpr float kDockRowHeight = 22.0f;
+
+const char* titleForState(Menu::MenuState state) {
+    switch (state) {
+        case Menu::MAIN_MENU: return "Content & Tools";
+        case Menu::TEXTURES: return "Textures";
+        case Menu::MODELS: return "Models";
+        case Menu::MOVEMENT_ROOT: return "Movement";
+        case Menu::MOVEMENT_CUBE: return "Object Control";
+        case Menu::MOVEMENT_LIGHT: return "Point Light Control";
+        case Menu::LIGHTING: return "Scene Lighting";
+    }
+    return "Content & Tools";
+}
+
+std::size_t dockVisibleRowCapacity(float height) {
+    const float available = height - kDockHeaderHeight - kDockFooterHeight;
+    return available >= kDockRowHeight
+        ? static_cast<std::size_t>(available / kDockRowHeight)
+        : 0;
+}
+
+std::size_t dockFirstVisibleItem(
+    std::size_t itemCount,
+    int selectedIndex,
+    std::size_t capacity) {
+    if (itemCount == 0 || capacity == 0 || itemCount <= capacity) {
+        return 0;
+    }
+    const std::size_t selected = static_cast<std::size_t>(std::clamp(
+        selectedIndex, 0, static_cast<int>(itemCount - 1)));
+    const std::size_t halfWindow = capacity / 2;
+    const std::size_t centered = selected > halfWindow
+        ? selected - halfWindow
+        : 0;
+    return (std::min)(centered, itemCount - capacity);
+}
+
+std::string ellipsizeMenuText(
+    const std::string& value,
+    float maximumWidth,
+    float scale = kDockTextScale) {
+    if (maximumWidth <= 0.0f ||
+        UIText::measureTextWidth(value, scale) <= maximumWidth) {
+        return maximumWidth > 0.0f ? value : std::string{};
+    }
+
+    constexpr std::string_view suffix = "...";
+    if (UIText::measureTextWidth(std::string(suffix), scale) > maximumWidth) {
+        return {};
+    }
+    std::size_t end = value.size();
+    while (end > 0) {
+        --end;
+        while (end > 0 &&
+               (static_cast<unsigned char>(value[end]) & 0xc0U) == 0x80U) {
+            --end;
+        }
+        std::string candidate = value.substr(0, end) + std::string(suffix);
+        if (UIText::measureTextWidth(candidate, scale) <= maximumWidth) {
+            return candidate;
+        }
+    }
+    return std::string(suffix);
+}
 
 int itemCountForState(Menu::MenuState state, int optionCount) {
     switch (state) {
@@ -223,31 +293,129 @@ void Menu::update() {
 }
 
 void Menu::render() {
-    if (!m_isOpen) return;
-    
+    if (!m_isOpen || m_renderWidth <= 0.0f || m_renderHeight <= 0.0f) {
+        return;
+    }
+
+    const int optionCount = m_currentState == MODELS
+        ? static_cast<int>(m_models.size())
+        : static_cast<int>(m_textures.size());
+    const std::size_t itemCount = static_cast<std::size_t>((std::max)(
+        0, itemCountForState(m_currentState, optionCount)));
+    const auto itemLabel = [](MenuState state, std::size_t index)
+        -> const std::string& {
+        static const std::string empty;
+        switch (state) {
+            case MAIN_MENU:
+                return index < MAIN_MENU_ITEMS.size()
+                    ? MAIN_MENU_ITEMS[index] : empty;
+            case TEXTURES:
+                return index < m_textures.size()
+                    ? m_textures[index].name : empty;
+            case MODELS:
+                return index < m_models.size()
+                    ? m_models[index].name : empty;
+            case MOVEMENT_ROOT:
+                return index < MOVEMENT_ROOT_ITEMS.size()
+                    ? MOVEMENT_ROOT_ITEMS[index] : empty;
+            case MOVEMENT_CUBE:
+                return index < CUBE_MENU_ITEMS.size()
+                    ? CUBE_MENU_ITEMS[index] : empty;
+            case MOVEMENT_LIGHT:
+                return index < LIGHT_MENU_ITEMS.size()
+                    ? LIGHT_MENU_ITEMS[index] : empty;
+            case LIGHTING:
+                return index < LIGHTING_MENU_ITEMS.size()
+                    ? LIGHTING_MENU_ITEMS[index] : empty;
+        }
+        return empty;
+    };
+
+    UIText::renderTextWithColor(
+        titleForState(m_currentState),
+        m_renderX,
+        m_renderY,
+        kDockTitleScale,
+        0.96f, 0.61f, 0.20f);
+
+    std::ostringstream context;
     switch (m_currentState) {
-        case MAIN_MENU:
-            renderMainMenu();
-            break;
         case TEXTURES:
-            renderTexturesMenu();
+            context << m_textures.size() << " available  |  Enter applies";
             break;
         case MODELS:
-            renderModelsMenu();
-            break;
-        case MOVEMENT_ROOT:
-            renderMovementRootMenu();
+            context << m_models.size() << " available  |  Enter imports";
             break;
         case MOVEMENT_CUBE:
-            renderCubeMenu();
+            context << "Object " << m_selectedCubeIndex + 1 << "  |  Pos "
+                    << std::fixed << std::setprecision(1)
+                    << m_cubePosX << ", " << m_cubePosY << ", " << m_cubePosZ;
             break;
         case MOVEMENT_LIGHT:
-            renderLightMenu();
+            context << "Pos " << std::fixed << std::setprecision(1)
+                    << m_lightPosX << ", " << m_lightPosY << ", " << m_lightPosZ;
             break;
-        case LIGHTING:
-            renderLightingMenu();
+        default:
             break;
     }
+    if (!context.str().empty() && m_renderWidth >= 520.0f) {
+        UIText::renderTextWithColor(
+            ellipsizeMenuText(context.str(), m_renderWidth - 310.0f, 0.9f),
+            m_renderX + 190.0f,
+            m_renderY + 1.0f,
+            0.9f,
+            0.58f, 0.62f, 0.69f);
+    }
+
+    const std::size_t capacity = dockVisibleRowCapacity(m_renderHeight);
+    const std::size_t firstVisible = dockFirstVisibleItem(
+        itemCount, m_selectedIndex, capacity);
+    const std::size_t visibleCount = (std::min)(
+        capacity, itemCount - (std::min)(firstVisible, itemCount));
+    const std::size_t finalVisible = firstVisible + visibleCount;
+    if (itemCount > capacity && capacity > 0) {
+        std::ostringstream range;
+        range << firstVisible + 1 << "-" << finalVisible
+              << " / " << itemCount;
+        const std::string rangeText = range.str();
+        const float rangeWidth = UIText::measureTextWidth(rangeText, 0.9f);
+        UIText::renderTextWithColor(
+            rangeText,
+            m_renderX + m_renderWidth - rangeWidth,
+            m_renderY + 1.0f,
+            0.9f,
+            0.58f, 0.62f, 0.69f);
+    }
+
+    for (std::size_t index = firstVisible; index < finalVisible; ++index) {
+        const bool selected = static_cast<int>(index) == m_selectedIndex;
+        const std::string& rawLabel = itemLabel(m_currentState, index);
+        const bool separator = rawLabel == "---";
+        const std::string prefix = selected && !separator ? ">  " : "   ";
+        const std::string label = separator
+            ? "--------------------------------"
+            : prefix + rawLabel;
+        const float y = m_renderY + kDockHeaderHeight +
+            static_cast<float>(index - firstVisible) * kDockRowHeight;
+        UIText::renderTextWithColor(
+            ellipsizeMenuText(label, m_renderWidth, kDockTextScale),
+            m_renderX,
+            y,
+            kDockTextScale,
+            selected && !separator ? 0.96f : (separator ? 0.36f : 0.78f),
+            selected && !separator ? 0.61f : (separator ? 0.39f : 0.81f),
+            selected && !separator ? 0.20f : (separator ? 0.45f : 0.86f));
+    }
+
+    constexpr std::string_view footer =
+        "UP/DOWN NAVIGATE  |  ENTER SELECT  |  ESC BACK  |  F8 CLOSE";
+    UIText::renderTextWithColor(
+        ellipsizeMenuText(
+            std::string(footer), m_renderWidth, 0.9f),
+        m_renderX,
+        m_renderY + m_renderHeight - 18.0f,
+        0.9f,
+        0.58f, 0.62f, 0.69f);
 }
 
 void Menu::renderMainMenu() {
@@ -473,57 +641,34 @@ bool Menu::processClick(float x, float y) {
         return false;
     }
 
-    constexpr float rowHeight = 14.0f * 1.5f;
-    float firstRowY = m_renderY + rowHeight * 2.0f;
-    if (m_currentState == MOVEMENT_CUBE) {
-        firstRowY += rowHeight * 2.0f;
-    }
-    if (y < firstRowY) {
+    const float firstRowY = m_renderY + kDockHeaderHeight;
+    const std::size_t capacity = dockVisibleRowCapacity(m_renderHeight);
+    if (capacity == 0 || y < firstRowY ||
+        y >= firstRowY + static_cast<float>(capacity) * kDockRowHeight) {
         return false;
     }
 
     const std::size_t visualRow = static_cast<std::size_t>(
-        (y - firstRowY) / rowHeight);
-    if (m_currentState == MODELS) {
-        if (m_models.empty()) {
-            return false;
-        }
-
-        std::size_t firstVisible = 0;
-        if (m_models.size() > kVisibleModelRows) {
-            const std::size_t selected = static_cast<std::size_t>(std::clamp(
-                m_selectedIndex, 0, static_cast<int>(m_models.size() - 1)));
-            if (selected > kVisibleModelRows / 2) {
-                firstVisible = selected - kVisibleModelRows / 2;
-            }
-            firstVisible = std::min(
-                firstVisible, m_models.size() - kVisibleModelRows);
-        }
-        const std::size_t lastVisible = std::min(
-            firstVisible + kVisibleModelRows, m_models.size());
-        const bool hasLeadingEllipsis = firstVisible > 0;
-        const std::size_t modelRow = hasLeadingEllipsis
-            ? (visualRow == 0 ? m_models.size() : visualRow - 1)
-            : visualRow;
-        if (modelRow >= lastVisible - firstVisible) {
-            return false;
-        }
-        m_selectedIndex = static_cast<int>(firstVisible + modelRow);
-        processKey(GLFW_KEY_ENTER);
-        return true;
-    }
+        (y - firstRowY) / kDockRowHeight);
 
     int optionCount = 0;
     if (m_currentState == TEXTURES) {
         optionCount = static_cast<int>(m_textures.size());
+    } else if (m_currentState == MODELS) {
+        optionCount = static_cast<int>(m_models.size());
     } else {
         optionCount = itemCountForState(m_currentState, 0);
     }
-    if (visualRow >= static_cast<std::size_t>((std::max)(0, optionCount))) {
+    const std::size_t itemCount = static_cast<std::size_t>((std::max)(
+        0, optionCount));
+    const std::size_t firstVisible = dockFirstVisibleItem(
+        itemCount, m_selectedIndex, capacity);
+    const std::size_t itemIndex = firstVisible + visualRow;
+    if (itemIndex >= itemCount) {
         return false;
     }
 
-    m_selectedIndex = static_cast<int>(visualRow);
+    m_selectedIndex = static_cast<int>(itemIndex);
     processKey(GLFW_KEY_ENTER);
     return true;
 }
