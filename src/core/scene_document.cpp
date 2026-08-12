@@ -1,5 +1,6 @@
 #include "scene_document.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
@@ -99,6 +100,44 @@ bool isSafeAssetReference(std::string_view value, bool allowEmpty) {
 bool setValidationError(std::string& error, std::string message) {
     error = std::move(message);
     return false;
+}
+
+bool editFloatEqual(float left, float right) {
+    constexpr float tolerance = 0.000001f;
+    const float scale = (std::max)({1.0f, std::abs(left), std::abs(right)});
+    return std::abs(left - right) <= tolerance * scale;
+}
+
+bool vec3Equal(const glm::vec3& left, const glm::vec3& right) {
+    return editFloatEqual(left.x, right.x) &&
+        editFloatEqual(left.y, right.y) &&
+        editFloatEqual(left.z, right.z);
+}
+
+bool materialEditContentEqual(
+    const core::SceneMaterial& left,
+    const core::SceneMaterial& right) {
+    return left.id == right.id &&
+        left.albedoTexture == right.albedoTexture &&
+        vec3Equal(left.albedoColor, right.albedoColor) &&
+        vec3Equal(left.specularColor, right.specularColor) &&
+        vec3Equal(left.emissiveColor, right.emissiveColor) &&
+        editFloatEqual(left.shininess, right.shininess) &&
+        editFloatEqual(left.metallic, right.metallic) &&
+        editFloatEqual(left.roughness, right.roughness);
+}
+
+bool objectEditContentEqual(
+    const core::SceneObject& left,
+    const core::SceneObject& right) {
+    if (left.name != right.name || left.mesh != right.mesh ||
+        left.material != right.material ||
+        !vec3Equal(left.position, right.position) ||
+        !vec3Equal(left.scale, right.scale) ||
+        left.spinning != right.spinning) {
+        return false;
+    }
+    return left.spinning || vec3Equal(left.rotationDeg, right.rotationDeg);
 }
 
 Json materialToJson(const core::SceneMaterial& material) {
@@ -277,6 +316,44 @@ bool replaceFile(const std::filesystem::path& temporary,
 } // namespace
 
 namespace core {
+
+bool sceneDocumentEditContentEqual(
+    const SceneDocument& left,
+    const SceneDocument& right) {
+    if (left.schemaVersion != right.schemaVersion ||
+        !vec3Equal(left.directionalLight.direction, right.directionalLight.direction) ||
+        !vec3Equal(left.directionalLight.color, right.directionalLight.color) ||
+        left.directionalLight.enabled != right.directionalLight.enabled ||
+        !vec3Equal(left.pointLight.color, right.pointLight.color) ||
+        !editFloatEqual(left.pointLight.constant, right.pointLight.constant) ||
+        !editFloatEqual(left.pointLight.linear, right.pointLight.linear) ||
+        !editFloatEqual(left.pointLight.quadratic, right.pointLight.quadratic) ||
+        left.pointLight.enabled != right.pointLight.enabled ||
+        left.pointLight.spinning != right.pointLight.spinning ||
+        left.renderSettings.postProcessEffect != right.renderSettings.postProcessEffect ||
+        left.renderSettings.shaderViewMode != right.renderSettings.shaderViewMode ||
+        left.renderSettings.coordinateGrid != right.renderSettings.coordinateGrid ||
+        left.materials.size() != right.materials.size() ||
+        left.objects.size() != right.objects.size()) {
+        return false;
+    }
+
+    if (left.pointLight.spinning) {
+        if (!editFloatEqual(
+                left.pointLight.position.y, right.pointLight.position.y)) {
+            return false;
+        }
+    } else if (!vec3Equal(left.pointLight.position, right.pointLight.position)) {
+        return false;
+    }
+
+    return std::equal(
+               left.materials.begin(), left.materials.end(),
+               right.materials.begin(), materialEditContentEqual) &&
+        std::equal(
+               left.objects.begin(), left.objects.end(),
+               right.objects.begin(), objectEditContentEqual);
+}
 
 int findSceneObjectByRuntimeId(const SceneDocument& scene, std::uint64_t runtimeId) {
     if (runtimeId == 0) {

@@ -220,6 +220,11 @@ void testEditorLayoutAndHitTesting() {
                 layout.modalOverlay.width == 520 &&
                 layout.modalOverlay.height == 500,
             "editor modal overlay bounds are incorrect");
+    require(layout.closeSaveButton.x == 372 &&
+                layout.closeSaveButton.y == 482 &&
+                layout.closeSaveButton.width == 472 &&
+                layout.closeCancelButton.y == 562,
+            "editor close dialog button bounds are incorrect");
     require(layout.viewport.contains({500.0, 300.0}) &&
                 !layout.viewport.contains({100.0, 300.0}) &&
                 !layout.viewport.contains({1100.0, 300.0}),
@@ -281,6 +286,27 @@ void testEditorLayoutAndHitTesting() {
                      layout.viewport.y + 2.0}) ==
                 core::EditorPanelAction::None,
             "editor panel toggle hit testing is incorrect");
+
+    require(core::editorCloseDialogActionAt(
+                layout,
+                {layout.closeSaveButton.x + 2.0,
+                 layout.closeSaveButton.y + 2.0}) ==
+                core::EditorCloseDialogAction::SaveAndExit &&
+                core::editorCloseDialogActionAt(
+                    layout,
+                    {layout.closeDiscardButton.x + 2.0,
+                     layout.closeDiscardButton.y + 2.0}) ==
+                core::EditorCloseDialogAction::DiscardAndExit &&
+                core::editorCloseDialogActionAt(
+                    layout,
+                    {layout.closeCancelButton.x + 2.0,
+                     layout.closeCancelButton.y + 2.0}) ==
+                core::EditorCloseDialogAction::Cancel &&
+                core::editorCloseDialogActionAt(
+                    layout, {layout.modalOverlay.x + 2.0,
+                             layout.modalOverlay.y + 2.0}) ==
+                core::EditorCloseDialogAction::None,
+            "editor close dialog hit testing is incorrect");
 
     require(core::editorPanelSplitterAt(
                 layout,
@@ -378,6 +404,19 @@ void testEditorLayoutAndHitTesting() {
                 normalized.hierarchy.width == constrained.hierarchy.width &&
                 normalized.inspector.width == constrained.inspector.width,
             "constrained editor panel widths were not stable after normalization");
+    const auto insideModal = [&constrained](const core::EditorRect& button) {
+        return button.valid() &&
+            button.x >= constrained.modalOverlay.x &&
+            button.y >= constrained.modalOverlay.y &&
+            button.x + button.width <= constrained.modalOverlay.x +
+                constrained.modalOverlay.width &&
+            button.y + button.height <= constrained.modalOverlay.y +
+                constrained.modalOverlay.height;
+    };
+    require(insideModal(constrained.closeSaveButton) &&
+                insideModal(constrained.closeDiscardButton) &&
+                insideModal(constrained.closeCancelButton),
+            "minimum editor layout placed close controls outside the modal");
 
     const auto unchangedHierarchy = core::resizedEditorPanelWidth(
         normalized,
@@ -1064,6 +1103,83 @@ void testSceneValidationMatrix() {
     invalidSelection.selectedObject = 4;
     require(!core::validateSceneDocument(invalidSelection, error),
             "out-of-range selection was accepted");
+}
+
+void testSceneDocumentEditContentComparison() {
+    const core::SceneDocument saved = validScene();
+    require(core::sceneDocumentEditContentEqual(saved, saved),
+            "identical scene content was reported as edited");
+
+    core::SceneDocument runtimeOnly = saved;
+    runtimeOnly.camera.position = {11.0f, 12.0f, 13.0f};
+    runtimeOnly.camera.yaw = 45.0f;
+    runtimeOnly.selectedObject = -1;
+    runtimeOnly.objects[0].runtimeId = 91;
+    require(core::sceneDocumentEditContentEqual(saved, runtimeOnly),
+            "runtime-only scene state was reported as edited");
+
+    core::SceneDocument objectEdit = saved;
+    objectEdit.objects[0].position.x += 1.0f;
+    require(!core::sceneDocumentEditContentEqual(saved, objectEdit),
+            "object transform edit was ignored");
+
+    core::SceneDocument materialEdit = saved;
+    materialEdit.materials[0].roughness = 0.5f;
+    require(!core::sceneDocumentEditContentEqual(saved, materialEdit),
+            "material edit was ignored");
+
+    core::SceneDocument lightingEdit = saved;
+    lightingEdit.directionalLight.enabled = !lightingEdit.directionalLight.enabled;
+    require(!core::sceneDocumentEditContentEqual(saved, lightingEdit),
+            "directional light edit was ignored");
+
+    core::SceneDocument renderEdit = saved;
+    renderEdit.renderSettings.coordinateGrid = !renderEdit.renderSettings.coordinateGrid;
+    require(!core::sceneDocumentEditContentEqual(saved, renderEdit),
+            "render setting edit was ignored");
+
+    core::SceneDocument normalizedLight = saved;
+    normalizedLight.directionalLight.direction = glm::normalize(
+        normalizedLight.directionalLight.direction);
+    normalizedLight.directionalLight.direction.x = std::nextafter(
+        normalizedLight.directionalLight.direction.x,
+        std::numeric_limits<float>::infinity());
+    require(core::sceneDocumentEditContentEqual(saved, normalizedLight),
+            "direction normalization round-off was reported as an edit");
+    normalizedLight.directionalLight.direction.x += 0.01f;
+    require(!core::sceneDocumentEditContentEqual(saved, normalizedLight),
+            "meaningful directional light edit was ignored");
+
+    core::SceneDocument spinningObjectSaved = saved;
+    spinningObjectSaved.objects[0].spinning = true;
+    core::SceneDocument spinningObjectAnimated = spinningObjectSaved;
+    spinningObjectAnimated.objects[0].rotationDeg.y += 37.0f;
+    require(core::sceneDocumentEditContentEqual(
+                spinningObjectSaved, spinningObjectAnimated),
+            "automatic object rotation was reported as an edit");
+    spinningObjectAnimated.objects[0].scale.x += 1.0f;
+    require(!core::sceneDocumentEditContentEqual(
+                spinningObjectSaved, spinningObjectAnimated),
+            "authored transform on a spinning object was ignored");
+
+    core::SceneDocument spinningPointSaved = saved;
+    spinningPointSaved.pointLight.spinning = true;
+    core::SceneDocument spinningPointAnimated = spinningPointSaved;
+    spinningPointAnimated.pointLight.position.x += 5.0f;
+    spinningPointAnimated.pointLight.position.z -= 3.0f;
+    require(core::sceneDocumentEditContentEqual(
+                spinningPointSaved, spinningPointAnimated),
+            "automatic point-light orbit was reported as an edit");
+    spinningPointAnimated.pointLight.position.y += 1.0f;
+    require(!core::sceneDocumentEditContentEqual(
+                spinningPointSaved, spinningPointAnimated),
+            "authored point-light height was ignored");
+
+    core::SceneDocument changedAnimationMode = spinningPointSaved;
+    changedAnimationMode.pointLight.spinning = false;
+    require(!core::sceneDocumentEditContentEqual(
+                spinningPointSaved, changedAnimationMode),
+            "point-light animation mode edit was ignored");
 }
 
 void testSceneIoRoundTrip() {
@@ -1955,6 +2071,7 @@ int main() {
         {"benchmark invalid report rejection", testBenchmarkRejectsInvalidReports},
         {"benchmark invalid comparison rejection", testBenchmarkRejectsInvalidComparison},
         {"scene validation matrix", testSceneValidationMatrix},
+        {"scene edit-content comparison", testSceneDocumentEditContentComparison},
         {"scene I/O round-trip", testSceneIoRoundTrip},
         {"oversized scene rejection", testOversizedSceneIsNotSaved},
         {"scene history transactions", testSceneHistoryTransactions},

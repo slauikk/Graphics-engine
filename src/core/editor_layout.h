@@ -67,6 +67,13 @@ enum class EditorPanelSplitter {
     Inspector
 };
 
+enum class EditorCloseDialogAction {
+    None,
+    SaveAndExit,
+    DiscardAndExit,
+    Cancel
+};
+
 struct EditorLayout {
     int width = 0;
     int height = 0;
@@ -88,6 +95,9 @@ struct EditorLayout {
     EditorRect inspectorSplitter;
     EditorRect statusBar;
     EditorRect modalOverlay;
+    EditorRect closeSaveButton;
+    EditorRect closeDiscardButton;
+    EditorRect closeCancelButton;
     EditorRect createButton;
     EditorRect saveButton;
     EditorRect loadButton;
@@ -127,6 +137,10 @@ EditorPanelAction editorPanelActionAt(
     EditorPoint point);
 
 EditorPanelSplitter editorPanelSplitterAt(
+    const EditorLayout& layout,
+    EditorPoint point);
+
+EditorCloseDialogAction editorCloseDialogActionAt(
     const EditorLayout& layout,
     EditorPoint point);
 

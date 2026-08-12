@@ -89,6 +89,9 @@ struct SceneIoResult {
 };
 
 bool validateSceneDocument(const SceneDocument& scene, std::string& error);
+bool sceneDocumentEditContentEqual(
+    const SceneDocument& left,
+    const SceneDocument& right);
 int findSceneObjectByRuntimeId(const SceneDocument& scene, std::uint64_t runtimeId);
 SceneIoResult saveSceneDocument(
     const SceneDocument& scene,

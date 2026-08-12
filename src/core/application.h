@@ -72,8 +72,16 @@ private:
     const Material* selectedMaterial() const;
     core::SceneDocument captureScene() const;
     bool applyScene(const core::SceneDocument& scene, std::string& error);
-    void saveQuickScene();
+    bool saveQuickScene();
     void loadQuickScene();
+    void markSceneEdited();
+    void markSceneSaved(const std::string& documentName);
+    void refreshSceneDirtyState();
+    void updateWindowTitle();
+    void requestClose();
+    void saveAndClose();
+    void discardAndClose();
+    void cancelCloseConfirmation();
     std::shared_ptr<Model> loadModelAsset(
         const std::string& assetReference,
         MaterialCache& materials,
@@ -125,6 +133,7 @@ private:
     // GLFW callbacks (static)
     static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
     static void windowFocusCallback(GLFWwindow* window, int focused);
+    static void windowCloseCallback(GLFWwindow* window);
     static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
     static void mouseCallback(GLFWwindow* window, double xpos, double ypos);
     static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
@@ -134,6 +143,7 @@ private:
     // Instance callbacks
     void onFramebufferResize(int width, int height);
     void onWindowFocus(int focused);
+    void onWindowClose();
     void onKey(int key, int action, int mods);
     void onMouseMove(double xpos, double ypos);
     void onMouseButton(int button, int action, int mods);
@@ -213,6 +223,13 @@ private:
     bool m_gizmoLastMoveSnapped = false;
     std::uint64_t m_nextObjectId = 1;
     core::SceneHistory m_sceneHistory;
+    std::optional<core::SceneDocument> m_savedSceneSnapshot;
+    std::string m_sceneDocumentName = "Untitled";
+    bool m_sceneDirty = false;
+    bool m_sceneDirtyRefreshPending = false;
+    bool m_closeConfirmationPending = false;
+    bool m_restoreBenchmarkAfterCloseCancel = false;
+    bool m_restoreMenuAfterCloseCancel = false;
     
     // Rendering resources
     std::shared_ptr<Mesh> m_cubeMesh = nullptr;

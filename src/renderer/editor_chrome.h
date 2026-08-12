@@ -28,6 +28,7 @@ public:
         bool canDeleteObject,
         bool gridEnabled,
         bool menuOpen,
+        bool closeDialogOpen,
         core::EditorPoint cursor,
         const core::EditorTranslationGizmo& gizmo,
         core::EditorGizmoAxis activeGizmoAxis,

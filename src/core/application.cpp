@@ -374,6 +374,7 @@ bool Application::init() {
     glfwSetWindowUserPointer(m_window, this);
     glfwSetFramebufferSizeCallback(m_window, framebufferSizeCallback);
     glfwSetWindowFocusCallback(m_window, windowFocusCallback);
+    glfwSetWindowCloseCallback(m_window, windowCloseCallback);
     glfwSetKeyCallback(m_window, keyCallback);
 
     glfwSwapInterval(m_windowSettings.vsync ? 1 : 0);
@@ -598,6 +599,7 @@ void main() {
     Menu::setLightPosition(m_pointLight.position.x, m_pointLight.position.y,
                            m_pointLight.position.z);
     syncSelectedObjectToMenu();
+    markSceneSaved("Untitled");
 
     glfwShowWindow(m_window);
     glfwFocusWindow(m_window);
@@ -978,6 +980,7 @@ void Application::createCubeObject() {
     m_objects.push_back(std::move(object));
     m_selectedObject = static_cast<int>(m_objects.size()) - 1;
     syncSelectedObjectToMenu();
+    markSceneEdited();
 
     m_sceneOperationSucceeded = true;
     m_sceneMessage = "Cube created: " +
@@ -1152,6 +1155,7 @@ void Application::syncSelectedObjectToMenu() {
 
 void Application::checkpointScene() {
     m_sceneHistory.record(captureScene());
+    m_sceneDirtyRefreshPending = true;
 }
 
 void Application::restoreSceneHistory(bool redo) {
@@ -1187,6 +1191,7 @@ void Application::restoreSceneHistory(bool redo) {
     const bool committed = redo
         ? m_sceneHistory.commitRedo(std::move(current))
         : m_sceneHistory.commitUndo(std::move(current));
+    refreshSceneDirtyState();
     m_sceneOperationSucceeded = committed;
     m_sceneMessage = committed
         ? (redo ? "Scene change redone" : "Scene change undone")
@@ -1412,21 +1417,32 @@ bool Application::applyScene(const core::SceneDocument& scene, std::string& erro
     return true;
 }
 
-void Application::saveQuickScene() {
+bool Application::saveQuickScene() {
     const std::filesystem::path path = core::quickSaveScenePath();
-    const core::SceneIoResult result = core::saveSceneDocument(captureScene(), path);
+    const core::SceneDocument scene = captureScene();
+    const core::SceneIoResult result = core::saveSceneDocument(scene, path);
     m_sceneOperationSucceeded = result.success;
     m_sceneMessageTime = 3.0f;
     if (result.success) {
+        markSceneSaved(path.filename().string());
         m_sceneMessage = "Scene saved: " + path.filename().string();
         std::cout << "Scene saved: " << path.string() << "\n";
     } else {
         m_sceneMessage = "Scene save failed";
         std::cerr << "Failed to save scene: " << result.error << "\n";
     }
+    return result.success;
 }
 
 void Application::loadQuickScene() {
+    refreshSceneDirtyState();
+    if (m_sceneDirty) {
+        m_sceneOperationSucceeded = false;
+        m_sceneMessageTime = 3.0f;
+        m_sceneMessage = "Load blocked: save or undo unsaved changes";
+        return;
+    }
+
     const std::filesystem::path path = core::quickSaveScenePath();
     core::SceneDocument scene;
     core::SceneIoResult result = core::loadSceneDocument(path, scene);
@@ -1439,6 +1455,7 @@ void Application::loadQuickScene() {
             result.error = std::move(applyError);
         } else {
             m_sceneHistory.record(std::move(previousScene), false);
+            markSceneSaved(path.filename().string());
         }
     }
 
@@ -1736,6 +1753,116 @@ void Application::persistWindowSettings() {
     }
 }
 
+void Application::markSceneEdited() {
+    refreshSceneDirtyState();
+}
+
+void Application::markSceneSaved(const std::string& documentName) {
+    m_savedSceneSnapshot = captureScene();
+    m_sceneDocumentName = documentName.empty() ? "Untitled" : documentName;
+    m_sceneDirty = false;
+    m_sceneDirtyRefreshPending = false;
+    updateWindowTitle();
+}
+
+void Application::refreshSceneDirtyState() {
+    m_sceneDirtyRefreshPending = false;
+    const bool dirty = !m_savedSceneSnapshot.has_value() ||
+        !core::sceneDocumentEditContentEqual(
+            *m_savedSceneSnapshot, captureScene());
+    if (dirty == m_sceneDirty) {
+        return;
+    }
+    m_sceneDirty = dirty;
+    updateWindowTitle();
+}
+
+void Application::updateWindowTitle() {
+    if (m_window == nullptr) {
+        return;
+    }
+    std::string title = "Graphics Engine Editor - " + m_sceneDocumentName;
+    if (m_sceneDirty) {
+        title += " *";
+    }
+    glfwSetWindowTitle(m_window, title.c_str());
+}
+
+void Application::requestClose() {
+    if (m_window == nullptr || m_closeConfirmationPending) {
+        return;
+    }
+
+    setCameraInputActive(false);
+    cancelGizmoDrag();
+    finishEditorPanelResize(true, false);
+    m_activeTransformKey = GLFW_KEY_UNKNOWN;
+    m_activeTransformObjectId = 0;
+    refreshSceneDirtyState();
+
+    if (!m_sceneDirty) {
+        glfwSetWindowShouldClose(m_window, GLFW_TRUE);
+        return;
+    }
+
+    m_restoreBenchmarkAfterCloseCancel = m_benchmarkEnabled;
+    m_restoreMenuAfterCloseCancel = Menu::isOpen();
+    if (m_benchmarkEnabled) {
+        toggleBenchmark();
+    }
+    if (Menu::isOpen()) {
+        Menu::toggle();
+    }
+    glfwSetWindowShouldClose(m_window, GLFW_FALSE);
+    m_closeConfirmationPending = true;
+    m_sceneOperationSucceeded = true;
+    m_sceneMessageTime = 0.0f;
+    if (glfwGetWindowAttrib(m_window, GLFW_ICONIFIED) == GLFW_TRUE) {
+        glfwRestoreWindow(m_window);
+        glfwFocusWindow(m_window);
+    }
+}
+
+void Application::saveAndClose() {
+    if (!m_closeConfirmationPending || !saveQuickScene()) {
+        return;
+    }
+    m_closeConfirmationPending = false;
+    m_restoreBenchmarkAfterCloseCancel = false;
+    m_restoreMenuAfterCloseCancel = false;
+    glfwSetWindowShouldClose(m_window, GLFW_TRUE);
+}
+
+void Application::discardAndClose() {
+    if (!m_closeConfirmationPending || m_window == nullptr) {
+        return;
+    }
+    m_closeConfirmationPending = false;
+    m_restoreBenchmarkAfterCloseCancel = false;
+    m_restoreMenuAfterCloseCancel = false;
+    glfwSetWindowShouldClose(m_window, GLFW_TRUE);
+}
+
+void Application::cancelCloseConfirmation() {
+    if (!m_closeConfirmationPending) {
+        return;
+    }
+    m_closeConfirmationPending = false;
+    const bool restoreBenchmark = m_restoreBenchmarkAfterCloseCancel;
+    const bool restoreMenu = m_restoreMenuAfterCloseCancel;
+    m_restoreBenchmarkAfterCloseCancel = false;
+    m_restoreMenuAfterCloseCancel = false;
+
+    if (restoreBenchmark && !m_benchmarkEnabled) {
+        toggleBenchmark();
+    } else if (restoreMenu && !Menu::isOpen()) {
+        Menu::toggle();
+    }
+    m_sceneOperationSucceeded = true;
+    m_sceneMessage = "Close cancelled";
+    m_sceneMessageTime = 1.5f;
+}
+
 void Application::setCameraInputActive(bool active) {
     if (m_window == nullptr) {
         return;
@@ -1931,7 +2058,7 @@ void Application::processInput(float dt) {
         }
     }
 
-    if (m_benchmarkEnabled) {
+    if (m_benchmarkEnabled || m_closeConfirmationPending) {
         return;
     }
 
@@ -1977,7 +2104,11 @@ void Application::update(float dt) {
         m_sceneMessageTime -= dt;
     }
 
-    if (m_benchmarkEnabled) {
+    if (m_sceneDirtyRefreshPending) {
+        refreshSceneDirtyState();
+    }
+
+    if (m_benchmarkEnabled || m_closeConfirmationPending) {
         return;
     }
     
@@ -2116,7 +2247,12 @@ void Application::update(float dt) {
     if (Menu::needsLightUpdate()) {
         const Menu::LightControlAction action = Menu::getLightControlAction();
         const float step = 0.5f;
-        const bool positionChange = changesPointLightPosition(action);
+        const bool resetChange = action == Menu::LIGHT_RESET &&
+            (m_pointLightSpinning ||
+             m_pointLight.position != glm::vec3(2.0f, 2.0f, 2.0f));
+        const bool positionChange = action == Menu::LIGHT_RESET
+            ? resetChange
+            : changesPointLightPosition(action);
         const bool spinStateChange =
             (action == Menu::LIGHT_SPIN && !m_pointLightSpinning) ||
             (action == Menu::LIGHT_STOP && m_pointLightSpinning);
@@ -2277,6 +2413,10 @@ void Application::update(float dt) {
         }
         
         Menu::markDirLightUpdated();
+    }
+
+    if (m_sceneDirtyRefreshPending) {
+        refreshSceneDirtyState();
     }
 }
 
@@ -2507,7 +2647,8 @@ void Application::render() {
     }
     const core::EditorPoint editorCursor = cursorFramebufferPosition();
     const core::EditorTranslationGizmo editorGizmo =
-        !m_benchmarkEnabled && !Menu::isOpen()
+        !m_benchmarkEnabled && !Menu::isOpen() &&
+            !m_closeConfirmationPending
         ? selectedObjectGizmo(editorLayout)
         : core::EditorTranslationGizmo{};
     m_renderer->beginUiPass();
@@ -2525,6 +2666,7 @@ void Application::render() {
                 m_selectedObject < static_cast<int>(m_objects.size()),
             m_showCoordinateGrid,
             Menu::isOpen(),
+            m_closeConfirmationPending,
             editorCursor,
             editorGizmo,
             m_activeGizmoAxis,
@@ -2536,7 +2678,8 @@ void Application::render() {
         renderEditorOverlay(editorLayout);
     }
 
-    if (!m_benchmarkEnabled && !Menu::isOpen()) {
+    if (!m_benchmarkEnabled && !Menu::isOpen() &&
+        !m_closeConfirmationPending) {
         constexpr float crosshairScale = 1.5f;
         UIText::renderTextWithColor(
             "+",
@@ -2631,7 +2774,8 @@ void Application::render() {
         }
     }
     
-    if (m_benchmarkEnabled || m_showGPUInfo) {
+    if (!m_closeConfirmationPending &&
+        (m_benchmarkEnabled || m_showGPUInfo)) {
         UIText::renderText(oss.str(), 10.0f, 10.0f, 1.5f);
     }
     
@@ -2649,7 +2793,7 @@ void Application::render() {
     }
     
     // Show active post-process and material inspection views.
-    if (!m_benchmarkEnabled && m_showGPUInfo &&
+    if (!m_benchmarkEnabled && !m_closeConfirmationPending && m_showGPUInfo &&
         m_shader != nullptr && m_shader->m_id != 0) {
         std::string shaderStatus = std::string("Post: ") +
                                    PostProcessor::effectName(m_postProcessEffect) +
@@ -2658,7 +2802,7 @@ void Application::render() {
         UIText::renderTextWithColor(shaderStatus, 10.0f, 250.0f, 1.2f, 0.0f, 1.0f, 0.0f);
     }
 
-    if (!m_benchmarkEnabled && m_showGPUInfo) {
+    if (!m_benchmarkEnabled && !m_closeConfirmationPending && m_showGPUInfo) {
         const float editorHudScale = m_width < 600
             ? 0.8f
             : (m_width < 900 ? 1.0f : 1.2f);
@@ -2810,6 +2954,47 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
     renderButtonLabel(
         layout.inspectorToggleButton,
         layout.inspectorExpanded ? ">" : "<");
+
+    if (m_closeConfirmationPending) {
+        const core::EditorRect& modal = layout.modalOverlay;
+        if (modal.valid()) {
+            const std::size_t modalCharacters = (std::max<std::size_t>)(
+                12,
+                static_cast<std::size_t>((std::max)(0, modal.width / 8 - 6)));
+            const float textX = static_cast<float>(modal.x) + 24.0f;
+            const float titleY = static_cast<float>(modal.y) +
+                (std::max)(24.0f, static_cast<float>(modal.height) * 0.18f);
+            UIText::renderTextWithColor(
+                "UNSAVED CHANGES", textX, titleY, 1.4f,
+                accentRed, accentGreen, accentBlue);
+            UIText::renderTextWithColor(
+                truncateHudText(m_sceneDocumentName + " *", modalCharacters),
+                textX, titleY + 34.0f, textScale,
+                0.84f, 0.88f, 0.94f);
+            UIText::renderText(
+                "ENTER / CTRL+S   SAVE\n"
+                "D                DISCARD\n"
+                "ESC              CANCEL",
+                textX, titleY + 78.0f, textScale);
+            if (layout.closeSaveButton.valid()) {
+                if (!m_sceneOperationSucceeded && m_sceneMessageTime > 0.0f) {
+                    UIText::renderTextWithColor(
+                        truncateHudText(m_sceneMessage, modalCharacters),
+                        textX,
+                        static_cast<float>(layout.closeSaveButton.y) - 26.0f,
+                        textScale, 1.0f, 0.35f, 0.25f);
+                }
+                renderButtonLabel(layout.closeSaveButton, "SAVE & EXIT");
+                renderButtonLabel(layout.closeDiscardButton, "DISCARD & EXIT");
+                renderButtonLabel(layout.closeCancelButton, "CANCEL");
+            }
+        }
+        UIText::renderTextWithColor(
+            "UNSAVED  |  CLOSE CONFIRMATION  |  ESC CANCEL",
+            12.0f, static_cast<float>(layout.statusBar.y) + 8.0f,
+            textScale, 1.0f, 0.72f, 0.34f);
+        return;
+    }
 
     if (layout.hierarchyExpanded) {
         UIText::renderTextWithColor(
@@ -3015,7 +3200,7 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
         mutedRed, mutedGreen, mutedBlue);
     }
 
-    if (!Menu::isOpen()) {
+    if (!Menu::isOpen() && !m_closeConfirmationPending) {
         const core::EditorTranslationGizmo gizmo =
             selectedObjectGizmo(layout);
         constexpr std::array<const char*, 3> axisLabels = {
@@ -3074,6 +3259,7 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
 
     std::ostringstream status;
     status << std::fixed << std::setprecision(1);
+    status << (m_sceneDirty ? "UNSAVED" : "SAVED") << "  |  ";
     status << (m_hasFrameStatistics ? std::to_string(
         static_cast<int>(std::lround(m_currentFPS))) : std::string("--"))
            << " FPS";
@@ -3109,6 +3295,13 @@ void Application::windowFocusCallback(GLFWwindow* window, int focused) {
     auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
     if (app != nullptr) {
         app->onWindowFocus(focused);
+    }
+}
+
+void Application::windowCloseCallback(GLFWwindow* window) {
+    auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
+    if (app != nullptr) {
+        app->onWindowClose();
     }
 }
 
@@ -3159,6 +3352,14 @@ void Application::onWindowFocus(int focused) {
     }
 }
 
+void Application::onWindowClose() {
+    if (m_window == nullptr) {
+        return;
+    }
+    glfwSetWindowShouldClose(m_window, GLFW_FALSE);
+    requestClose();
+}
+
 void Application::onKey(int key, int action, int mods) {
     if (action == GLFW_RELEASE) {
         if (key == m_activeTransformKey) {
@@ -3195,6 +3396,23 @@ void Application::onKey(int key, int action, int mods) {
     if (action != GLFW_PRESS) {
         return;
     }
+    if (m_closeConfirmationPending) {
+        const int relevantModifiers = mods &
+            (GLFW_MOD_SHIFT | GLFW_MOD_CONTROL |
+             GLFW_MOD_ALT | GLFW_MOD_SUPER);
+        const bool noModifiers = relevantModifiers == 0;
+        const bool controlOnly = relevantModifiers == GLFW_MOD_CONTROL;
+        if (key == GLFW_KEY_ESCAPE && noModifiers) {
+            cancelCloseConfirmation();
+        } else if (key == GLFW_KEY_D && noModifiers) {
+            discardAndClose();
+        } else if (((key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) &&
+                    noModifiers) ||
+                   (key == GLFW_KEY_S && controlOnly)) {
+            saveAndClose();
+        }
+        return;
+    }
     const bool gizmoSnapModifier =
         m_activeGizmoAxis != core::EditorGizmoAxis::None &&
         (key == GLFW_KEY_LEFT_CONTROL || key == GLFW_KEY_RIGHT_CONTROL);
@@ -3221,6 +3439,10 @@ void Application::onKey(int key, int action, int mods) {
     const bool altPressed = (mods & GLFW_MOD_ALT) != 0;
     const bool otherModifierPressed =
         (mods & (GLFW_MOD_SHIFT | GLFW_MOD_CONTROL | GLFW_MOD_SUPER)) != 0;
+    if (altPressed && key == GLFW_KEY_F4) {
+        requestClose();
+        return;
+    }
     if (altPressed && !otherModifierPressed &&
         (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER)) {
         toggleFullscreen();
@@ -3237,7 +3459,7 @@ void Application::onKey(int key, int action, int mods) {
         return;
     }
     if (m_benchmarkEnabled && key == GLFW_KEY_ESCAPE) {
-        glfwSetWindowShouldClose(m_window, true);
+        requestClose();
         return;
     }
     if (!m_benchmarkEnabled && Menu::isOpen()) {
@@ -3263,7 +3485,7 @@ void Application::onKey(int key, int action, int mods) {
             setCameraInputActive(false);
             return;
         }
-        glfwSetWindowShouldClose(m_window, true);
+        requestClose();
         return;
     }
 
@@ -3278,6 +3500,10 @@ void Application::onKey(int key, int action, int mods) {
         }
         if (controlPressed && key == GLFW_KEY_Y) {
             restoreSceneHistory(true);
+            return;
+        }
+        if (controlPressed && key == GLFW_KEY_S) {
+            saveQuickScene();
             return;
         }
         if ((key == GLFW_KEY_INSERT || key == GLFW_KEY_C) && noModifiers) {
@@ -3561,6 +3787,13 @@ void Application::finishEditorPanelResize(bool cancel, bool notify) {
 }
 
 void Application::onMouseMove(double xpos, double ypos) {
+    if (m_closeConfirmationPending) {
+        setEditorResizeCursor(false);
+        m_lastX = static_cast<float>(xpos);
+        m_lastY = static_cast<float>(ypos);
+        m_firstMouse = true;
+        return;
+    }
     const core::EditorLayout layout = currentEditorLayout(m_width, m_height);
     const core::EditorPoint cursor = cursorFramebufferPosition();
     if (m_activePanelSplitter != core::EditorPanelSplitter::None) {
@@ -3659,6 +3892,24 @@ void Application::onMouseButton(int button, int action, int mods) {
     (void)mods;
     const core::EditorLayout layout = currentEditorLayout(m_width, m_height);
     const core::EditorPoint cursor = cursorFramebufferPosition();
+    if (m_closeConfirmationPending) {
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+            switch (core::editorCloseDialogActionAt(layout, cursor)) {
+                case core::EditorCloseDialogAction::SaveAndExit:
+                    saveAndClose();
+                    break;
+                case core::EditorCloseDialogAction::DiscardAndExit:
+                    discardAndClose();
+                    break;
+                case core::EditorCloseDialogAction::Cancel:
+                    cancelCloseConfirmation();
+                    break;
+                case core::EditorCloseDialogAction::None:
+                    break;
+            }
+        }
+        return;
+    }
 
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE &&
         m_activePanelSplitter != core::EditorPanelSplitter::None) {
@@ -3698,6 +3949,7 @@ void Application::onMouseButton(int button, int action, int mods) {
         clearGizmoDrag();
         if (moved) {
             m_sceneHistory.record(std::move(*sceneBeforeDrag));
+            markSceneEdited();
             m_sceneOperationSucceeded = true;
             m_sceneMessage = snapped
                 ? "Gizmo snap committed on " + axisName
@@ -3881,6 +4133,7 @@ void Application::onMouseButton(int button, int action, int mods) {
 void Application::onScroll(double xoffset, double yoffset) {
     (void)xoffset;
     if (m_camera == nullptr || m_benchmarkEnabled || Menu::isOpen() ||
+        m_closeConfirmationPending ||
         m_activePanelSplitter != core::EditorPanelSplitter::None) {
         return;
     }

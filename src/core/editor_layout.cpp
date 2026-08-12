@@ -17,6 +17,9 @@ constexpr int kInspectorButtonGap = 4;
 constexpr int kInspectorButtonHeight = 24;
 constexpr int kInspectorButtonRowGap = 6;
 constexpr int kPanelTogglePadding = 4;
+constexpr int kCloseDialogButtonHeight = 32;
+constexpr int kCloseDialogButtonGap = 8;
+constexpr int kCloseDialogPadding = 24;
 
 void reducePanelWidthsToFit(
     int maximumWidth,
@@ -306,6 +309,28 @@ EditorLayout calculateEditorLayout(
         layout.viewport.y + (layout.viewport.height - modalHeight) / 2,
         modalWidth,
         modalHeight};
+    constexpr int closeButtonStackHeight =
+        3 * kCloseDialogButtonHeight + 2 * kCloseDialogButtonGap;
+    if (modalWidth > 2 * kCloseDialogPadding &&
+        modalHeight >= closeButtonStackHeight + 2 * kCloseDialogPadding) {
+        const int closeButtonX =
+            layout.modalOverlay.x + kCloseDialogPadding;
+        const int closeButtonWidth =
+            modalWidth - 2 * kCloseDialogPadding;
+        const int closeButtonY = layout.modalOverlay.y + modalHeight -
+            kCloseDialogPadding - closeButtonStackHeight;
+        layout.closeSaveButton = {
+            closeButtonX, closeButtonY,
+            closeButtonWidth, kCloseDialogButtonHeight};
+        layout.closeDiscardButton = {
+            closeButtonX,
+            closeButtonY + kCloseDialogButtonHeight + kCloseDialogButtonGap,
+            closeButtonWidth, kCloseDialogButtonHeight};
+        layout.closeCancelButton = {
+            closeButtonX,
+            closeButtonY + 2 * (kCloseDialogButtonHeight + kCloseDialogButtonGap),
+            closeButtonWidth, kCloseDialogButtonHeight};
+    }
 
     int buttonX = 172;
     layout.createButton = toolbarButton(buttonX, 88);
@@ -425,6 +450,21 @@ EditorPanelAction editorPanelActionAt(
         return EditorPanelAction::ToggleInspector;
     }
     return EditorPanelAction::None;
+}
+
+EditorCloseDialogAction editorCloseDialogActionAt(
+    const EditorLayout& layout,
+    EditorPoint point) {
+    if (layout.closeSaveButton.contains(point)) {
+        return EditorCloseDialogAction::SaveAndExit;
+    }
+    if (layout.closeDiscardButton.contains(point)) {
+        return EditorCloseDialogAction::DiscardAndExit;
+    }
+    if (layout.closeCancelButton.contains(point)) {
+        return EditorCloseDialogAction::Cancel;
+    }
+    return EditorCloseDialogAction::None;
 }
 
 EditorPanelSplitter editorPanelSplitterAt(

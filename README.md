@@ -38,6 +38,7 @@ executable, assets, third-party DLLs, and the MSVC runtime libraries.
 - Scene and Inspector can collapse into narrow rails; their state is restored on the next launch.
 - Drag the separators beside Scene or Inspector to resize the panels; their widths are restored on the next launch.
 - Buttons and Scene rows show hover feedback, and Assets menu entries can be opened with the mouse or keyboard.
+- The title and status bar show `*` / `UNSAVED` after scene edits and return to a saved state after save, load, or undoing back to the saved content.
 - Hold the right mouse button and use the mouse / `W/A/S/D`, `Shift`, `Ctrl`: look and move the editor camera.
 - `Alt+Enter`: toggle between the remembered windowed layout and fullscreen.
 - Window position is preserved across monitors; fullscreen uses the display containing the window.
@@ -55,14 +56,16 @@ executable, assets, third-party DLLs, and the MSVC runtime libraries.
 - `Ctrl+D`: duplicate the selected object with a small position offset.
 - `Delete` / `X`: remove the selected object.
 - `Ctrl+Z` / `Ctrl+Y`: undo / redo scene edits without moving the camera.
+- `Ctrl+S` or `F11`: save the quick scene; `F12`: load it.
+- Quick-load is blocked while the current scene is unsaved; save it or undo back to the saved state first.
 - `G`: toggle the coordinate grid.
 - `1`-`6`: select a post-processing effect.
 - `F1`-`F4`, `F6`: select a material debug view.
 - `F5`: reload shaders.
 - `F7`: toggle the repeatable GPU benchmark.
 - `F9`: toggle GPU information.
-- `F11` / `F12`: save / load the quick scene.
-- `Esc`: close the menu or application.
+- `Esc`: close the menu or request application exit.
+- Closing an edited scene with `Esc`, `Alt+F4`, or the title-bar `X` opens a keyboard-and-mouse confirmation: `Enter` / `Ctrl+S` saves and exits, `D` discards and exits, and `Esc` cancels.
 
 The importer accepts `.obj`, `.gltf`, and `.glb`. External material textures
 inside `assets` are supported; embedded image textures currently use the

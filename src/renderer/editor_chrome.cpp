@@ -201,6 +201,7 @@ void EditorChrome::render(
     bool canDeleteObject,
     bool gridEnabled,
     bool menuOpen,
+    bool closeDialogOpen,
     core::EditorPoint cursor,
     const core::EditorTranslationGizmo& gizmo,
     core::EditorGizmoAxis activeGizmoAxis,
@@ -220,6 +221,7 @@ void EditorChrome::render(
         const core::EditorRect& rect, Color color) {
         appendOutline(rect, color.red, color.green, color.blue);
     };
+    const bool interactionBlocked = menuOpen || closeDialogOpen;
 
     appendColorRect(layout.toolbar, kToolbarColor);
     appendColorRect(layout.hierarchy, kPanelColor);
@@ -237,18 +239,19 @@ void EditorChrome::render(
                    : (hovered ? kButtonHoverColor : kButtonColor));
         appendColorOutline(button, kSeparatorColor);
     };
-    appendButton(layout.createButton, false, !menuOpen);
-    appendButton(layout.saveButton, false, !menuOpen);
-    appendButton(layout.loadButton, false, !menuOpen);
-    appendButton(layout.gridButton, gridEnabled, !menuOpen);
-    appendButton(layout.assetsButton, menuOpen, true);
-    appendButton(layout.benchmarkButton, false, !menuOpen);
-    appendButton(layout.hierarchyToggleButton, false, !menuOpen);
-    appendButton(layout.inspectorToggleButton, false, !menuOpen);
+    appendButton(layout.createButton, false, !interactionBlocked);
+    appendButton(layout.saveButton, false, !interactionBlocked);
+    appendButton(layout.loadButton, false, !interactionBlocked);
+    appendButton(layout.gridButton, gridEnabled, !interactionBlocked);
+    appendButton(layout.assetsButton, menuOpen, !closeDialogOpen);
+    appendButton(layout.benchmarkButton, false, !interactionBlocked);
+    appendButton(layout.hierarchyToggleButton, false, !interactionBlocked);
+    appendButton(layout.inspectorToggleButton, false, !interactionBlocked);
 
     const auto appendHierarchyButton = [&](
         const core::EditorRect& button, bool enabled) {
-        const bool hovered = enabled && !menuOpen && button.contains(cursor);
+        const bool hovered = enabled && !interactionBlocked &&
+            button.contains(cursor);
         appendColorRect(
             button,
             enabled
@@ -264,7 +267,7 @@ void EditorChrome::render(
     const bool inspectorEnabled = selectedObject >= 0 &&
         static_cast<std::size_t>(selectedObject) < objectCount;
     const auto appendInspectorButton = [&](const core::EditorRect& button) {
-        const bool hovered = inspectorEnabled && !menuOpen &&
+        const bool hovered = inspectorEnabled && !interactionBlocked &&
             button.contains(cursor);
         appendColorRect(
             button,
@@ -283,7 +286,7 @@ void EditorChrome::render(
         appendInspectorButton(button);
     }
 
-    if (!menuOpen && layout.hierarchyList.contains(cursor)) {
+    if (!interactionBlocked && layout.hierarchyList.contains(cursor)) {
         const int relativeY =
             static_cast<int>(cursor.y) - layout.hierarchyList.y;
         const std::size_t visibleRow = static_cast<std::size_t>(
@@ -304,7 +307,7 @@ void EditorChrome::render(
             kSelectionColor);
     }
 
-    if (gizmo.valid && !menuOpen) {
+    if (gizmo.valid && !interactionBlocked) {
         constexpr std::array<core::EditorGizmoAxis, 3> axes = {
             core::EditorGizmoAxis::X,
             core::EditorGizmoAxis::Y,
@@ -347,7 +350,7 @@ void EditorChrome::render(
         {0, layout.statusBar.y - 1, layout.width, 1},
         kSeparatorColor);
 
-    const core::EditorPanelSplitter hoveredSplitter = menuOpen
+    const core::EditorPanelSplitter hoveredSplitter = interactionBlocked
         ? core::EditorPanelSplitter::None
         : core::editorPanelSplitterAt(layout, cursor);
     const auto appendSplitterHighlight = [&](const core::EditorRect& splitter,
@@ -373,13 +376,18 @@ void EditorChrome::render(
     appendSplitterHighlight(
         layout.inspectorSplitter, core::EditorPanelSplitter::Inspector);
 
-    if (menuOpen && layout.modalOverlay.valid()) {
+    if (interactionBlocked && layout.modalOverlay.valid()) {
         appendColorRect(
             {layout.modalOverlay.x + 8, layout.modalOverlay.y + 8,
              layout.modalOverlay.width, layout.modalOverlay.height},
             kModalShadowColor);
         appendColorRect(layout.modalOverlay, kModalColor);
         appendColorOutline(layout.modalOverlay, kViewportBorderColor);
+    }
+    if (closeDialogOpen) {
+        appendButton(layout.closeSaveButton, false, true);
+        appendButton(layout.closeDiscardButton, false, true);
+        appendButton(layout.closeCancelButton, false, true);
     }
 
     if (m_vertices.empty()) {
