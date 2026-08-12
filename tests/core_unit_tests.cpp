@@ -205,25 +205,33 @@ void testAssetPathContainment() {
 void testEditorLayoutAndHitTesting() {
     const core::EditorLayout layout =
         core::calculateEditorLayout(1280, 720);
-    require(layout.toolbar.x == 0 && layout.toolbar.y == 0 &&
+    require(layout.menuBar.x == 0 && layout.menuBar.y == 0 &&
+                layout.menuBar.width == 1280 && layout.menuBar.height == 24 &&
+                layout.toolbar.x == 0 && layout.toolbar.y == 24 &&
                 layout.toolbar.width == 1280 && layout.toolbar.height == 44,
-            "editor toolbar bounds are incorrect");
-    require(layout.statusBar.y == 692 && layout.statusBar.height == 28,
+            "editor top chrome bounds are incorrect");
+    require(layout.statusBar.y == 696 && layout.statusBar.height == 24,
             "editor status bar bounds are incorrect");
     require(layout.hierarchy.width == 230 &&
                 layout.inspector.x == 986 && layout.inspector.width == 294,
             "editor side panel bounds are incorrect");
-    require(layout.viewport.x == 231 && layout.viewport.y == 44 &&
-                layout.viewport.width == 754 && layout.viewport.height == 648,
+    require(layout.viewportFrame.x == 231 && layout.viewportFrame.y == 68 &&
+                layout.viewportFrame.width == 754 &&
+                layout.viewportFrame.height == 628 &&
+                layout.viewportHeader.x == 231 &&
+                layout.viewportHeader.y == 68 &&
+                layout.viewportHeader.height == 30 &&
+                layout.viewport.x == 231 && layout.viewport.y == 98 &&
+                layout.viewport.width == 754 && layout.viewport.height == 598,
             "editor viewport bounds are incorrect");
-    require(layout.modalOverlay.x == 348 && layout.modalOverlay.y == 118 &&
+    require(layout.modalOverlay.x == 348 && layout.modalOverlay.y == 147 &&
                 layout.modalOverlay.width == 520 &&
                 layout.modalOverlay.height == 500,
             "editor modal overlay bounds are incorrect");
     require(layout.closeSaveButton.x == 372 &&
-                layout.closeSaveButton.y == 482 &&
+                layout.closeSaveButton.y == 511 &&
                 layout.closeSaveButton.width == 472 &&
-                layout.closeCancelButton.y == 562,
+                layout.closeCancelButton.y == 591,
             "editor close dialog button bounds are incorrect");
     require(layout.viewport.contains({500.0, 300.0}) &&
                 !layout.viewport.contains({100.0, 300.0}) &&
@@ -252,6 +260,42 @@ void testEditorLayoutAndHitTesting() {
                 core::editorToolbarActionAt(layout, {20.0, 20.0}) ==
                 core::EditorToolbarAction::None,
             "editor toolbar action hit testing is incorrect");
+
+    require(core::editorMenuAt(
+                layout,
+                {layout.menuButtons[0].x + 2.0,
+                 layout.menuButtons[0].y + 2.0}) ==
+                core::EditorMenu::File &&
+                core::editorMenuAt(
+                    layout,
+                    {layout.menuButtons[3].x + 2.0,
+                     layout.menuButtons[3].y + 2.0}) ==
+                core::EditorMenu::Window &&
+                core::editorMenuAt(layout, {20.0, 10.0}) ==
+                core::EditorMenu::None,
+            "editor menu bar hit testing is incorrect");
+    const core::EditorMenuPopup filePopup =
+        core::calculateEditorMenuPopup(layout, core::EditorMenu::File);
+    const core::EditorMenuPopup viewPopup =
+        core::calculateEditorMenuPopup(layout, core::EditorMenu::View);
+    require(filePopup.bounds.x == layout.menuButtons[0].x &&
+                filePopup.bounds.y == layout.menuBar.height &&
+                filePopup.bounds.width == 236 &&
+                filePopup.itemCount == 3 &&
+                viewPopup.itemCount == 5 &&
+                core::editorMenuActionAt(
+                    layout,
+                    core::EditorMenu::File,
+                    {filePopup.items[0].x + 2.0,
+                     filePopup.items[0].y + 2.0}) ==
+                core::EditorMenuAction::SaveScene &&
+                core::editorMenuActionAt(
+                    layout,
+                    core::EditorMenu::View,
+                    {viewPopup.items[4].x + 2.0,
+                     viewPopup.items[4].y + 2.0}) ==
+                core::EditorMenuAction::OpenAssets,
+            "editor menu popup layout or action mapping is incorrect");
 
     require(core::editorHierarchyActionAt(
                 layout,
@@ -358,11 +402,11 @@ void testEditorLayoutAndHitTesting() {
 
     const std::size_t visibleRows =
         core::editorHierarchyVisibleRowCount(layout);
-    require(visibleRows == 22,
+    require(visibleRows == 21,
             "editor hierarchy visible row count is incorrect");
     const std::size_t firstVisible =
         core::firstVisibleEditorObject(layout, 30, 29);
-    require(firstVisible == 8,
+    require(firstVisible == 9,
             "editor hierarchy did not keep the selected object visible");
     const core::EditorRect lastRow =
         core::editorHierarchyRowRect(layout, visibleRows - 1);
@@ -379,6 +423,29 @@ void testEditorLayoutAndHitTesting() {
                 !compact.hierarchySplitter.valid() &&
                 !compact.inspectorSplitter.valid(),
             "compact editor layout collapsed the viewport");
+    const auto insideCompactModal = [&compact](const core::EditorRect& button) {
+        return button.valid() &&
+            button.x >= compact.modalOverlay.x &&
+            button.y >= compact.modalOverlay.y &&
+            button.x + button.width <= compact.modalOverlay.x +
+                compact.modalOverlay.width &&
+            button.y + button.height <= compact.modalOverlay.y +
+                compact.modalOverlay.height;
+    };
+    require(insideCompactModal(compact.closeSaveButton) &&
+                insideCompactModal(compact.closeDiscardButton) &&
+                insideCompactModal(compact.closeCancelButton) &&
+                core::editorCloseDialogActionAt(
+                    compact,
+                    {compact.closeSaveButton.x + 2.0,
+                     compact.closeSaveButton.y + 2.0}) ==
+                    core::EditorCloseDialogAction::SaveAndExit &&
+                core::editorCloseDialogActionAt(
+                    compact,
+                    {compact.closeCancelButton.x + 2.0,
+                     compact.closeCancelButton.y + 2.0}) ==
+                    core::EditorCloseDialogAction::Cancel,
+            "compact editor layout lost close dialog mouse controls");
 
     const core::EditorLayout constrained = core::calculateEditorLayout(
         800,

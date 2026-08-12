@@ -10,9 +10,13 @@ constexpr int kHierarchyTopPadding = 8;
 constexpr int kHierarchyActionButtonHeight = 26;
 constexpr int kHierarchyActionButtonGap = 8;
 constexpr int kHierarchyActionBottomOffset = 58;
-constexpr int kToolbarButtonY = 8;
+constexpr int kToolbarButtonY = core::kEditorMenuBarHeight + 8;
 constexpr int kToolbarButtonHeight = 28;
 constexpr int kToolbarButtonGap = 8;
+constexpr int kMenuStartX = 132;
+constexpr int kMenuPopupWidth = 236;
+constexpr int kMenuPopupPadding = 4;
+constexpr int kMenuItemHeight = 28;
 constexpr int kInspectorButtonGap = 4;
 constexpr int kInspectorButtonHeight = 24;
 constexpr int kInspectorButtonRowGap = 6;
@@ -20,6 +24,10 @@ constexpr int kPanelTogglePadding = 4;
 constexpr int kCloseDialogButtonHeight = 32;
 constexpr int kCloseDialogButtonGap = 8;
 constexpr int kCloseDialogPadding = 24;
+constexpr int kCloseDialogCompactButtonHeight = 28;
+constexpr int kCloseDialogCompactButtonGap = 6;
+constexpr int kCloseDialogCompactPadding = 12;
+constexpr int kCloseDialogCompactMinimumButtonWidth = 44;
 
 void reducePanelWidthsToFit(
     int maximumWidth,
@@ -110,10 +118,64 @@ std::optional<int> clampedRoundedWidth(
         static_cast<int>(std::lround(desired)), minimum, maximum);
 }
 
-core::EditorRect toolbarButton(int& x, int width) {
-    const core::EditorRect button{x, kToolbarButtonY, width, kToolbarButtonHeight};
+core::EditorRect toolbarButton(int& x, int width, int layoutWidth) {
+    const core::EditorRect button = x + width <= layoutWidth
+        ? core::EditorRect{x, kToolbarButtonY, width, kToolbarButtonHeight}
+        : core::EditorRect{};
     x += width + kToolbarButtonGap;
     return button;
+}
+
+std::size_t editorMenuItemCount(core::EditorMenu menu) {
+    switch (menu) {
+        case core::EditorMenu::File: return 3;
+        case core::EditorMenu::Edit: return 4;
+        case core::EditorMenu::View: return 5;
+        case core::EditorMenu::Window: return 2;
+        case core::EditorMenu::None: return 0;
+    }
+    return 0;
+}
+
+core::EditorMenuAction editorMenuActionAtIndex(
+    core::EditorMenu menu,
+    std::size_t index) {
+    constexpr std::array fileActions = {
+        core::EditorMenuAction::SaveScene,
+        core::EditorMenuAction::LoadScene,
+        core::EditorMenuAction::ExitApplication};
+    constexpr std::array editActions = {
+        core::EditorMenuAction::Undo,
+        core::EditorMenuAction::Redo,
+        core::EditorMenuAction::DuplicateObject,
+        core::EditorMenuAction::DeleteObject};
+    constexpr std::array viewActions = {
+        core::EditorMenuAction::ToggleGrid,
+        core::EditorMenuAction::ToggleGpuInfo,
+        core::EditorMenuAction::ToggleVsync,
+        core::EditorMenuAction::ToggleFullscreen,
+        core::EditorMenuAction::OpenAssets};
+    constexpr std::array windowActions = {
+        core::EditorMenuAction::ToggleHierarchy,
+        core::EditorMenuAction::ToggleInspector};
+
+    switch (menu) {
+        case core::EditorMenu::File:
+            return index < fileActions.size()
+                ? fileActions[index] : core::EditorMenuAction::None;
+        case core::EditorMenu::Edit:
+            return index < editActions.size()
+                ? editActions[index] : core::EditorMenuAction::None;
+        case core::EditorMenu::View:
+            return index < viewActions.size()
+                ? viewActions[index] : core::EditorMenuAction::None;
+        case core::EditorMenu::Window:
+            return index < windowActions.size()
+                ? windowActions[index] : core::EditorMenuAction::None;
+        case core::EditorMenu::None:
+            return core::EditorMenuAction::None;
+    }
+    return core::EditorMenuAction::None;
 }
 
 } // namespace
@@ -149,10 +211,13 @@ EditorLayout calculateEditorLayout(
     layout.hierarchyExpanded = hierarchyExpanded;
     layout.inspectorExpanded = inspectorExpanded;
 
-    const int toolbarHeight = (std::min)(kEditorToolbarHeight, height);
+    const int topChromeHeight = (std::min)(kEditorTopChromeHeight, height);
+    const int menuBarHeight = (std::min)(kEditorMenuBarHeight, topChromeHeight);
+    const int toolbarHeight = topChromeHeight - menuBarHeight;
     const int statusHeight = (std::min)(
-        kEditorStatusBarHeight, (std::max)(0, height - toolbarHeight));
-    const int workspaceHeight = (std::max)(0, height - toolbarHeight - statusHeight);
+        kEditorStatusBarHeight, (std::max)(0, height - topChromeHeight));
+    const int workspaceHeight = (std::max)(
+        0, height - topChromeHeight - statusHeight);
 
     int hierarchyWidth = hierarchyExpanded
         ? std::clamp(
@@ -176,17 +241,30 @@ EditorLayout calculateEditorLayout(
         hierarchyWidth,
         inspectorWidth);
 
-    layout.toolbar = {0, 0, width, toolbarHeight};
+    layout.menuBar = {0, 0, width, menuBarHeight};
+    layout.toolbar = {0, menuBarHeight, width, toolbarHeight};
     layout.statusBar = {0, height - statusHeight, width, statusHeight};
-    layout.hierarchy = {0, toolbarHeight, hierarchyWidth, workspaceHeight};
-    layout.viewport = {
+    layout.hierarchy = {0, topChromeHeight, hierarchyWidth, workspaceHeight};
+    layout.viewportFrame = {
         hierarchyWidth + kEditorPanelSeparatorWidth,
-        toolbarHeight,
+        topChromeHeight,
         (std::max)(0, width - hierarchyWidth - inspectorWidth -
                            2 * kEditorPanelSeparatorWidth),
         workspaceHeight};
+    const int viewportHeaderHeight = (std::min)(
+        kEditorViewportHeaderHeight, layout.viewportFrame.height);
+    layout.viewportHeader = {
+        layout.viewportFrame.x,
+        layout.viewportFrame.y,
+        layout.viewportFrame.width,
+        viewportHeaderHeight};
+    layout.viewport = {
+        layout.viewportFrame.x,
+        layout.viewportFrame.y + viewportHeaderHeight,
+        layout.viewportFrame.width,
+        (std::max)(0, layout.viewportFrame.height - viewportHeaderHeight)};
     layout.inspector = {
-        width - inspectorWidth, toolbarHeight, inspectorWidth, workspaceHeight};
+        width - inspectorWidth, topChromeHeight, inspectorWidth, workspaceHeight};
 
     const bool panelWidthsResizable =
         (!hierarchyExpanded ||
@@ -200,7 +278,7 @@ EditorLayout calculateEditorLayout(
         const int boundary = layout.hierarchy.x + layout.hierarchy.width;
         layout.hierarchySplitter = {
             boundary - kEditorPanelSplitterHitWidth / 2,
-            toolbarHeight,
+            topChromeHeight,
             kEditorPanelSplitterHitWidth,
             workspaceHeight};
     }
@@ -210,7 +288,7 @@ EditorLayout calculateEditorLayout(
         inspectorMaximumAvailable > kMinimumEditorInspectorWidth) {
         layout.inspectorSplitter = {
             layout.inspector.x - kEditorPanelSplitterHitWidth / 2,
-            toolbarHeight,
+            topChromeHeight,
             kEditorPanelSplitterHitWidth,
             workspaceHeight};
     }
@@ -330,15 +408,58 @@ EditorLayout calculateEditorLayout(
             closeButtonX,
             closeButtonY + 2 * (kCloseDialogButtonHeight + kCloseDialogButtonGap),
             closeButtonWidth, kCloseDialogButtonHeight};
+    } else {
+        constexpr int compactButtonRowWidth =
+            3 * kCloseDialogCompactMinimumButtonWidth +
+            2 * kCloseDialogCompactButtonGap;
+        const int availableWidth =
+            modalWidth - 2 * kCloseDialogCompactPadding;
+        if (availableWidth >= compactButtonRowWidth &&
+            modalHeight >= kCloseDialogCompactButtonHeight +
+                2 * kCloseDialogCompactPadding) {
+            const int compactButtonWidth =
+                (availableWidth - 2 * kCloseDialogCompactButtonGap) / 3;
+            const int compactButtonY =
+                layout.modalOverlay.y + modalHeight -
+                kCloseDialogCompactPadding - kCloseDialogCompactButtonHeight;
+            layout.closeSaveButton = {
+                layout.modalOverlay.x + kCloseDialogCompactPadding,
+                compactButtonY,
+                compactButtonWidth,
+                kCloseDialogCompactButtonHeight};
+            layout.closeDiscardButton = {
+                layout.closeSaveButton.x + compactButtonWidth +
+                    kCloseDialogCompactButtonGap,
+                compactButtonY,
+                compactButtonWidth,
+                kCloseDialogCompactButtonHeight};
+            layout.closeCancelButton = {
+                layout.closeDiscardButton.x + compactButtonWidth +
+                    kCloseDialogCompactButtonGap,
+                compactButtonY,
+                compactButtonWidth,
+                kCloseDialogCompactButtonHeight};
+        }
     }
 
-    int buttonX = 172;
-    layout.createButton = toolbarButton(buttonX, 88);
-    layout.saveButton = toolbarButton(buttonX, 72);
-    layout.loadButton = toolbarButton(buttonX, 72);
-    layout.gridButton = toolbarButton(buttonX, 82);
-    layout.assetsButton = toolbarButton(buttonX, 88);
-    layout.benchmarkButton = toolbarButton(buttonX, 104);
+    constexpr std::array<int, kEditorMenuCount> menuWidths = {48, 48, 52, 68};
+    int menuX = kMenuStartX;
+    for (std::size_t index = 0; index < menuWidths.size(); ++index) {
+        const int menuWidth = menuWidths[index];
+        if (menuX + menuWidth <= width) {
+            layout.menuButtons[index] = {
+                menuX, 0, menuWidth, menuBarHeight};
+        }
+        menuX += menuWidth;
+    }
+
+    int buttonX = 12;
+    layout.createButton = toolbarButton(buttonX, 96, width);
+    layout.saveButton = toolbarButton(buttonX, 70, width);
+    layout.loadButton = toolbarButton(buttonX, 70, width);
+    layout.gridButton = toolbarButton(buttonX, 84, width);
+    layout.assetsButton = toolbarButton(buttonX, 96, width);
+    layout.benchmarkButton = toolbarButton(buttonX, 100, width);
 
     if (layout.inspectorContent.valid()) {
         const int controlsTop = (std::max)(
@@ -384,6 +505,77 @@ EditorLayout calculateEditorLayout(
             snapResetY, snapResetButtonWidth, kInspectorButtonHeight};
     }
     return layout;
+}
+
+EditorMenu editorMenuAt(
+    const EditorLayout& layout,
+    EditorPoint point) {
+    constexpr std::array menus = {
+        EditorMenu::File,
+        EditorMenu::Edit,
+        EditorMenu::View,
+        EditorMenu::Window};
+    for (std::size_t index = 0; index < menus.size(); ++index) {
+        if (layout.menuButtons[index].contains(point)) {
+            return menus[index];
+        }
+    }
+    return EditorMenu::None;
+}
+
+EditorMenuPopup calculateEditorMenuPopup(
+    const EditorLayout& layout,
+    EditorMenu menu) {
+    EditorMenuPopup popup;
+    if (menu == EditorMenu::None || !layout.menuBar.valid()) {
+        return popup;
+    }
+
+    const auto menuIndex = static_cast<std::size_t>(menu) - 1;
+    if (menuIndex >= layout.menuButtons.size() ||
+        !layout.menuButtons[menuIndex].valid()) {
+        return popup;
+    }
+    popup.itemCount = editorMenuItemCount(menu);
+    const int popupWidth = (std::min)(kMenuPopupWidth, layout.width);
+    const int popupX = std::clamp(
+        layout.menuButtons[menuIndex].x,
+        0,
+        (std::max)(0, layout.width - popupWidth));
+    popup.bounds = {
+        popupX,
+        layout.menuBar.y + layout.menuBar.height,
+        popupWidth,
+        2 * kMenuPopupPadding +
+            static_cast<int>(popup.itemCount) * kMenuItemHeight};
+    for (std::size_t index = 0; index < popup.itemCount; ++index) {
+        popup.items[index] = {
+            popup.bounds.x + kMenuPopupPadding,
+            popup.bounds.y + kMenuPopupPadding +
+                static_cast<int>(index) * kMenuItemHeight,
+            popup.bounds.width - 2 * kMenuPopupPadding,
+            kMenuItemHeight};
+    }
+    return popup;
+}
+
+EditorMenuAction editorMenuAction(
+    EditorMenu menu,
+    std::size_t index) {
+    return editorMenuActionAtIndex(menu, index);
+}
+
+EditorMenuAction editorMenuActionAt(
+    const EditorLayout& layout,
+    EditorMenu menu,
+    EditorPoint point) {
+    const EditorMenuPopup popup = calculateEditorMenuPopup(layout, menu);
+    for (std::size_t index = 0; index < popup.itemCount; ++index) {
+        if (popup.items[index].contains(point)) {
+            return editorMenuAction(menu, index);
+        }
+    }
+    return EditorMenuAction::None;
 }
 
 EditorPoint mapWindowPointToFramebuffer(

@@ -2,10 +2,17 @@
 #include "font_data.h"
 #include "shader.h"
 #include "core/resource_manager.h"
+#define STB_TRUETYPE_IMPLEMENTATION
+#include <stb_truetype.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <algorithm>
+#include <array>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <vector>
 #include <sstream>
@@ -16,6 +23,161 @@
 namespace {
 
 constexpr std::uint32_t kReplacementCodePoint = 0xfffd;
+constexpr int kFirstBakedGlyph = 32;
+constexpr int kLastBakedGlyph = 126;
+constexpr std::size_t kBakedGlyphCount =
+    static_cast<std::size_t>(kLastBakedGlyph - kFirstBakedGlyph + 1);
+constexpr int kTrueTypeAtlasSize = 512;
+constexpr float kTrueTypePixelHeight = 17.0f;
+
+struct FontGlyph {
+    float u0 = 0.0f;
+    float v0 = 0.0f;
+    float u1 = 0.0f;
+    float v1 = 0.0f;
+    float xOffset = 0.0f;
+    float yOffset = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+    float advance = 8.0f;
+};
+
+std::array<FontGlyph, kBakedGlyphCount> g_fontGlyphs;
+bool g_usingTrueTypeFont = false;
+float g_fontAscent = 12.0f;
+float g_fontLineHeight = 14.0f;
+
+std::size_t bakedGlyphIndex(char character) {
+    unsigned int code = static_cast<unsigned char>(character);
+    if (code < kFirstBakedGlyph || code > kLastBakedGlyph) {
+        code = static_cast<unsigned int>('?');
+    }
+    return static_cast<std::size_t>(code - kFirstBakedGlyph);
+}
+
+float glyphAdvance(char character) {
+    if (!g_usingTrueTypeFont) {
+        return 8.0f;
+    }
+    return g_fontGlyphs[bakedGlyphIndex(character)].advance;
+}
+
+std::vector<std::filesystem::path> fontCandidates() {
+    std::vector<std::filesystem::path> candidates;
+#ifdef _WIN32
+    char* windowsDirectory = nullptr;
+    std::size_t windowsDirectoryLength = 0;
+    if (_dupenv_s(
+            &windowsDirectory,
+            &windowsDirectoryLength,
+            "WINDIR") == 0 &&
+        windowsDirectory != nullptr && windowsDirectoryLength > 1) {
+        const std::filesystem::path fonts =
+            std::filesystem::path(windowsDirectory) / "Fonts";
+        candidates.push_back(fonts / "segoeui.ttf");
+        candidates.push_back(fonts / "SegUIVar.ttf");
+        candidates.push_back(fonts / "arial.ttf");
+    }
+    std::free(windowsDirectory);
+#elif defined(__APPLE__)
+    candidates.emplace_back("/System/Library/Fonts/SFNS.ttf");
+    candidates.emplace_back("/System/Library/Fonts/Helvetica.ttc");
+#else
+    candidates.emplace_back(
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
+    candidates.emplace_back(
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf");
+#endif
+    return candidates;
+}
+
+std::vector<unsigned char> readBinaryFile(
+    const std::filesystem::path& path) {
+    std::ifstream stream(path, std::ios::binary | std::ios::ate);
+    if (!stream) {
+        return {};
+    }
+
+    const std::streamoff size = stream.tellg();
+    if (size <= 0) {
+        return {};
+    }
+    std::vector<unsigned char> bytes(static_cast<std::size_t>(size));
+    stream.seekg(0, std::ios::beg);
+    if (!stream.read(
+            reinterpret_cast<char*>(bytes.data()),
+            static_cast<std::streamsize>(bytes.size()))) {
+        return {};
+    }
+    return bytes;
+}
+
+bool bakeTrueTypeAtlas(
+    std::vector<unsigned char>& atlas,
+    std::filesystem::path& loadedFont) {
+    for (const std::filesystem::path& candidate : fontCandidates()) {
+        std::error_code error;
+        if (!std::filesystem::is_regular_file(candidate, error) || error) {
+            continue;
+        }
+
+        const std::vector<unsigned char> fontBytes = readBinaryFile(candidate);
+        if (fontBytes.empty()) {
+            continue;
+        }
+        const int fontOffset = stbtt_GetFontOffsetForIndex(fontBytes.data(), 0);
+        stbtt_fontinfo fontInfo{};
+        if (fontOffset < 0 ||
+            stbtt_InitFont(&fontInfo, fontBytes.data(), fontOffset) == 0) {
+            continue;
+        }
+
+        std::array<stbtt_bakedchar, kBakedGlyphCount> bakedGlyphs{};
+        atlas.assign(
+            static_cast<std::size_t>(
+                kTrueTypeAtlasSize * kTrueTypeAtlasSize),
+            0);
+        const int bakeResult = stbtt_BakeFontBitmap(
+            fontBytes.data(), fontOffset, kTrueTypePixelHeight,
+            atlas.data(), kTrueTypeAtlasSize, kTrueTypeAtlasSize,
+            kFirstBakedGlyph, static_cast<int>(kBakedGlyphCount),
+            bakedGlyphs.data());
+        if (bakeResult <= 0) {
+            continue;
+        }
+
+        for (std::size_t index = 0; index < bakedGlyphs.size(); ++index) {
+            const stbtt_bakedchar& source = bakedGlyphs[index];
+            FontGlyph& glyph = g_fontGlyphs[index];
+            glyph.u0 = static_cast<float>(source.x0) /
+                static_cast<float>(kTrueTypeAtlasSize);
+            glyph.v0 = static_cast<float>(source.y0) /
+                static_cast<float>(kTrueTypeAtlasSize);
+            glyph.u1 = static_cast<float>(source.x1) /
+                static_cast<float>(kTrueTypeAtlasSize);
+            glyph.v1 = static_cast<float>(source.y1) /
+                static_cast<float>(kTrueTypeAtlasSize);
+            glyph.xOffset = source.xoff;
+            glyph.yOffset = source.yoff;
+            glyph.width = static_cast<float>(source.x1 - source.x0);
+            glyph.height = static_cast<float>(source.y1 - source.y0);
+            glyph.advance = source.xadvance;
+        }
+
+        int ascent = 0;
+        int descent = 0;
+        int lineGap = 0;
+        stbtt_GetFontVMetrics(&fontInfo, &ascent, &descent, &lineGap);
+        const float fontScale =
+            stbtt_ScaleForPixelHeight(&fontInfo, kTrueTypePixelHeight);
+        g_fontAscent = static_cast<float>(ascent) * fontScale;
+        g_fontLineHeight = static_cast<float>(
+            ascent - descent + lineGap) * fontScale;
+        loadedFont = candidate;
+        return true;
+    }
+    return false;
+}
 
 bool isUtf8Continuation(unsigned char byte) {
     return (byte & 0xc0U) == 0x80U;
@@ -157,23 +319,38 @@ bool UIText::createFontAtlas() {
     constexpr int glyphWidth = 8;
     constexpr int glyphHeight = 12;
     constexpr int glyphsPerRow = 16;
-    constexpr int atlasWidth = glyphWidth * glyphsPerRow;
-    constexpr int atlasHeight = glyphHeight * glyphsPerRow;
+    int atlasWidth = kTrueTypeAtlasSize;
+    int atlasHeight = kTrueTypeAtlasSize;
+    std::vector<unsigned char> atlas;
+    std::filesystem::path loadedFont;
+    g_usingTrueTypeFont = bakeTrueTypeAtlas(atlas, loadedFont);
 
-    std::vector<unsigned char> atlas(static_cast<std::size_t>(atlasWidth * atlasHeight), 0);
-    for (const auto& [character, bitmap] : fontData) {
-        const unsigned int code = static_cast<unsigned char>(character);
-        const int atlasX = static_cast<int>(code % glyphsPerRow) * glyphWidth;
-        const int atlasY = static_cast<int>(code / glyphsPerRow) * glyphHeight;
+    if (!g_usingTrueTypeFont) {
+        atlasWidth = glyphWidth * glyphsPerRow;
+        atlasHeight = glyphHeight * glyphsPerRow;
+        atlas.assign(
+            static_cast<std::size_t>(atlasWidth * atlasHeight), 0);
+        g_fontAscent = 12.0f;
+        g_fontLineHeight = 14.0f;
 
-        for (int row = 0; row < glyphHeight; ++row) {
-            for (int sourceColumn = 0; sourceColumn < glyphWidth; ++sourceColumn) {
-                if ((bitmap[row] & (0x80 >> sourceColumn)) == 0) {
-                    continue;
+        for (const auto& [character, bitmap] : fontData) {
+            const unsigned int code = static_cast<unsigned char>(character);
+            const int atlasX = static_cast<int>(code % glyphsPerRow) * glyphWidth;
+            const int atlasY = static_cast<int>(code / glyphsPerRow) * glyphHeight;
+
+            for (int row = 0; row < glyphHeight; ++row) {
+                for (int sourceColumn = 0;
+                     sourceColumn < glyphWidth;
+                     ++sourceColumn) {
+                    if ((bitmap[row] & (0x80 >> sourceColumn)) == 0) {
+                        continue;
+                    }
+
+                    const int screenColumn = glyphWidth - 1 - sourceColumn;
+                    atlas[static_cast<std::size_t>(
+                        (atlasY + row) * atlasWidth +
+                        atlasX + screenColumn)] = 255;
                 }
-
-                const int screenColumn = glyphWidth - 1 - sourceColumn;
-                atlas[static_cast<std::size_t>((atlasY + row) * atlasWidth + atlasX + screenColumn)] = 255;
             }
         }
     }
@@ -192,13 +369,19 @@ bool UIText::createFontAtlas() {
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, atlasWidth, atlasHeight, 0,
                  GL_RED, GL_UNSIGNED_BYTE, atlas.data());
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    const GLint filter = g_usingTrueTypeFont ? GL_LINEAR : GL_NEAREST;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     glPixelStorei(GL_UNPACK_ALIGNMENT, previousUnpackAlignment);
     glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
+    if (g_usingTrueTypeFont) {
+        std::cout << "[UIText] Loaded font: " << loadedFont.string() << "\n";
+    } else {
+        std::cerr << "[UIText] System font unavailable; using bitmap fallback\n";
+    }
     return true;
 }
 
@@ -266,28 +449,50 @@ void UIText::updateWindowSize(int width, int height) {
 
 void UIText::appendCharVertices(std::vector<float>& vertices, char c, float x, float y,
                                 float scale, float r, float g, float b) {
-    if (fontData.find(c) == fontData.end()) {
-        c = ' ';
+    float u0 = 0.0f;
+    float v0 = 0.0f;
+    float u1 = 0.0f;
+    float v1 = 0.0f;
+    float x0 = x;
+    float y0 = y;
+    float x1 = x;
+    float y1 = y;
+    if (g_usingTrueTypeFont) {
+        const FontGlyph& glyph = g_fontGlyphs[bakedGlyphIndex(c)];
+        if (glyph.width <= 0.0f || glyph.height <= 0.0f) {
+            return;
+        }
+        u0 = glyph.u0;
+        v0 = glyph.v0;
+        u1 = glyph.u1;
+        v1 = glyph.v1;
+        x0 = x + glyph.xOffset * scale;
+        y0 = y + (g_fontAscent + glyph.yOffset) * scale;
+        x1 = x0 + glyph.width * scale;
+        y1 = y0 + glyph.height * scale;
+    } else {
+        if (fontData.find(c) == fontData.end()) {
+            c = '?';
+        }
+        constexpr float glyphsPerRow = 16.0f;
+        const unsigned int code = static_cast<unsigned char>(c);
+        const float atlasColumn = static_cast<float>(code % 16);
+        const float atlasRow = static_cast<float>(code / 16);
+        u0 = atlasColumn / glyphsPerRow;
+        v0 = atlasRow / glyphsPerRow;
+        u1 = (atlasColumn + 1.0f) / glyphsPerRow;
+        v1 = (atlasRow + 1.0f) / glyphsPerRow;
+        x1 = x + 8.0f * scale;
+        y1 = y + 12.0f * scale;
     }
 
-    constexpr float glyphsPerRow = 16.0f;
-    const unsigned int code = static_cast<unsigned char>(c);
-    const float atlasColumn = static_cast<float>(code % 16);
-    const float atlasRow = static_cast<float>(code / 16);
-    const float u0 = atlasColumn / glyphsPerRow;
-    const float v0 = atlasRow / glyphsPerRow;
-    const float u1 = (atlasColumn + 1.0f) / glyphsPerRow;
-    const float v1 = (atlasRow + 1.0f) / glyphsPerRow;
-
-    const float x1 = x + 8.0f * scale;
-    const float y1 = y + 12.0f * scale;
     const float quad[] = {
-        x,  y,  u0, v0,
-        x1, y,  u1, v0,
+        x0, y0, u0, v0,
+        x1, y0, u1, v0,
         x1, y1, u1, v1,
-        x,  y,  u0, v0,
+        x0, y0, u0, v0,
         x1, y1, u1, v1,
-        x,  y1, u0, v1
+        x0, y1, u0, v1
     };
 
     for (int vertex = 0; vertex < 6; ++vertex) {
@@ -305,7 +510,6 @@ void UIText::appendCharVertices(std::vector<float>& vertices, char c, float x, f
 void UIText::appendTextVertices(std::vector<float>& vertices, const std::string& text,
                                 float x, float y, float scale, float offsetX, float offsetY,
                                 float r, float g, float b) {
-    const float charWidth = 8.0f * scale;
     float currentX = x;
     float currentY = y;
 
@@ -313,7 +517,7 @@ void UIText::appendTextVertices(std::vector<float>& vertices, const std::string&
     while (offset < text.size()) {
         const std::uint32_t codePoint = decodeNextUtf8(text, offset);
         if (codePoint == '\n') {
-            currentY += 14.0f * scale;
+            currentY += g_fontLineHeight * scale;
             currentX = x;
             continue;
         }
@@ -321,7 +525,7 @@ void UIText::appendTextVertices(std::vector<float>& vertices, const std::string&
         const char glyph = codePoint <= 0x7fU ? static_cast<char>(codePoint) : '?';
         appendCharVertices(vertices, glyph, currentX + offsetX, currentY + offsetY,
                            scale, r, g, b);
-        currentX += charWidth;
+        currentX += glyphAdvance(glyph) * scale;
     }
 }
 
@@ -357,13 +561,12 @@ void UIText::renderTextInternal(const std::string& text, float x, float y, float
     constexpr std::size_t floatsPerGlyphQuad = 42;
     std::vector<float> immediateVertices;
     std::vector<float>& vertices = frameBatchActive ? frameVertices : immediateVertices;
-    vertices.reserve(vertices.size() + text.size() * 5 * floatsPerGlyphQuad);
+    vertices.reserve(vertices.size() + text.size() * 2 * floatsPerGlyphQuad);
 
-    const float outlineOffset = 1.5f * scale;
-    appendTextVertices(vertices, text, x, y, scale, -outlineOffset, 0.0f, 0.0f, 0.0f, 0.0f);
-    appendTextVertices(vertices, text, x, y, scale, outlineOffset, 0.0f, 0.0f, 0.0f, 0.0f);
-    appendTextVertices(vertices, text, x, y, scale, 0.0f, -outlineOffset, 0.0f, 0.0f, 0.0f);
-    appendTextVertices(vertices, text, x, y, scale, 0.0f, outlineOffset, 0.0f, 0.0f, 0.0f);
+    const float shadowOffset = 0.75f * scale;
+    appendTextVertices(
+        vertices, text, x, y, scale,
+        shadowOffset, shadowOffset, 0.0f, 0.0f, 0.0f);
     appendTextVertices(vertices, text, x, y, scale, 0.0f, 0.0f, r, g, b);
 
     if (!frameBatchActive) {
@@ -378,6 +581,25 @@ void UIText::renderText(const std::string& text, float x, float y, float scale) 
 void UIText::renderTextWithColor(const std::string& text, float x, float y, float scale,
                                  float r, float g, float b) {
     renderTextInternal(text, x, y, scale, r, g, b);
+}
+
+float UIText::measureTextWidth(const std::string& text, float scale) {
+    float lineWidth = 0.0f;
+    float maximumWidth = 0.0f;
+    std::size_t offset = 0;
+    while (offset < text.size()) {
+        const std::uint32_t codePoint = decodeNextUtf8(text, offset);
+        if (codePoint == '\n') {
+            maximumWidth = (std::max)(maximumWidth, lineWidth);
+            lineWidth = 0.0f;
+            continue;
+        }
+        const char glyph = codePoint <= 0x7fU
+            ? static_cast<char>(codePoint)
+            : '?';
+        lineWidth += glyphAdvance(glyph) * scale;
+    }
+    return (std::max)(maximumWidth, lineWidth);
 }
 
 void UIText::cleanup() {
@@ -397,6 +619,9 @@ void UIText::cleanup() {
     frameVertices.clear();
     frameVertices.shrink_to_fit();
     frameBatchActive = false;
+    g_usingTrueTypeFont = false;
+    g_fontAscent = 12.0f;
+    g_fontLineHeight = 14.0f;
     initialized = false;
 }
 

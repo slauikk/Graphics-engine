@@ -105,7 +105,7 @@ uniform sampler2D fontAtlas;
 
 void main() {
     float coverage = texture(fontAtlas, TexCoord).r;
-    if (coverage < 0.5) {
+    if (coverage <= 0.001) {
         discard;
     }
     FragColor = vec4(TextColor, coverage);

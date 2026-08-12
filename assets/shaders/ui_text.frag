@@ -8,10 +8,9 @@ uniform sampler2D fontAtlas;
 
 void main() {
     float coverage = texture(fontAtlas, TexCoord).r;
-    if (coverage < 0.5) {
+    if (coverage <= 0.001) {
         discard;
     }
 
-    // Slightly brighter text to show shaders are loaded from files
-    FragColor = vec4(TextColor * 1.1, coverage);
+    FragColor = vec4(TextColor, coverage);
 }

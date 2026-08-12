@@ -232,6 +232,41 @@ std::string truncateHudText(std::string value, std::size_t maximumBytes) {
     return value.substr(0, end) + "...";
 }
 
+std::string ellipsizeUiText(
+    const std::string& value,
+    float maximumWidth,
+    float scale = 1.0f) {
+    if (maximumWidth <= 0.0f || scale <= 0.0f) {
+        return {};
+    }
+    if (UIText::measureTextWidth(value, scale) <= maximumWidth) {
+        return value;
+    }
+
+    std::string suffix = "...";
+    while (!suffix.empty() &&
+           UIText::measureTextWidth(suffix, scale) > maximumWidth) {
+        suffix.pop_back();
+    }
+    if (suffix.empty()) {
+        return {};
+    }
+
+    std::size_t end = value.size();
+    while (end > 0) {
+        --end;
+        while (end > 0 &&
+               (static_cast<unsigned char>(value[end]) & 0xc0U) == 0x80U) {
+            --end;
+        }
+        std::string candidate = value.substr(0, end) + suffix;
+        if (UIText::measureTextWidth(candidate, scale) <= maximumWidth) {
+            return candidate;
+        }
+    }
+    return suffix;
+}
+
 bool changesPointLightPosition(Menu::LightControlAction action) {
     switch (action) {
         case Menu::LIGHT_X_INC:
@@ -289,6 +324,56 @@ std::string normalizedAssetReference(std::string value) {
 
 std::string materialIdForTexture(const std::string& texturePath) {
     return "texture:" + texturePath;
+}
+
+const char* editorMenuName(core::EditorMenu menu) {
+    switch (menu) {
+        case core::EditorMenu::File: return "File";
+        case core::EditorMenu::Edit: return "Edit";
+        case core::EditorMenu::View: return "View";
+        case core::EditorMenu::Window: return "Window";
+        case core::EditorMenu::None: return "";
+    }
+    return "";
+}
+
+const char* editorMenuActionLabel(core::EditorMenuAction action) {
+    switch (action) {
+        case core::EditorMenuAction::SaveScene: return "Save Scene";
+        case core::EditorMenuAction::LoadScene: return "Load Quick Scene";
+        case core::EditorMenuAction::ExitApplication: return "Exit";
+        case core::EditorMenuAction::Undo: return "Undo";
+        case core::EditorMenuAction::Redo: return "Redo";
+        case core::EditorMenuAction::DuplicateObject: return "Duplicate";
+        case core::EditorMenuAction::DeleteObject: return "Delete";
+        case core::EditorMenuAction::ToggleGrid: return "Coordinate Grid";
+        case core::EditorMenuAction::ToggleGpuInfo: return "GPU Statistics";
+        case core::EditorMenuAction::ToggleVsync: return "VSync";
+        case core::EditorMenuAction::ToggleFullscreen: return "Fullscreen";
+        case core::EditorMenuAction::OpenAssets: return "Content Browser";
+        case core::EditorMenuAction::ToggleHierarchy: return "Scene Panel";
+        case core::EditorMenuAction::ToggleInspector: return "Inspector Panel";
+        case core::EditorMenuAction::None: return "";
+    }
+    return "";
+}
+
+const char* editorMenuActionShortcut(core::EditorMenuAction action) {
+    switch (action) {
+        case core::EditorMenuAction::SaveScene: return "Ctrl+S";
+        case core::EditorMenuAction::LoadScene: return "F12";
+        case core::EditorMenuAction::ExitApplication: return "Alt+F4";
+        case core::EditorMenuAction::Undo: return "Ctrl+Z";
+        case core::EditorMenuAction::Redo: return "Ctrl+Y";
+        case core::EditorMenuAction::DuplicateObject: return "Ctrl+D";
+        case core::EditorMenuAction::DeleteObject: return "Del";
+        case core::EditorMenuAction::ToggleGrid: return "G";
+        case core::EditorMenuAction::ToggleGpuInfo: return "F9";
+        case core::EditorMenuAction::ToggleVsync: return "V";
+        case core::EditorMenuAction::ToggleFullscreen: return "Alt+Enter";
+        case core::EditorMenuAction::OpenAssets: return "F8";
+        default: return "";
+    }
 }
 
 } // namespace
@@ -1656,6 +1741,7 @@ void Application::updateBenchmarkCapture() {
 
 void Application::toggleBenchmark() {
     m_benchmarkEnabled = !m_benchmarkEnabled;
+    m_openEditorMenu = core::EditorMenu::None;
     if (m_benchmarkEnabled && Menu::isOpen()) {
         Menu::toggle();
     }
@@ -1807,6 +1893,8 @@ void Application::requestClose() {
 
     m_restoreBenchmarkAfterCloseCancel = m_benchmarkEnabled;
     m_restoreMenuAfterCloseCancel = Menu::isOpen();
+    m_restoreEditorMenuAfterCloseCancel = m_openEditorMenu;
+    m_openEditorMenu = core::EditorMenu::None;
     if (m_benchmarkEnabled) {
         toggleBenchmark();
     }
@@ -1830,6 +1918,7 @@ void Application::saveAndClose() {
     m_closeConfirmationPending = false;
     m_restoreBenchmarkAfterCloseCancel = false;
     m_restoreMenuAfterCloseCancel = false;
+    m_restoreEditorMenuAfterCloseCancel = core::EditorMenu::None;
     glfwSetWindowShouldClose(m_window, GLFW_TRUE);
 }
 
@@ -1840,6 +1929,7 @@ void Application::discardAndClose() {
     m_closeConfirmationPending = false;
     m_restoreBenchmarkAfterCloseCancel = false;
     m_restoreMenuAfterCloseCancel = false;
+    m_restoreEditorMenuAfterCloseCancel = core::EditorMenu::None;
     glfwSetWindowShouldClose(m_window, GLFW_TRUE);
 }
 
@@ -1850,17 +1940,130 @@ void Application::cancelCloseConfirmation() {
     m_closeConfirmationPending = false;
     const bool restoreBenchmark = m_restoreBenchmarkAfterCloseCancel;
     const bool restoreMenu = m_restoreMenuAfterCloseCancel;
+    const core::EditorMenu restoreEditorMenu =
+        m_restoreEditorMenuAfterCloseCancel;
     m_restoreBenchmarkAfterCloseCancel = false;
     m_restoreMenuAfterCloseCancel = false;
+    m_restoreEditorMenuAfterCloseCancel = core::EditorMenu::None;
 
     if (restoreBenchmark && !m_benchmarkEnabled) {
         toggleBenchmark();
     } else if (restoreMenu && !Menu::isOpen()) {
         Menu::toggle();
+    } else {
+        m_openEditorMenu = restoreEditorMenu;
     }
     m_sceneOperationSucceeded = true;
     m_sceneMessage = "Close cancelled";
     m_sceneMessageTime = 1.5f;
+}
+
+bool Application::editorMenuActionEnabled(
+    core::EditorMenuAction action) const {
+    const bool hasSelectedObject = m_selectedObject >= 0 &&
+        m_selectedObject < static_cast<int>(m_objects.size());
+    switch (action) {
+        case core::EditorMenuAction::LoadScene:
+            return !m_sceneDirty && !m_sceneDirtyRefreshPending;
+        case core::EditorMenuAction::Undo:
+            return m_sceneHistory.undoTarget() != nullptr;
+        case core::EditorMenuAction::Redo:
+            return m_sceneHistory.redoTarget() != nullptr;
+        case core::EditorMenuAction::DuplicateObject:
+            return hasSelectedObject &&
+                m_objects.size() < core::kMaxSceneObjectCount;
+        case core::EditorMenuAction::DeleteObject:
+            return hasSelectedObject;
+        case core::EditorMenuAction::None:
+            return false;
+        default:
+            return true;
+    }
+}
+
+std::array<bool, core::kEditorMenuMaximumItems>
+Application::editorMenuItemsEnabled() const {
+    std::array<bool, core::kEditorMenuMaximumItems> enabled{};
+    for (std::size_t index = 0; index < enabled.size(); ++index) {
+        enabled[index] = editorMenuActionEnabled(
+            core::editorMenuAction(m_openEditorMenu, index));
+    }
+    return enabled;
+}
+
+void Application::executeEditorMenuAction(
+    core::EditorMenuAction action) {
+    if (!editorMenuActionEnabled(action)) {
+        return;
+    }
+
+    switch (action) {
+        case core::EditorMenuAction::SaveScene:
+            saveQuickScene();
+            break;
+        case core::EditorMenuAction::LoadScene:
+            loadQuickScene();
+            break;
+        case core::EditorMenuAction::ExitApplication:
+            requestClose();
+            break;
+        case core::EditorMenuAction::Undo:
+            restoreSceneHistory(false);
+            break;
+        case core::EditorMenuAction::Redo:
+            restoreSceneHistory(true);
+            break;
+        case core::EditorMenuAction::DuplicateObject:
+            duplicateSelectedObject();
+            break;
+        case core::EditorMenuAction::DeleteObject:
+            deleteSelectedObject();
+            break;
+        case core::EditorMenuAction::ToggleGrid:
+            checkpointScene();
+            m_showCoordinateGrid = !m_showCoordinateGrid;
+            m_sceneOperationSucceeded = true;
+            m_sceneMessage = m_showCoordinateGrid
+                ? "Coordinate grid enabled"
+                : "Coordinate grid disabled";
+            m_sceneMessageTime = 1.5f;
+            break;
+        case core::EditorMenuAction::ToggleGpuInfo:
+            m_showGPUInfo = !m_showGPUInfo;
+            break;
+        case core::EditorMenuAction::ToggleVsync:
+            toggleVsync();
+            break;
+        case core::EditorMenuAction::ToggleFullscreen:
+            toggleFullscreen();
+            break;
+        case core::EditorMenuAction::OpenAssets:
+            setCameraInputActive(false);
+            Menu::toggle();
+            break;
+        case core::EditorMenuAction::ToggleHierarchy:
+            m_windowSettings.hierarchyExpanded =
+                !m_windowSettings.hierarchyExpanded;
+            persistWindowSettings();
+            m_sceneOperationSucceeded = true;
+            m_sceneMessage = m_windowSettings.hierarchyExpanded
+                ? "Scene panel expanded"
+                : "Scene panel collapsed";
+            m_sceneMessageTime = 1.5f;
+            break;
+        case core::EditorMenuAction::ToggleInspector:
+            m_windowSettings.inspectorExpanded =
+                !m_windowSettings.inspectorExpanded;
+            persistWindowSettings();
+            m_sceneOperationSucceeded = true;
+            m_sceneMessage = m_windowSettings.inspectorExpanded
+                ? "Inspector panel expanded"
+                : "Inspector panel collapsed";
+            m_sceneMessageTime = 1.5f;
+            break;
+        case core::EditorMenuAction::None:
+            break;
+    }
 }
 
 void Application::setCameraInputActive(bool active) {
@@ -2065,7 +2268,9 @@ void Application::processInput(float dt) {
     const float cameraDelta = core::clampEditorCameraDelta(dt);
     
     // Keep menu navigation from moving the camera behind the overlay.
-    if (!Menu::isOpen() && m_cameraInputActive) {
+    if (!Menu::isOpen() &&
+        m_openEditorMenu == core::EditorMenu::None &&
+        m_cameraInputActive) {
         const bool controlPressed =
             glfwGetKey(m_window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
             glfwGetKey(m_window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
@@ -2648,9 +2853,11 @@ void Application::render() {
     const core::EditorPoint editorCursor = cursorFramebufferPosition();
     const core::EditorTranslationGizmo editorGizmo =
         !m_benchmarkEnabled && !Menu::isOpen() &&
+            m_openEditorMenu == core::EditorMenu::None &&
             !m_closeConfirmationPending
         ? selectedObjectGizmo(editorLayout)
         : core::EditorTranslationGizmo{};
+    const auto menuItemsEnabled = editorMenuItemsEnabled();
     m_renderer->beginUiPass();
     if (!m_benchmarkEnabled && m_editorChrome != nullptr) {
         m_editorChrome->render(
@@ -2667,6 +2874,7 @@ void Application::render() {
             m_showCoordinateGrid,
             Menu::isOpen(),
             m_closeConfirmationPending,
+            m_openEditorMenu,
             editorCursor,
             editorGizmo,
             m_activeGizmoAxis,
@@ -2679,6 +2887,7 @@ void Application::render() {
     }
 
     if (!m_benchmarkEnabled && !Menu::isOpen() &&
+        m_openEditorMenu == core::EditorMenu::None &&
         !m_closeConfirmationPending) {
         constexpr float crosshairScale = 1.5f;
         UIText::renderTextWithColor(
@@ -2912,6 +3121,17 @@ void Application::render() {
     }
     Menu::render();
     UIText::flush();
+    if (!m_benchmarkEnabled && m_editorChrome != nullptr &&
+        m_openEditorMenu != core::EditorMenu::None) {
+        m_editorChrome->renderMenuPopup(
+            editorLayout,
+            m_openEditorMenu,
+            menuItemsEnabled,
+            editorCursor);
+        UIText::beginFrame();
+        renderEditorMenuOverlay(editorLayout);
+        UIText::flush();
+    }
 }
 
 void Application::renderEditorOverlay(const core::EditorLayout& layout) {
@@ -2920,34 +3140,74 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
     }
 
     constexpr float textScale = 1.0f;
-    constexpr float headingScale = 1.1f;
-    constexpr float accentRed = 1.0f;
-    constexpr float accentGreen = 0.63f;
-    constexpr float accentBlue = 0.14f;
-    constexpr float mutedRed = 0.62f;
-    constexpr float mutedGreen = 0.68f;
-    constexpr float mutedBlue = 0.76f;
+    constexpr float headingScale = 1.0f;
+    constexpr float accentRed = 0.96f;
+    constexpr float accentGreen = 0.61f;
+    constexpr float accentBlue = 0.20f;
+    constexpr float mutedRed = 0.58f;
+    constexpr float mutedGreen = 0.62f;
+    constexpr float mutedBlue = 0.69f;
 
     UIText::renderTextWithColor(
-        "GRAPHICS", 12.0f, 14.0f, headingScale,
+        "GE", 10.0f, 6.0f, headingScale,
         accentRed, accentGreen, accentBlue);
-    UIText::renderText("ENGINE", 86.0f, 14.0f, headingScale);
+    UIText::renderTextWithColor(
+        "Graphics Engine", 34.0f, 7.0f, 0.8f,
+        0.78f, 0.81f, 0.86f);
+
+    constexpr std::array menus = {
+        core::EditorMenu::File,
+        core::EditorMenu::Edit,
+        core::EditorMenu::View,
+        core::EditorMenu::Window};
+    for (std::size_t index = 0; index < menus.size(); ++index) {
+        const core::EditorRect& menuButton = layout.menuButtons[index];
+        if (!menuButton.valid()) {
+            continue;
+        }
+        UIText::renderTextWithColor(
+            editorMenuName(menus[index]),
+            static_cast<float>(menuButton.x) + 8.0f,
+            static_cast<float>(menuButton.y) + 6.0f,
+            0.9f, 0.78f, 0.81f, 0.86f);
+    }
+
+    const std::string documentLabel = m_sceneDocumentName +
+        (m_sceneDirty ? " *" : "");
+    const float documentWidth = UIText::measureTextWidth(documentLabel, 0.9f);
+    const float documentX = (std::max)(
+        static_cast<float>(layout.menuButtons.back().x +
+                           layout.menuButtons.back().width + 12),
+        static_cast<float>(layout.width) - documentWidth - 12.0f);
+    if (documentX + documentWidth <= static_cast<float>(layout.width)) {
+        UIText::renderTextWithColor(
+            documentLabel,
+            documentX,
+            6.0f,
+            0.9f,
+            m_sceneDirty ? 1.0f : mutedRed,
+            m_sceneDirty ? 0.72f : mutedGreen,
+            m_sceneDirty ? 0.34f : mutedBlue);
+    }
 
     const auto renderButtonLabel = [](const core::EditorRect& button,
                                       const std::string& label) {
-        const float labelWidth = static_cast<float>(label.size()) * 8.0f;
+        if (!button.valid()) {
+            return;
+        }
+        const float labelWidth = UIText::measureTextWidth(label, textScale);
         const float x = static_cast<float>(button.x) +
             (static_cast<float>(button.width) - labelWidth) * 0.5f;
         UIText::renderText(
             label, x, static_cast<float>(button.y) + 7.0f, textScale);
     };
-    renderButtonLabel(layout.createButton, "+ CUBE");
-    renderButtonLabel(layout.saveButton, "SAVE");
-    renderButtonLabel(layout.loadButton, "LOAD");
+    renderButtonLabel(layout.createButton, "+ Create");
+    renderButtonLabel(layout.saveButton, "Save");
+    renderButtonLabel(layout.loadButton, "Load");
     renderButtonLabel(
-        layout.gridButton, m_showCoordinateGrid ? "GRID ON" : "GRID OFF");
-    renderButtonLabel(layout.assetsButton, "ASSETS");
-    renderButtonLabel(layout.benchmarkButton, "BENCH");
+        layout.gridButton, m_showCoordinateGrid ? "Grid On" : "Grid Off");
+    renderButtonLabel(layout.assetsButton, "Content");
+    renderButtonLabel(layout.benchmarkButton, "Profile");
     renderButtonLabel(
         layout.hierarchyToggleButton,
         layout.hierarchyExpanded ? "<" : ">");
@@ -2958,47 +3218,69 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
     if (m_closeConfirmationPending) {
         const core::EditorRect& modal = layout.modalOverlay;
         if (modal.valid()) {
+            const bool compactDialog = layout.closeSaveButton.valid() &&
+                layout.closeDiscardButton.x > layout.closeSaveButton.x;
             const std::size_t modalCharacters = (std::max<std::size_t>)(
                 12,
                 static_cast<std::size_t>((std::max)(0, modal.width / 8 - 6)));
-            const float textX = static_cast<float>(modal.x) + 24.0f;
-            const float titleY = static_cast<float>(modal.y) +
-                (std::max)(24.0f, static_cast<float>(modal.height) * 0.18f);
+            const float textX = static_cast<float>(modal.x) +
+                (compactDialog ? 12.0f : 24.0f);
+            const float titleY = compactDialog
+                ? static_cast<float>(modal.y) + 12.0f
+                : static_cast<float>(modal.y) +
+                    (std::max)(
+                        24.0f, static_cast<float>(modal.height) * 0.18f);
             UIText::renderTextWithColor(
-                "UNSAVED CHANGES", textX, titleY, 1.4f,
+                "UNSAVED CHANGES", textX, titleY,
+                compactDialog ? 1.1f : 1.4f,
                 accentRed, accentGreen, accentBlue);
             UIText::renderTextWithColor(
                 truncateHudText(m_sceneDocumentName + " *", modalCharacters),
-                textX, titleY + 34.0f, textScale,
+                textX, titleY + (compactDialog ? 22.0f : 34.0f), textScale,
                 0.84f, 0.88f, 0.94f);
-            UIText::renderText(
-                "ENTER / CTRL+S   SAVE\n"
-                "D                DISCARD\n"
-                "ESC              CANCEL",
-                textX, titleY + 78.0f, textScale);
+            if (compactDialog) {
+                if (m_sceneOperationSucceeded || m_sceneMessageTime <= 0.0f) {
+                    UIText::renderText(
+                        "ENTER SAVE  D DISCARD  ESC CANCEL",
+                        textX, titleY + 44.0f, 0.9f);
+                }
+            } else {
+                UIText::renderText(
+                    "ENTER / CTRL+S   SAVE\n"
+                    "D                DISCARD\n"
+                    "ESC              CANCEL",
+                    textX, titleY + 78.0f, textScale);
+            }
             if (layout.closeSaveButton.valid()) {
                 if (!m_sceneOperationSucceeded && m_sceneMessageTime > 0.0f) {
                     UIText::renderTextWithColor(
                         truncateHudText(m_sceneMessage, modalCharacters),
                         textX,
-                        static_cast<float>(layout.closeSaveButton.y) - 26.0f,
+                        compactDialog
+                            ? titleY + 44.0f
+                            : static_cast<float>(layout.closeSaveButton.y) -
+                                26.0f,
                         textScale, 1.0f, 0.35f, 0.25f);
                 }
-                renderButtonLabel(layout.closeSaveButton, "SAVE & EXIT");
-                renderButtonLabel(layout.closeDiscardButton, "DISCARD & EXIT");
+                renderButtonLabel(
+                    layout.closeSaveButton,
+                    compactDialog ? "SAVE" : "SAVE & EXIT");
+                renderButtonLabel(
+                    layout.closeDiscardButton,
+                    compactDialog ? "DISCARD" : "DISCARD & EXIT");
                 renderButtonLabel(layout.closeCancelButton, "CANCEL");
             }
         }
         UIText::renderTextWithColor(
             "UNSAVED  |  CLOSE CONFIRMATION  |  ESC CANCEL",
-            12.0f, static_cast<float>(layout.statusBar.y) + 8.0f,
+            12.0f, static_cast<float>(layout.statusBar.y) + 6.0f,
             textScale, 1.0f, 0.72f, 0.34f);
         return;
     }
 
     if (layout.hierarchyExpanded) {
         UIText::renderTextWithColor(
-        "SCENE", 12.0f,
+        "Scene", 12.0f,
         static_cast<float>(layout.hierarchyHeader.y) + 10.0f,
         headingScale, accentRed, accentGreen, accentBlue);
     const std::size_t firstVisible = core::firstVisibleEditorObject(
@@ -3007,28 +3289,27 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
         core::editorHierarchyVisibleRowCount(layout);
     const std::size_t finalVisible = (std::min)(
         m_objects.size(), firstVisible + visibleRows);
-    const std::size_t hierarchyCharacters = (std::max<std::size_t>)(
-        4, static_cast<std::size_t>(layout.hierarchyList.width / 8) - 3);
     for (std::size_t objectIndex = firstVisible;
          objectIndex < finalVisible; ++objectIndex) {
         const std::size_t visibleRow = objectIndex - firstVisible;
         const core::EditorRect row =
             core::editorHierarchyRowRect(layout, visibleRow);
-        const std::string name = truncateHudText(
-            m_objects[objectIndex].name, hierarchyCharacters);
+        const std::string name = ellipsizeUiText(
+            m_objects[objectIndex].name,
+            static_cast<float>((std::max)(0, row.width - 20)),
+            textScale);
         const bool selected =
             objectIndex == static_cast<std::size_t>(m_selectedObject);
-        const std::string label = selected ? "> " + name : "  " + name;
         if (selected) {
             UIText::renderTextWithColor(
-                label,
-                static_cast<float>(row.x) + 5.0f,
+                name,
+                static_cast<float>(row.x) + 10.0f,
                 static_cast<float>(row.y) + 5.0f,
                 textScale, 1.0f, 0.86f, 0.60f);
         } else {
             UIText::renderTextWithColor(
-                label,
-                static_cast<float>(row.x) + 5.0f,
+                name,
+                static_cast<float>(row.x) + 10.0f,
                 static_cast<float>(row.y) + 5.0f,
                 textScale, 0.80f, 0.84f, 0.90f);
         }
@@ -3041,7 +3322,7 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
         const core::EditorRect& button,
         const std::string& label,
         bool enabled) {
-        const float labelWidth = static_cast<float>(label.size()) * 8.0f;
+        const float labelWidth = UIText::measureTextWidth(label, textScale);
         const float x = static_cast<float>(button.x) +
             (static_cast<float>(button.width) - labelWidth) * 0.5f;
         UIText::renderTextWithColor(
@@ -3062,7 +3343,10 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
     std::ostringstream sceneFooter;
     sceneFooter << m_objects.size() << " OBJECTS  |  TAB CYCLE";
     UIText::renderTextWithColor(
-        truncateHudText(sceneFooter.str(), hierarchyCharacters + 2),
+        ellipsizeUiText(
+            sceneFooter.str(),
+            static_cast<float>((std::max)(0, layout.hierarchy.width - 24)),
+            textScale),
         static_cast<float>(layout.hierarchy.x) + 12.0f,
         static_cast<float>(layout.hierarchy.y + layout.hierarchy.height) - 22.0f,
         textScale, mutedRed, mutedGreen, mutedBlue);
@@ -3070,27 +3354,27 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
 
     if (layout.inspectorExpanded) {
         UIText::renderTextWithColor(
-        "INSPECTOR",
+        "Inspector",
         static_cast<float>(layout.inspectorHeader.x) + 42.0f,
         static_cast<float>(layout.inspectorHeader.y) + 10.0f,
         headingScale, accentRed, accentGreen, accentBlue);
 
     float inspectorY = static_cast<float>(layout.inspectorContent.y) + 2.0f;
     const float inspectorX = static_cast<float>(layout.inspectorContent.x);
-    const std::size_t inspectorCharacters = (std::max<std::size_t>)(
-        8, static_cast<std::size_t>(layout.inspectorContent.width / 8));
+    const float inspectorTextWidth =
+        static_cast<float>(layout.inspectorContent.width);
     const auto inspectorLine = [&](const std::string& text) {
         UIText::renderText(
-            truncateHudText(text, inspectorCharacters),
+            ellipsizeUiText(text, inspectorTextWidth, textScale),
             inspectorX, inspectorY, textScale);
-        inspectorY += 16.0f;
+        inspectorY += 18.0f;
     };
     const auto inspectorHeading = [&](const std::string& text) {
         inspectorY += 6.0f;
         UIText::renderTextWithColor(
             text, inspectorX, inspectorY, textScale,
             accentRed, accentGreen, accentBlue);
-        inspectorY += 18.0f;
+        inspectorY += 20.0f;
     };
 
     if (m_selectedObject >= 0 &&
@@ -3098,10 +3382,10 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
         const RenderObject& object =
             m_objects[static_cast<std::size_t>(m_selectedObject)];
         UIText::renderTextWithColor(
-            truncateHudText(object.name, inspectorCharacters),
+            ellipsizeUiText(object.name, inspectorTextWidth, headingScale),
             inspectorX, inspectorY, headingScale,
             1.0f, 0.86f, 0.60f);
-        inspectorY += 22.0f;
+        inspectorY += 24.0f;
 
         std::ostringstream objectNumber;
         objectNumber << "OBJECT " << m_selectedObject + 1
@@ -3156,14 +3440,14 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
     if (!layout.inspectorMoveButtons.empty() &&
         layout.inspectorMoveButtons.front().valid()) {
         UIText::renderTextWithColor(
-            "QUICK EDIT",
+            "Quick Edit",
             inspectorX,
             static_cast<float>(layout.inspectorMoveButtons.front().y) - 20.0f,
             textScale, accentRed, accentGreen, accentBlue);
     }
     const auto renderInspectorButtonLabel = [&](
         const core::EditorRect& button, const std::string& label) {
-        const float labelWidth = static_cast<float>(label.size()) * 8.0f;
+        const float labelWidth = UIText::measureTextWidth(label, textScale);
         const float x = static_cast<float>(button.x) +
             (static_cast<float>(button.width) - labelWidth) * 0.5f;
         UIText::renderTextWithColor(
@@ -3200,7 +3484,9 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
         mutedRed, mutedGreen, mutedBlue);
     }
 
-    if (!Menu::isOpen() && !m_closeConfirmationPending) {
+    if (!Menu::isOpen() &&
+        m_openEditorMenu == core::EditorMenu::None &&
+        !m_closeConfirmationPending) {
         const core::EditorTranslationGizmo gizmo =
             selectedObjectGizmo(layout);
         constexpr std::array<const char*, 3> axisLabels = {
@@ -3218,22 +3504,25 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
     }
 
     std::ostringstream viewportLabel;
-    viewportLabel << "PERSPECTIVE  |  " << shaderViewModeName(m_shaderViewMode)
-                  << "  |  POST "
+    viewportLabel << "Perspective  |  " << shaderViewModeName(m_shaderViewMode)
+                  << "  |  Post: "
                   << PostProcessor::effectName(m_postProcessEffect);
-    const std::size_t viewportCharacters = (std::max<std::size_t>)(
-        12, static_cast<std::size_t>(layout.viewport.width / 8) - 4);
+    const float viewportHeaderTextWidth = static_cast<float>(
+        (std::max)(0, layout.viewportHeader.width - 20));
+    const float viewportTextWidth = static_cast<float>(
+        (std::max)(0, layout.viewport.width - 24));
     UIText::renderTextWithColor(
-        truncateHudText(viewportLabel.str(), viewportCharacters),
-        static_cast<float>(layout.viewport.x) + 12.0f,
-        static_cast<float>(layout.viewport.y) + 10.0f,
-        textScale, mutedRed, mutedGreen, mutedBlue);
+        ellipsizeUiText(
+            viewportLabel.str(), viewportHeaderTextWidth, textScale),
+        static_cast<float>(layout.viewportHeader.x) + 10.0f,
+        static_cast<float>(layout.viewportHeader.y) + 8.0f,
+        textScale, 0.78f, 0.81f, 0.86f);
 
     if (m_reloadMessageTime > 0.0f) {
         UIText::renderTextWithColor(
-            truncateHudText(m_reloadMessage, viewportCharacters),
+            ellipsizeUiText(m_reloadMessage, viewportTextWidth, textScale),
             static_cast<float>(layout.viewport.x) + 12.0f,
-            static_cast<float>(layout.viewport.y) + 32.0f,
+            static_cast<float>(layout.viewport.y) + 12.0f,
             textScale,
             m_reloadSucceeded ? 0.35f : 1.0f,
             m_reloadSucceeded ? 1.0f : 0.35f,
@@ -3241,18 +3530,19 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
     }
     if (m_sceneMessageTime > 0.0f) {
         UIText::renderTextWithColor(
-            truncateHudText(m_sceneMessage, viewportCharacters),
+            ellipsizeUiText(m_sceneMessage, viewportTextWidth, textScale),
             static_cast<float>(layout.viewport.x) + 12.0f,
-            static_cast<float>(layout.viewport.y) + 50.0f,
+            static_cast<float>(layout.viewport.y) + 30.0f,
             textScale,
             m_sceneOperationSucceeded ? 0.35f : 1.0f,
             m_sceneOperationSucceeded ? 1.0f : 0.35f,
             0.25f);
     }
     UIText::renderTextWithColor(
-        truncateHudText(
+        ellipsizeUiText(
             "LMB SELECT  |  DRAG XYZ  |  CTRL SNAP  |  RMB LOOK  |  WASD MOVE",
-            viewportCharacters),
+            viewportTextWidth,
+            textScale),
         static_cast<float>(layout.viewport.x) + 12.0f,
         static_cast<float>(layout.viewport.y + layout.viewport.height) - 22.0f,
         textScale, mutedRed, mutedGreen, mutedBlue);
@@ -3278,12 +3568,79 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
     status << "  |  " << layout.viewport.width << "x" << layout.viewport.height
            << "  |  VSYNC " << (m_windowSettings.vsync ? "ON" : "OFF")
            << "  |  " << (m_fullscreen ? "FULLSCREEN" : "WINDOWED");
-    const std::size_t statusCharacters = (std::max<std::size_t>)(
-        12, static_cast<std::size_t>(layout.statusBar.width / 8) - 3);
     UIText::renderTextWithColor(
-        truncateHudText(status.str(), statusCharacters),
-        12.0f, static_cast<float>(layout.statusBar.y) + 8.0f,
+        ellipsizeUiText(
+            status.str(),
+            static_cast<float>((std::max)(0, layout.statusBar.width - 24)),
+            textScale),
+        12.0f, static_cast<float>(layout.statusBar.y) + 6.0f,
         textScale, 0.74f, 0.80f, 0.88f);
+
+}
+
+void Application::renderEditorMenuOverlay(
+    const core::EditorLayout& layout) {
+    if (m_openEditorMenu == core::EditorMenu::None) {
+        return;
+    }
+
+    constexpr float textScale = 1.0f;
+    constexpr float accentRed = 0.96f;
+    constexpr float accentGreen = 0.61f;
+    constexpr float accentBlue = 0.20f;
+    constexpr float mutedRed = 0.58f;
+    constexpr float mutedGreen = 0.62f;
+    constexpr float mutedBlue = 0.69f;
+    const core::EditorMenuPopup popup =
+        core::calculateEditorMenuPopup(layout, m_openEditorMenu);
+    const auto enabled = editorMenuItemsEnabled();
+    const auto actionChecked = [this](core::EditorMenuAction action) {
+        switch (action) {
+            case core::EditorMenuAction::ToggleGrid:
+                return m_showCoordinateGrid;
+            case core::EditorMenuAction::ToggleGpuInfo:
+                return m_showGPUInfo;
+            case core::EditorMenuAction::ToggleVsync:
+                return m_windowSettings.vsync;
+            case core::EditorMenuAction::ToggleFullscreen:
+                return m_fullscreen;
+            case core::EditorMenuAction::ToggleHierarchy:
+                return m_windowSettings.hierarchyExpanded;
+            case core::EditorMenuAction::ToggleInspector:
+                return m_windowSettings.inspectorExpanded;
+            default:
+                return false;
+        }
+    };
+    for (std::size_t index = 0; index < popup.itemCount; ++index) {
+        const core::EditorMenuAction action =
+            core::editorMenuAction(m_openEditorMenu, index);
+        const core::EditorRect& item = popup.items[index];
+        const bool checked = actionChecked(action);
+        const float red = enabled[index] ? 0.84f : 0.38f;
+        const float green = enabled[index] ? 0.87f : 0.41f;
+        const float blue = enabled[index] ? 0.92f : 0.46f;
+        if (checked) {
+            UIText::renderTextWithColor(
+                "*", static_cast<float>(item.x) + 8.0f,
+                static_cast<float>(item.y) + 8.0f,
+                textScale, accentRed, accentGreen, accentBlue);
+        }
+        UIText::renderTextWithColor(
+            editorMenuActionLabel(action),
+            static_cast<float>(item.x) + 26.0f,
+            static_cast<float>(item.y) + 8.0f,
+            textScale, red, green, blue);
+        const std::string shortcut = editorMenuActionShortcut(action);
+        if (!shortcut.empty()) {
+            UIText::renderTextWithColor(
+                shortcut,
+                static_cast<float>(item.x + item.width) -
+                    UIText::measureTextWidth(shortcut, textScale) - 10.0f,
+                static_cast<float>(item.y) + 8.0f,
+                textScale, mutedRed, mutedGreen, mutedBlue);
+        }
+    }
 }
 
 void Application::framebufferSizeCallback(GLFWwindow* window, int width, int height) {
@@ -3383,7 +3740,8 @@ void Application::onKey(int key, int action, int mods) {
             m_selectedObject < static_cast<int>(m_objects.size()) &&
             m_objects[static_cast<std::size_t>(m_selectedObject)].runtimeId ==
                 m_activeTransformObjectId;
-        if (!m_benchmarkEnabled && !Menu::isOpen() && noModifiers &&
+        if (!m_benchmarkEnabled && !Menu::isOpen() &&
+            m_openEditorMenu == core::EditorMenu::None && noModifiers &&
             key == m_activeTransformKey && repeatsSelectedObject) {
             if (const auto command = objectTransformCommandForKey(key);
                 command.has_value() &&
@@ -3449,8 +3807,52 @@ void Application::onKey(int key, int action, int mods) {
         return;
     }
 
+    if (m_openEditorMenu != core::EditorMenu::None) {
+        const int relevantModifiers = mods &
+            (GLFW_MOD_SHIFT | GLFW_MOD_CONTROL |
+             GLFW_MOD_ALT | GLFW_MOD_SUPER);
+        const bool noModifiers = relevantModifiers == 0;
+        const bool controlOnly = relevantModifiers == GLFW_MOD_CONTROL;
+        core::EditorMenuAction shortcutAction = core::EditorMenuAction::None;
+        if (controlOnly) {
+            if (key == GLFW_KEY_S) {
+                shortcutAction = core::EditorMenuAction::SaveScene;
+            } else if (key == GLFW_KEY_Z) {
+                shortcutAction = core::EditorMenuAction::Undo;
+            } else if (key == GLFW_KEY_Y) {
+                shortcutAction = core::EditorMenuAction::Redo;
+            } else if (key == GLFW_KEY_D) {
+                shortcutAction = core::EditorMenuAction::DuplicateObject;
+            }
+        } else if (noModifiers) {
+            if (key == GLFW_KEY_DELETE) {
+                shortcutAction = core::EditorMenuAction::DeleteObject;
+            } else if (key == GLFW_KEY_G) {
+                shortcutAction = core::EditorMenuAction::ToggleGrid;
+            } else if (key == GLFW_KEY_V) {
+                shortcutAction = core::EditorMenuAction::ToggleVsync;
+            } else if (key == GLFW_KEY_F8) {
+                shortcutAction = core::EditorMenuAction::OpenAssets;
+            } else if (key == GLFW_KEY_F9) {
+                shortcutAction = core::EditorMenuAction::ToggleGpuInfo;
+            } else if (key == GLFW_KEY_F12) {
+                shortcutAction = core::EditorMenuAction::LoadScene;
+            }
+        }
+        if (shortcutAction != core::EditorMenuAction::None) {
+            if (editorMenuActionEnabled(shortcutAction)) {
+                m_openEditorMenu = core::EditorMenu::None;
+                executeEditorMenuAction(shortcutAction);
+            }
+        } else if (key == GLFW_KEY_ESCAPE && noModifiers) {
+            m_openEditorMenu = core::EditorMenu::None;
+        }
+        return;
+    }
+
     if (key == GLFW_KEY_F8 && !m_benchmarkEnabled) {
         setCameraInputActive(false);
+        m_openEditorMenu = core::EditorMenu::None;
         Menu::toggle();
         return;
     }
@@ -3480,7 +3882,9 @@ void Application::onKey(int key, int action, int mods) {
             return;
         }
     }
-    if (!m_benchmarkEnabled && !Menu::isOpen() && key == GLFW_KEY_ESCAPE) {
+    if (!m_benchmarkEnabled && !Menu::isOpen() &&
+        m_openEditorMenu == core::EditorMenu::None &&
+        key == GLFW_KEY_ESCAPE) {
         if (m_cameraInputActive) {
             setCameraInputActive(false);
             return;
@@ -3489,7 +3893,8 @@ void Application::onKey(int key, int action, int mods) {
         return;
     }
 
-    if (!m_benchmarkEnabled && !Menu::isOpen()) {
+    if (!m_benchmarkEnabled && !Menu::isOpen() &&
+        m_openEditorMenu == core::EditorMenu::None) {
         const bool controlPressed = (mods & GLFW_MOD_CONTROL) != 0;
         const bool noModifiers =
             (mods & (GLFW_MOD_SHIFT | GLFW_MOD_CONTROL |
@@ -3796,6 +4201,13 @@ void Application::onMouseMove(double xpos, double ypos) {
     }
     const core::EditorLayout layout = currentEditorLayout(m_width, m_height);
     const core::EditorPoint cursor = cursorFramebufferPosition();
+    if (m_openEditorMenu != core::EditorMenu::None) {
+        setEditorResizeCursor(false);
+        m_lastX = static_cast<float>(xpos);
+        m_lastY = static_cast<float>(ypos);
+        m_firstMouse = true;
+        return;
+    }
     if (m_activePanelSplitter != core::EditorPanelSplitter::None) {
         updateEditorPanelResize(layout, cursor);
         setEditorResizeCursor(true);
@@ -3806,6 +4218,7 @@ void Application::onMouseMove(double xpos, double ypos) {
     }
 
     const bool canResizePanels = !m_benchmarkEnabled && !Menu::isOpen() &&
+        m_openEditorMenu == core::EditorMenu::None &&
         !m_cameraInputActive &&
         m_activeGizmoAxis == core::EditorGizmoAxis::None;
     setEditorResizeCursor(
@@ -3862,7 +4275,8 @@ void Application::onMouseMove(double xpos, double ypos) {
         m_lastY = static_cast<float>(ypos);
         return;
     }
-    if (Menu::isOpen()) {
+    if (Menu::isOpen() ||
+        m_openEditorMenu != core::EditorMenu::None) {
         m_firstMouse = true;
         return;
     }
@@ -3907,6 +4321,41 @@ void Application::onMouseButton(int button, int action, int mods) {
                 case core::EditorCloseDialogAction::None:
                     break;
             }
+        }
+        return;
+    }
+
+    if (!m_benchmarkEnabled && !Menu::isOpen() &&
+        button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+        const core::EditorMenu clickedMenu =
+            core::editorMenuAt(layout, cursor);
+        if (clickedMenu != core::EditorMenu::None) {
+            setCameraInputActive(false);
+            cancelGizmoDrag();
+            m_openEditorMenu = m_openEditorMenu == clickedMenu
+                ? core::EditorMenu::None
+                : clickedMenu;
+            return;
+        }
+        if (m_openEditorMenu != core::EditorMenu::None) {
+            const core::EditorMenuPopup popup =
+                core::calculateEditorMenuPopup(layout, m_openEditorMenu);
+            const core::EditorMenuAction menuAction =
+                core::editorMenuActionAt(
+                    layout, m_openEditorMenu, cursor);
+            if (menuAction != core::EditorMenuAction::None &&
+                editorMenuActionEnabled(menuAction)) {
+                m_openEditorMenu = core::EditorMenu::None;
+                executeEditorMenuAction(menuAction);
+            } else if (!popup.bounds.contains(cursor)) {
+                m_openEditorMenu = core::EditorMenu::None;
+            }
+            return;
+        }
+    }
+    if (m_openEditorMenu != core::EditorMenu::None) {
+        if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
+            m_openEditorMenu = core::EditorMenu::None;
         }
         return;
     }
@@ -3985,6 +4434,7 @@ void Application::onMouseButton(int button, int action, int mods) {
             core::editorToolbarActionAt(layout, cursor);
         if (toolbarAction == core::EditorToolbarAction::ToggleAssets) {
             setCameraInputActive(false);
+            m_openEditorMenu = core::EditorMenu::None;
             Menu::toggle();
             return;
         }
@@ -4133,6 +4583,7 @@ void Application::onMouseButton(int button, int action, int mods) {
 void Application::onScroll(double xoffset, double yoffset) {
     (void)xoffset;
     if (m_camera == nullptr || m_benchmarkEnabled || Menu::isOpen() ||
+        m_openEditorMenu != core::EditorMenu::None ||
         m_closeConfirmationPending ||
         m_activePanelSplitter != core::EditorPanelSplitter::None) {
         return;

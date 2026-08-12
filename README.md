@@ -2,7 +2,9 @@
 
 An interactive C++20/OpenGL renderer with editable materials, post-processing,
 scene save/load, repeatable GPU benchmarks, OBJ/glTF model importing, and a
-world-coordinate grid.
+world-coordinate grid. Its windowed editor uses a professional graphite shell
+with a menu bar, workspace toolbar, dock-style panels, and a dedicated viewport
+header.
 
 ## Build
 
@@ -32,7 +34,9 @@ executable, assets, third-party DLLs, and the MSVC runtime libraries.
 ## Controls
 
 - The editor toolbar and Scene object rows are clickable; the 3D camera and wheel only react inside the central viewport.
+- `File`, `Edit`, `View`, and `Window` menus expose scene, history, display, content-browser, and panel commands with shortcuts and live enabled/checked states.
 - Toolbar actions: create a cube, quick-save/load the scene, toggle the grid, open Assets, or start the GPU benchmark.
+- The interface uses antialiased platform TrueType text when available and automatically falls back to its embedded bitmap font.
 - Inspector quick-edit buttons move, rotate, scale, snap, or reset the selected object and participate in undo/redo history.
 - Scene buttons duplicate or delete the selected object with the same undo/redo behavior as the keyboard shortcuts.
 - Scene and Inspector can collapse into narrow rails; their state is restored on the next launch.

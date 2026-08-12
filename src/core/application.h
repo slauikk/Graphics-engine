@@ -4,6 +4,7 @@
 #include <GLFW/glfw3.h>
 #include <glad/glad.h>
 #include <glm/glm.hpp>
+#include <array>
 #include <cstdint>
 #include <string>
 #include <sstream>
@@ -82,6 +83,10 @@ private:
     void saveAndClose();
     void discardAndClose();
     void cancelCloseConfirmation();
+    bool editorMenuActionEnabled(core::EditorMenuAction action) const;
+    std::array<bool, core::kEditorMenuMaximumItems>
+        editorMenuItemsEnabled() const;
+    void executeEditorMenuAction(core::EditorMenuAction action);
     std::shared_ptr<Model> loadModelAsset(
         const std::string& assetReference,
         MaterialCache& materials,
@@ -114,6 +119,7 @@ private:
     void update(float dt);
     void render();
     void renderEditorOverlay(const core::EditorLayout& layout);
+    void renderEditorMenuOverlay(const core::EditorLayout& layout);
     core::EditorTranslationGizmo selectedObjectGizmo(
         const core::EditorLayout& layout) const;
     void clearGizmoDrag();
@@ -230,6 +236,9 @@ private:
     bool m_closeConfirmationPending = false;
     bool m_restoreBenchmarkAfterCloseCancel = false;
     bool m_restoreMenuAfterCloseCancel = false;
+    core::EditorMenu m_openEditorMenu = core::EditorMenu::None;
+    core::EditorMenu m_restoreEditorMenuAfterCloseCancel =
+        core::EditorMenu::None;
     
     // Rendering resources
     std::shared_ptr<Mesh> m_cubeMesh = nullptr;

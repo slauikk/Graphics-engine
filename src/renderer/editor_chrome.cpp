@@ -18,20 +18,25 @@ struct Color {
     float blue;
 };
 
-constexpr Color kToolbarColor{0.047f, 0.059f, 0.078f};
-constexpr Color kPanelColor{0.067f, 0.082f, 0.106f};
-constexpr Color kPanelHeaderColor{0.086f, 0.106f, 0.137f};
-constexpr Color kStatusColor{0.039f, 0.047f, 0.063f};
-constexpr Color kButtonColor{0.114f, 0.137f, 0.176f};
-constexpr Color kButtonHoverColor{0.173f, 0.216f, 0.282f};
-constexpr Color kButtonActiveColor{0.255f, 0.176f, 0.071f};
-constexpr Color kHierarchyHoverColor{0.125f, 0.153f, 0.196f};
-constexpr Color kSelectionColor{0.235f, 0.153f, 0.047f};
-constexpr Color kSeparatorColor{0.184f, 0.220f, 0.275f};
-constexpr Color kViewportBorderColor{0.714f, 0.463f, 0.110f};
-constexpr Color kSplitterHoverColor{0.278f, 0.529f, 0.792f};
-constexpr Color kModalShadowColor{0.020f, 0.024f, 0.031f};
-constexpr Color kModalColor{0.055f, 0.067f, 0.086f};
+constexpr Color kMenuBarColor{0.043f, 0.047f, 0.055f};
+constexpr Color kToolbarColor{0.078f, 0.086f, 0.102f};
+constexpr Color kPanelColor{0.071f, 0.078f, 0.090f};
+constexpr Color kPanelHeaderColor{0.102f, 0.110f, 0.125f};
+constexpr Color kViewportHeaderColor{0.086f, 0.094f, 0.110f};
+constexpr Color kStatusColor{0.051f, 0.055f, 0.063f};
+constexpr Color kButtonColor{0.129f, 0.141f, 0.161f};
+constexpr Color kButtonHoverColor{0.188f, 0.208f, 0.235f};
+constexpr Color kButtonActiveColor{0.722f, 0.435f, 0.125f};
+constexpr Color kButtonBorderColor{0.220f, 0.239f, 0.271f};
+constexpr Color kHierarchyHoverColor{0.125f, 0.137f, 0.157f};
+constexpr Color kSelectionColor{0.204f, 0.165f, 0.106f};
+constexpr Color kSeparatorColor{0.153f, 0.165f, 0.188f};
+constexpr Color kViewportBorderColor{0.208f, 0.227f, 0.255f};
+constexpr Color kSplitterHoverColor{0.302f, 0.573f, 0.831f};
+constexpr Color kModalShadowColor{0.020f, 0.022f, 0.027f};
+constexpr Color kModalColor{0.071f, 0.078f, 0.090f};
+constexpr Color kPopupColor{0.086f, 0.094f, 0.106f};
+constexpr Color kDisabledColor{0.090f, 0.098f, 0.110f};
 constexpr std::array<Color, 3> kGizmoAxisColors = {
     Color{0.92f, 0.24f, 0.20f},
     Color{0.24f, 0.82f, 0.36f},
@@ -202,6 +207,7 @@ void EditorChrome::render(
     bool gridEnabled,
     bool menuOpen,
     bool closeDialogOpen,
+    core::EditorMenu openEditorMenu,
     core::EditorPoint cursor,
     const core::EditorTranslationGizmo& gizmo,
     core::EditorGizmoAxis activeGizmoAxis,
@@ -221,11 +227,15 @@ void EditorChrome::render(
         const core::EditorRect& rect, Color color) {
         appendOutline(rect, color.red, color.green, color.blue);
     };
-    const bool interactionBlocked = menuOpen || closeDialogOpen;
+    const bool editorMenuOpen = openEditorMenu != core::EditorMenu::None;
+    const bool interactionBlocked =
+        menuOpen || closeDialogOpen || editorMenuOpen;
 
+    appendColorRect(layout.menuBar, kMenuBarColor);
     appendColorRect(layout.toolbar, kToolbarColor);
     appendColorRect(layout.hierarchy, kPanelColor);
     appendColorRect(layout.hierarchyHeader, kPanelHeaderColor);
+    appendColorRect(layout.viewportHeader, kViewportHeaderColor);
     appendColorRect(layout.inspector, kPanelColor);
     appendColorRect(layout.inspectorHeader, kPanelHeaderColor);
     appendColorRect(layout.statusBar, kStatusColor);
@@ -237,7 +247,7 @@ void EditorChrome::render(
             button,
             active ? kButtonActiveColor
                    : (hovered ? kButtonHoverColor : kButtonColor));
-        appendColorOutline(button, kSeparatorColor);
+        appendColorOutline(button, kButtonBorderColor);
     };
     appendButton(layout.createButton, false, !interactionBlocked);
     appendButton(layout.saveButton, false, !interactionBlocked);
@@ -247,6 +257,43 @@ void EditorChrome::render(
     appendButton(layout.benchmarkButton, false, !interactionBlocked);
     appendButton(layout.hierarchyToggleButton, false, !interactionBlocked);
     appendButton(layout.inspectorToggleButton, false, !interactionBlocked);
+
+    constexpr std::array menus = {
+        core::EditorMenu::File,
+        core::EditorMenu::Edit,
+        core::EditorMenu::View,
+        core::EditorMenu::Window};
+    for (std::size_t index = 0; index < menus.size(); ++index) {
+        const core::EditorRect& button = layout.menuButtons[index];
+        const bool active = openEditorMenu == menus[index];
+        const bool hovered = !closeDialogOpen && button.contains(cursor);
+        if (active || hovered) {
+            appendColorRect(
+                button,
+                active ? kPanelHeaderColor : kToolbarColor);
+        }
+        if (active) {
+            appendColorRect(
+                {button.x, button.y + button.height - 2,
+                 button.width, 2},
+                kButtonActiveColor);
+        }
+    }
+
+    const auto appendToolbarSeparator = [&](const core::EditorRect& after) {
+        if (!after.valid()) {
+            return;
+        }
+        appendColorRect(
+            {after.x + after.width + 3,
+             layout.toolbar.y + 10,
+             1,
+             (std::max)(0, layout.toolbar.height - 20)},
+            kSeparatorColor);
+    };
+    appendToolbarSeparator(layout.createButton);
+    appendToolbarSeparator(layout.loadButton);
+    appendToolbarSeparator(layout.assetsButton);
 
     const auto appendHierarchyButton = [&](
         const core::EditorRect& button, bool enabled) {
@@ -299,12 +346,16 @@ void EditorChrome::render(
     }
 
     if (selectedObject >= 0 &&
+        static_cast<std::size_t>(selectedObject) < objectCount &&
         static_cast<std::size_t>(selectedObject) >= firstVisibleObject) {
         const std::size_t visibleRow =
             static_cast<std::size_t>(selectedObject) - firstVisibleObject;
-        appendColorRect(
-            core::editorHierarchyRowRect(layout, visibleRow),
-            kSelectionColor);
+        if (visibleRow < core::editorHierarchyVisibleRowCount(layout)) {
+            const core::EditorRect row =
+                core::editorHierarchyRowRect(layout, visibleRow);
+            appendColorRect(row, kSelectionColor);
+            appendColorRect({row.x, row.y, 3, row.height}, kButtonActiveColor);
+        }
     }
 
     if (gizmo.valid && !interactionBlocked) {
@@ -337,7 +388,21 @@ void EditorChrome::render(
             kGizmoOriginColor);
     }
 
-    appendColorOutline(layout.viewport, kViewportBorderColor);
+    appendColorOutline(layout.viewportFrame, kViewportBorderColor);
+    appendColorRect(
+        {layout.viewportHeader.x,
+         layout.viewportHeader.y + layout.viewportHeader.height - 1,
+         layout.viewportHeader.width,
+         1},
+        kSeparatorColor);
+    appendColorRect(
+        {0, layout.menuBar.y + layout.menuBar.height - 1,
+         layout.width, 1},
+        kSeparatorColor);
+    appendColorRect(
+        {0, layout.toolbar.y + layout.toolbar.height - 1,
+         layout.width, 1},
+        kSeparatorColor);
     appendColorRect(
         {layout.hierarchy.x + layout.hierarchy.width,
          layout.hierarchy.y, 1, layout.hierarchy.height},
@@ -376,7 +441,7 @@ void EditorChrome::render(
     appendSplitterHighlight(
         layout.inspectorSplitter, core::EditorPanelSplitter::Inspector);
 
-    if (interactionBlocked && layout.modalOverlay.valid()) {
+    if ((menuOpen || closeDialogOpen) && layout.modalOverlay.valid()) {
         appendColorRect(
             {layout.modalOverlay.x + 8, layout.modalOverlay.y + 8,
              layout.modalOverlay.width, layout.modalOverlay.height},
@@ -390,6 +455,62 @@ void EditorChrome::render(
         appendButton(layout.closeCancelButton, false, true);
     }
 
+    drawVertices(layout);
+}
+
+void EditorChrome::renderMenuPopup(
+    const core::EditorLayout& layout,
+    core::EditorMenu openEditorMenu,
+    const std::array<bool, core::kEditorMenuMaximumItems>&
+        editorMenuItemsEnabled,
+    core::EditorPoint cursor) {
+    if (openEditorMenu == core::EditorMenu::None ||
+        layout.width <= 0 || layout.height <= 0 ||
+        !m_shader || m_shader->m_id == 0 ||
+        m_vertexArray == 0 || m_vertexBuffer == 0) {
+        return;
+    }
+
+    m_vertices.clear();
+    const core::EditorMenuPopup popup =
+        core::calculateEditorMenuPopup(layout, openEditorMenu);
+    if (!popup.bounds.valid()) {
+        return;
+    }
+    appendRect(
+        {popup.bounds.x + 6, popup.bounds.y + 6,
+         popup.bounds.width, popup.bounds.height},
+        kModalShadowColor.red,
+        kModalShadowColor.green,
+        kModalShadowColor.blue);
+    appendRect(
+        popup.bounds, kPopupColor.red, kPopupColor.green, kPopupColor.blue);
+    appendOutline(
+        popup.bounds,
+        kButtonBorderColor.red,
+        kButtonBorderColor.green,
+        kButtonBorderColor.blue);
+    for (std::size_t index = 0; index < popup.itemCount; ++index) {
+        const bool enabled = editorMenuItemsEnabled[index];
+        const bool hovered = enabled && popup.items[index].contains(cursor);
+        if (hovered) {
+            appendRect(
+                popup.items[index],
+                kButtonHoverColor.red,
+                kButtonHoverColor.green,
+                kButtonHoverColor.blue);
+        } else if (!enabled) {
+            appendRect(
+                popup.items[index],
+                kDisabledColor.red,
+                kDisabledColor.green,
+                kDisabledColor.blue);
+        }
+    }
+    drawVertices(layout);
+}
+
+void EditorChrome::drawVertices(const core::EditorLayout& layout) {
     if (m_vertices.empty()) {
         return;
     }

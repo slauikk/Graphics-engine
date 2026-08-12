@@ -9,8 +9,12 @@
 
 namespace core {
 
+inline constexpr int kEditorMenuBarHeight = 24;
 inline constexpr int kEditorToolbarHeight = 44;
-inline constexpr int kEditorStatusBarHeight = 28;
+inline constexpr int kEditorTopChromeHeight =
+    kEditorMenuBarHeight + kEditorToolbarHeight;
+inline constexpr int kEditorViewportHeaderHeight = 30;
+inline constexpr int kEditorStatusBarHeight = 24;
 inline constexpr int kEditorPanelHeaderHeight = 34;
 inline constexpr int kEditorHierarchyRowHeight = 24;
 inline constexpr int kEditorCollapsedPanelWidth = 34;
@@ -23,6 +27,8 @@ inline constexpr int kMinimumEditorInspectorWidth = 240;
 inline constexpr int kMaximumEditorInspectorWidth = 560;
 inline constexpr int kEditorPanelSeparatorWidth = 1;
 inline constexpr int kEditorPanelSplitterHitWidth = 8;
+inline constexpr std::size_t kEditorMenuCount = 4;
+inline constexpr std::size_t kEditorMenuMaximumItems = 5;
 
 struct EditorPoint {
     double x = -1.0;
@@ -74,11 +80,44 @@ enum class EditorCloseDialogAction {
     Cancel
 };
 
+enum class EditorMenu {
+    None,
+    File,
+    Edit,
+    View,
+    Window
+};
+
+enum class EditorMenuAction {
+    None,
+    SaveScene,
+    LoadScene,
+    ExitApplication,
+    Undo,
+    Redo,
+    DuplicateObject,
+    DeleteObject,
+    ToggleGrid,
+    ToggleGpuInfo,
+    ToggleVsync,
+    ToggleFullscreen,
+    OpenAssets,
+    ToggleHierarchy,
+    ToggleInspector
+};
+
+struct EditorMenuPopup {
+    EditorRect bounds;
+    std::array<EditorRect, kEditorMenuMaximumItems> items;
+    std::size_t itemCount = 0;
+};
+
 struct EditorLayout {
     int width = 0;
     int height = 0;
     bool hierarchyExpanded = true;
     bool inspectorExpanded = true;
+    EditorRect menuBar;
     EditorRect toolbar;
     EditorRect hierarchy;
     EditorRect hierarchyHeader;
@@ -93,6 +132,8 @@ struct EditorLayout {
     EditorRect inspectorToggleButton;
     EditorRect inspectorContent;
     EditorRect inspectorSplitter;
+    EditorRect viewportFrame;
+    EditorRect viewportHeader;
     EditorRect statusBar;
     EditorRect modalOverlay;
     EditorRect closeSaveButton;
@@ -104,6 +145,7 @@ struct EditorLayout {
     EditorRect gridButton;
     EditorRect assetsButton;
     EditorRect benchmarkButton;
+    std::array<EditorRect, kEditorMenuCount> menuButtons;
     std::array<EditorRect, 6> inspectorMoveButtons;
     std::array<EditorRect, 4> inspectorRotateScaleButtons;
     std::array<EditorRect, 2> inspectorSnapResetButtons;
@@ -126,6 +168,23 @@ EditorPoint mapWindowPointToFramebuffer(
 
 EditorToolbarAction editorToolbarActionAt(
     const EditorLayout& layout,
+    EditorPoint point);
+
+EditorMenu editorMenuAt(
+    const EditorLayout& layout,
+    EditorPoint point);
+
+EditorMenuPopup calculateEditorMenuPopup(
+    const EditorLayout& layout,
+    EditorMenu menu);
+
+EditorMenuAction editorMenuAction(
+    EditorMenu menu,
+    std::size_t index);
+
+EditorMenuAction editorMenuActionAt(
+    const EditorLayout& layout,
+    EditorMenu menu,
     EditorPoint point);
 
 EditorHierarchyAction editorHierarchyActionAt(

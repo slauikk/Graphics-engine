@@ -15,6 +15,7 @@ public:
     static void flush();
     static void renderText(const std::string& text, float x, float y, float scale = 1.0f);
     static void renderTextWithColor(const std::string& text, float x, float y, float scale, float r, float g, float b);
+    static float measureTextWidth(const std::string& text, float scale = 1.0f);
     static void cleanup();
     static void updateWindowSize(int width, int height);
     static bool reloadShaders();

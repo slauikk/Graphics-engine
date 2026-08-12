@@ -4,6 +4,7 @@
 #include "../core/editor_layout.h"
 #include "../core/editor_gizmo.h"
 
+#include <array>
 #include <cstddef>
 #include <memory>
 #include <vector>
@@ -29,10 +30,17 @@ public:
         bool gridEnabled,
         bool menuOpen,
         bool closeDialogOpen,
+        core::EditorMenu openEditorMenu,
         core::EditorPoint cursor,
         const core::EditorTranslationGizmo& gizmo,
         core::EditorGizmoAxis activeGizmoAxis,
         core::EditorPanelSplitter activePanelSplitter);
+    void renderMenuPopup(
+        const core::EditorLayout& layout,
+        core::EditorMenu openEditorMenu,
+        const std::array<bool, core::kEditorMenuMaximumItems>&
+            editorMenuItemsEnabled,
+        core::EditorPoint cursor);
 
 private:
     void appendRect(const core::EditorRect& rect, float red, float green, float blue);
@@ -44,6 +52,7 @@ private:
         float red,
         float green,
         float blue);
+    void drawVertices(const core::EditorLayout& layout);
 
     unsigned int m_vertexArray = 0;
     unsigned int m_vertexBuffer = 0;
