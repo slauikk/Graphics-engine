@@ -57,6 +57,15 @@ enum class EditorToolbarAction {
     ToggleBenchmark
 };
 
+enum class EditorViewportAction {
+    None,
+    CycleViewMode,
+    CyclePostProcess,
+    SelectTranslate,
+    SelectRotate,
+    ToggleGizmoSnap
+};
+
 enum class EditorHierarchyAction {
     None,
     DuplicateObject,
@@ -137,6 +146,11 @@ struct EditorLayout {
     EditorRect inspectorSplitter;
     EditorRect viewportFrame;
     EditorRect viewportHeader;
+    EditorRect viewportViewModeButton;
+    EditorRect viewportPostProcessButton;
+    EditorRect viewportMoveButton;
+    EditorRect viewportRotateButton;
+    EditorRect viewportSnapButton;
     EditorRect contentBrowser;
     EditorRect contentBrowserHeader;
     EditorRect contentBrowserContent;
@@ -174,6 +188,10 @@ EditorPoint mapWindowPointToFramebuffer(
     int framebufferHeight);
 
 EditorToolbarAction editorToolbarActionAt(
+    const EditorLayout& layout,
+    EditorPoint point);
+
+EditorViewportAction editorViewportActionAt(
     const EditorLayout& layout,
     EditorPoint point);
 

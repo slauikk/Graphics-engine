@@ -205,11 +205,16 @@ void EditorChrome::render(
     bool canDuplicateObject,
     bool canDeleteObject,
     bool gridEnabled,
+    bool debugViewEnabled,
+    bool postProcessEnabled,
+    core::EditorGizmoMode gizmoMode,
+    bool gizmoSnapEnabled,
     bool menuOpen,
     bool closeDialogOpen,
     core::EditorMenu openEditorMenu,
     core::EditorPoint cursor,
-    const core::EditorTranslationGizmo& gizmo,
+    const core::EditorTranslationGizmo& translationGizmo,
+    const core::EditorRotationGizmo& rotationGizmo,
     core::EditorGizmoAxis activeGizmoAxis,
     core::EditorPanelSplitter activePanelSplitter) {
     if (layout.width <= 0 || layout.height <= 0 ||
@@ -247,8 +252,10 @@ void EditorChrome::render(
         const bool hovered = interactive && button.contains(cursor);
         appendColorRect(
             button,
-            active ? kButtonActiveColor
-                   : (hovered ? kButtonHoverColor : kButtonColor));
+            !interactive ? kDisabledColor
+                         : (active ? kButtonActiveColor
+                                   : (hovered ? kButtonHoverColor
+                                              : kButtonColor)));
         appendColorOutline(button, kButtonBorderColor);
     };
     appendButton(layout.createButton, false, !interactionBlocked);
@@ -259,6 +266,26 @@ void EditorChrome::render(
     appendButton(layout.benchmarkButton, false, !interactionBlocked);
     appendButton(layout.hierarchyToggleButton, false, !interactionBlocked);
     appendButton(layout.inspectorToggleButton, false, !interactionBlocked);
+    appendButton(
+        layout.viewportViewModeButton,
+        debugViewEnabled,
+        !interactionBlocked);
+    appendButton(
+        layout.viewportPostProcessButton,
+        postProcessEnabled,
+        !interactionBlocked);
+    appendButton(
+        layout.viewportMoveButton,
+        gizmoMode == core::EditorGizmoMode::Translate,
+        !interactionBlocked);
+    appendButton(
+        layout.viewportRotateButton,
+        gizmoMode == core::EditorGizmoMode::Rotate,
+        !interactionBlocked);
+    appendButton(
+        layout.viewportSnapButton,
+        gizmoSnapEnabled,
+        !interactionBlocked);
 
     constexpr std::array menus = {
         core::EditorMenu::File,
@@ -360,15 +387,16 @@ void EditorChrome::render(
         }
     }
 
-    if (gizmo.valid && !interactionBlocked) {
+    if (translationGizmo.valid && !interactionBlocked &&
+        gizmoMode == core::EditorGizmoMode::Translate) {
         constexpr std::array<core::EditorGizmoAxis, 3> axes = {
             core::EditorGizmoAxis::X,
             core::EditorGizmoAxis::Y,
             core::EditorGizmoAxis::Z};
         const core::EditorGizmoAxis hoveredAxis =
-            core::editorGizmoAxisAt(gizmo, cursor);
+            core::editorGizmoAxisAt(translationGizmo, cursor);
         for (std::size_t index = 0; index < axes.size(); ++index) {
-            if (!gizmo.handles[index].valid()) {
+            if (!translationGizmo.handles[index].valid()) {
                 continue;
             }
             const bool highlighted = axes[index] == activeGizmoAxis ||
@@ -377,16 +405,51 @@ void EditorChrome::render(
                 ? kGizmoHoverColor
                 : kGizmoAxisColors[index];
             appendLine(
-                gizmo.origin, gizmo.endpoints[index],
+                translationGizmo.origin, translationGizmo.endpoints[index],
                 highlighted ? 4.0f : 3.0f,
                 color.red, color.green, color.blue);
-            appendColorRect(gizmo.handles[index], color);
-            appendColorOutline(gizmo.handles[index], kModalShadowColor);
+            appendColorRect(translationGizmo.handles[index], color);
+            appendColorOutline(
+                translationGizmo.handles[index], kModalShadowColor);
         }
         appendColorRect(
-            {static_cast<int>(std::lround(gizmo.origin.x)) - 4,
-             static_cast<int>(std::lround(gizmo.origin.y)) - 4,
+            {static_cast<int>(std::lround(translationGizmo.origin.x)) - 4,
+             static_cast<int>(std::lround(translationGizmo.origin.y)) - 4,
              8, 8},
+            kGizmoOriginColor);
+    }
+
+    if (rotationGizmo.valid && !interactionBlocked &&
+        gizmoMode == core::EditorGizmoMode::Rotate) {
+        constexpr std::array<core::EditorGizmoAxis, 3> axes = {
+            core::EditorGizmoAxis::X,
+            core::EditorGizmoAxis::Y,
+            core::EditorGizmoAxis::Z};
+        const core::EditorGizmoAxis hoveredAxis =
+            core::editorRotationGizmoAxisAt(rotationGizmo, cursor);
+        for (std::size_t axis = 0; axis < axes.size(); ++axis) {
+            if (!rotationGizmo.axesValid[axis]) {
+                continue;
+            }
+            const bool highlighted = axes[axis] == activeGizmoAxis ||
+                axes[axis] == hoveredAxis;
+            const Color color = highlighted
+                ? kGizmoHoverColor
+                : kGizmoAxisColors[axis];
+            for (std::size_t segment = 0;
+                 segment < core::kEditorRotationGizmoSegmentCount;
+                 ++segment) {
+                appendLine(
+                    rotationGizmo.rings[axis][segment],
+                    rotationGizmo.rings[axis][segment + 1],
+                    highlighted ? 3.0f : 2.0f,
+                    color.red, color.green, color.blue);
+            }
+        }
+        appendColorRect(
+            {static_cast<int>(std::lround(rotationGizmo.origin.x)) - 3,
+             static_cast<int>(std::lround(rotationGizmo.origin.y)) - 3,
+             6, 6},
             kGizmoOriginColor);
     }
 

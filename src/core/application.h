@@ -87,6 +87,7 @@ private:
     std::array<bool, core::kEditorMenuMaximumItems>
         editorMenuItemsEnabled() const;
     void executeEditorMenuAction(core::EditorMenuAction action);
+    void executeEditorViewportAction(core::EditorViewportAction action);
     std::shared_ptr<Model> loadModelAsset(
         const std::string& assetReference,
         MaterialCache& materials,
@@ -120,7 +121,9 @@ private:
     void render();
     void renderEditorOverlay(const core::EditorLayout& layout);
     void renderEditorMenuOverlay(const core::EditorLayout& layout);
-    core::EditorTranslationGizmo selectedObjectGizmo(
+    core::EditorTranslationGizmo selectedObjectTranslationGizmo(
+        const core::EditorLayout& layout) const;
+    core::EditorRotationGizmo selectedObjectRotationGizmo(
         const core::EditorLayout& layout) const;
     void clearGizmoDrag();
     void cancelGizmoDrag();
@@ -221,12 +224,19 @@ private:
     std::uint64_t m_activeTransformObjectId = 0;
     core::EditorGizmoAxis m_activeGizmoAxis =
         core::EditorGizmoAxis::None;
-    core::EditorTranslationGizmo m_activeGizmo;
+    core::EditorGizmoMode m_activeGizmoMode =
+        core::EditorGizmoMode::Translate;
+    core::EditorTranslationGizmo m_activeTranslationGizmo;
+    core::EditorRotationGizmo m_activeRotationGizmo;
     core::EditorPoint m_gizmoDragStartCursor;
     glm::vec3 m_gizmoDragStartPosition = glm::vec3(0.0f);
+    glm::vec3 m_gizmoDragStartRotation = glm::vec3(0.0f);
+    bool m_gizmoDragStartSpinning = false;
     std::uint64_t m_activeGizmoObjectId = 0;
     std::optional<core::SceneDocument> m_gizmoSceneBeforeDrag;
-    bool m_gizmoLastMoveSnapped = false;
+    bool m_gizmoLastTransformSnapped = false;
+    core::EditorGizmoMode m_gizmoMode = core::EditorGizmoMode::Translate;
+    bool m_gizmoSnapEnabled = false;
     std::uint64_t m_nextObjectId = 1;
     core::SceneHistory m_sceneHistory;
     std::optional<core::SceneDocument> m_savedSceneSnapshot;

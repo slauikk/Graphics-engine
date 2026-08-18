@@ -13,6 +13,9 @@ constexpr int kHierarchyActionBottomOffset = 58;
 constexpr int kToolbarButtonY = core::kEditorMenuBarHeight + 8;
 constexpr int kToolbarButtonHeight = 28;
 constexpr int kToolbarButtonGap = 8;
+constexpr int kViewportButtonHorizontalPadding = 8;
+constexpr int kViewportButtonVerticalPadding = 4;
+constexpr int kViewportButtonGap = 4;
 constexpr int kMenuStartX = 132;
 constexpr int kMenuPopupWidth = 236;
 constexpr int kMenuPopupPadding = 4;
@@ -123,6 +126,26 @@ core::EditorRect toolbarButton(int& x, int width, int layoutWidth) {
         ? core::EditorRect{x, kToolbarButtonY, width, kToolbarButtonHeight}
         : core::EditorRect{};
     x += width + kToolbarButtonGap;
+    return button;
+}
+
+core::EditorRect viewportHeaderButton(
+    int& x,
+    int width,
+    const core::EditorRect& header) {
+    const int height = (std::max)(
+        0, header.height - 2 * kViewportButtonVerticalPadding);
+    const int right = header.x + header.width -
+        kViewportButtonHorizontalPadding;
+    const core::EditorRect button =
+        height > 0 && x + width <= right
+        ? core::EditorRect{
+              x,
+              header.y + kViewportButtonVerticalPadding,
+              width,
+              height}
+        : core::EditorRect{};
+    x += width + kViewportButtonGap;
     return button;
 }
 
@@ -276,6 +299,18 @@ EditorLayout calculateEditorLayout(
         layout.viewportFrame.y,
         layout.viewportFrame.width,
         viewportHeaderHeight};
+    int viewportButtonX = layout.viewportHeader.x +
+        kViewportButtonHorizontalPadding;
+    layout.viewportViewModeButton = viewportHeaderButton(
+        viewportButtonX, 68, layout.viewportHeader);
+    layout.viewportPostProcessButton = viewportHeaderButton(
+        viewportButtonX, 54, layout.viewportHeader);
+    layout.viewportMoveButton = viewportHeaderButton(
+        viewportButtonX, 54, layout.viewportHeader);
+    layout.viewportRotateButton = viewportHeaderButton(
+        viewportButtonX, 58, layout.viewportHeader);
+    layout.viewportSnapButton = viewportHeaderButton(
+        viewportButtonX, 54, layout.viewportHeader);
     layout.viewport = {
         layout.viewportFrame.x,
         layout.viewportFrame.y + viewportHeaderHeight,
@@ -659,6 +694,27 @@ EditorToolbarAction editorToolbarActionAt(
         return EditorToolbarAction::ToggleBenchmark;
     }
     return EditorToolbarAction::None;
+}
+
+EditorViewportAction editorViewportActionAt(
+    const EditorLayout& layout,
+    EditorPoint point) {
+    if (layout.viewportViewModeButton.contains(point)) {
+        return EditorViewportAction::CycleViewMode;
+    }
+    if (layout.viewportPostProcessButton.contains(point)) {
+        return EditorViewportAction::CyclePostProcess;
+    }
+    if (layout.viewportMoveButton.contains(point)) {
+        return EditorViewportAction::SelectTranslate;
+    }
+    if (layout.viewportRotateButton.contains(point)) {
+        return EditorViewportAction::SelectRotate;
+    }
+    if (layout.viewportSnapButton.contains(point)) {
+        return EditorViewportAction::ToggleGizmoSnap;
+    }
+    return EditorViewportAction::None;
 }
 
 EditorHierarchyAction editorHierarchyActionAt(

@@ -37,6 +37,7 @@ executable, assets, third-party DLLs, and the MSVC runtime libraries.
 - The editor toolbar and Scene object rows are clickable; the 3D camera and wheel only react inside the central viewport.
 - `File`, `Edit`, `View`, and `Window` menus expose scene, history, display, content-browser, and panel commands with shortcuts and live enabled/checked states.
 - Toolbar actions: create a cube, quick-save/load the scene, toggle the grid, open the Content Browser, or start the GPU benchmark.
+- The viewport toolbar cycles material debug views and post-processing effects, switches between `Move` and `Rotate`, and can keep snapping enabled without holding `Ctrl`.
 - The interface uses antialiased platform TrueType text when available and automatically falls back to its embedded bitmap font.
 - Inspector quick-edit buttons move, rotate, scale, snap, or reset the selected object and participate in undo/redo history.
 - Scene buttons duplicate or delete the selected object with the same undo/redo behavior as the keyboard shortcuts.
@@ -50,11 +51,12 @@ executable, assets, third-party DLLs, and the MSVC runtime libraries.
 - `V`: toggle VSync; GPU benchmark mode temporarily disables it.
 - Mouse and wheel: look around and change field of view.
 - Left mouse button: select the nearest object under the cursor inside the viewport.
-- Drag the colored `X`, `Y`, or `Z` gizmo handle to move the selected object with one undoable history transaction; hold `Ctrl` to snap the active axis to the `0.5` grid, or press `Esc` / RMB to cancel and restore the starting position.
+- Drag a colored `X`, `Y`, or `Z` move handle or rotation ring to transform the selected object with one undoable history transaction; hold `Ctrl` to snap movement to `0.5` units or rotation to `15` degrees, or press `Esc` / RMB to cancel and restore the starting transform.
 - `Insert` / `C`: create and select a cube on the nearest free grid position.
 - `F`: frame the selected object in the camera view.
 - Arrow keys and `PageUp` / `PageDown`: move the selected object on `X/Z` and `Y`.
-- `Q` / `E` and `-` / `=`: rotate around `Y` and scale the selected object.
+- `W` / `R`: select the Move / Rotate gizmo; `Q` / `E` still provide quick rotation around `Y`.
+- `-` / `=`: scale the selected object.
 - `End` / `Home`: snap the selected position/rotation to editor steps or reset the transform.
 - `F8`: toggle the docked Content Browser for textures, models, object movement, and lighting tools.
 - `Tab` / `Shift+Tab`: select the next / previous scene object.

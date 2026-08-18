@@ -224,6 +224,19 @@ void testEditorLayoutAndHitTesting() {
                 layout.viewport.x == 231 && layout.viewport.y == 98 &&
                 layout.viewport.width == 754 && layout.viewport.height == 598,
             "editor viewport bounds are incorrect");
+    require(layout.viewportViewModeButton.x == 239 &&
+                layout.viewportViewModeButton.y == 72 &&
+                layout.viewportViewModeButton.width == 68 &&
+                layout.viewportViewModeButton.height == 22 &&
+                layout.viewportPostProcessButton.x == 311 &&
+                layout.viewportPostProcessButton.width == 54 &&
+                layout.viewportMoveButton.x == 369 &&
+                layout.viewportMoveButton.width == 54 &&
+                layout.viewportRotateButton.x == 427 &&
+                layout.viewportRotateButton.width == 58 &&
+                layout.viewportSnapButton.x == 489 &&
+                layout.viewportSnapButton.width == 54,
+            "editor viewport toolbar bounds are incorrect");
     require(!layout.contentBrowser.valid() &&
                 !layout.contentBrowserContent.valid(),
             "closed content browser reserved editor space");
@@ -288,6 +301,37 @@ void testEditorLayoutAndHitTesting() {
                 core::editorToolbarActionAt(layout, {20.0, 20.0}) ==
                 core::EditorToolbarAction::None,
             "editor toolbar action hit testing is incorrect");
+    require(core::editorViewportActionAt(
+                layout,
+                {layout.viewportViewModeButton.x + 2.0,
+                 layout.viewportViewModeButton.y + 2.0}) ==
+                core::EditorViewportAction::CycleViewMode &&
+                core::editorViewportActionAt(
+                    layout,
+                    {layout.viewportPostProcessButton.x + 2.0,
+                     layout.viewportPostProcessButton.y + 2.0}) ==
+                core::EditorViewportAction::CyclePostProcess &&
+                core::editorViewportActionAt(
+                    layout,
+                    {layout.viewportMoveButton.x + 2.0,
+                     layout.viewportMoveButton.y + 2.0}) ==
+                core::EditorViewportAction::SelectTranslate &&
+                core::editorViewportActionAt(
+                    layout,
+                    {layout.viewportRotateButton.x + 2.0,
+                     layout.viewportRotateButton.y + 2.0}) ==
+                core::EditorViewportAction::SelectRotate &&
+                core::editorViewportActionAt(
+                    layout,
+                    {layout.viewportSnapButton.x + 2.0,
+                     layout.viewportSnapButton.y + 2.0}) ==
+                core::EditorViewportAction::ToggleGizmoSnap &&
+                core::editorViewportActionAt(
+                    layout,
+                    {layout.viewport.x + 2.0,
+                     layout.viewport.y + 2.0}) ==
+                core::EditorViewportAction::None,
+            "editor viewport toolbar hit testing is incorrect");
 
     require(core::editorMenuAt(
                 layout,
@@ -448,9 +492,14 @@ void testEditorLayoutAndHitTesting() {
     const core::EditorLayout compact =
         core::calculateEditorLayout(500, 300);
     require(compact.viewport.width >= 320 && compact.viewport.height > 0 &&
+                compact.viewportViewModeButton.valid() &&
+                compact.viewportPostProcessButton.valid() &&
+                compact.viewportMoveButton.valid() &&
+                compact.viewportRotateButton.valid() &&
+                compact.viewportSnapButton.valid() &&
                 !compact.hierarchySplitter.valid() &&
                 !compact.inspectorSplitter.valid(),
-            "compact editor layout collapsed the viewport");
+            "compact editor layout collapsed the viewport toolbar");
     const auto insideCompactModal = [&compact](const core::EditorRect& button) {
         return button.valid() &&
             button.x >= compact.modalOverlay.x &&
@@ -833,6 +882,110 @@ void testEditorTranslationGizmo() {
             projection);
     require(!beyondFarPlane.valid,
             "object beyond the far plane produced an interactive gizmo");
+}
+
+void testEditorRotationGizmo() {
+    const core::EditorRect viewport{100, 50, 800, 600};
+    const glm::mat4 view = glm::lookAt(
+        glm::vec3(4.0f, 3.0f, 6.0f),
+        glm::vec3(0.0f),
+        glm::vec3(0.0f, 1.0f, 0.0f));
+    const glm::mat4 projection = glm::perspective(
+        glm::radians(45.0f), 4.0f / 3.0f, 0.1f, 100.0f);
+    const core::EditorRotationGizmo gizmo =
+        core::calculateEditorRotationGizmo(
+            viewport, glm::vec3(0.0f), view, projection);
+    require(gizmo.valid && viewport.contains(gizmo.origin) &&
+                gizmo.axesValid[0] && gizmo.axesValid[1] &&
+                gizmo.axesValid[2],
+            "visible object did not produce three rotation rings");
+
+    constexpr std::array<core::EditorGizmoAxis, 3> axes = {
+        core::EditorGizmoAxis::X,
+        core::EditorGizmoAxis::Y,
+        core::EditorGizmoAxis::Z};
+    for (std::size_t axis = 0; axis < axes.size(); ++axis) {
+        bool foundExclusiveArc = false;
+        for (std::size_t point = 0;
+             point < core::kEditorRotationGizmoSegmentCount;
+             ++point) {
+            if (core::editorRotationGizmoAxisAt(
+                    gizmo, gizmo.rings[axis][point]) == axes[axis]) {
+                foundExclusiveArc = true;
+                break;
+            }
+        }
+        require(foundExclusiveArc,
+                "rotation ring could not be selected by its visible arc");
+    }
+    require(core::editorRotationGizmoAxisAt(gizmo, gizmo.origin) ==
+                core::EditorGizmoAxis::None,
+            "rotation gizmo selected an axis from its empty center");
+
+    const glm::vec3 startRotation(10.0f, 20.0f, 30.0f);
+    const auto rotated = core::calculateEditorGizmoRotation(
+        gizmo,
+        core::EditorGizmoAxis::Y,
+        startRotation,
+        gizmo.rings[1][0],
+        gizmo.rings[1][8]);
+    require(rotated.has_value() &&
+                almostEqual(rotated->x, startRotation.x) &&
+                std::abs((rotated->y - startRotation.y) - 45.0f) < 1.0f &&
+                almostEqual(rotated->z, startRotation.z),
+            "rotation gizmo changed the wrong axis or angle");
+
+    const auto snapped = core::calculateEditorGizmoRotation(
+        gizmo,
+        core::EditorGizmoAxis::Z,
+        glm::vec3(1.0f, 2.0f, 3.0f),
+        gizmo.rings[2][0],
+        gizmo.rings[2][7],
+        core::kObjectRotationStepDegrees);
+    require(snapped.has_value() &&
+                almostEqual(snapped->x, 1.0) &&
+                almostEqual(snapped->y, 2.0) &&
+                almostEqual(
+                    snapped->z / core::kObjectRotationStepDegrees,
+                    std::round(
+                        snapped->z / core::kObjectRotationStepDegrees)),
+            "rotation snapping changed an inactive axis or missed its step");
+    require(!core::calculateEditorGizmoRotation(
+                 gizmo,
+                 core::EditorGizmoAxis::None,
+                 glm::vec3(0.0f),
+                 gizmo.rings[0][0],
+                 gizmo.rings[0][1])
+                 .has_value() &&
+                !core::calculateEditorGizmoRotation(
+                    gizmo,
+                    core::EditorGizmoAxis::X,
+                    glm::vec3(0.0f),
+                    gizmo.rings[0][0],
+                    gizmo.rings[0][1],
+                    -core::kObjectRotationStepDegrees)
+                    .has_value(),
+            "rotation gizmo accepted an invalid axis or snap step");
+    require(!core::editorGizmoRotationChanged(
+                glm::vec3(1.0f, 2.0f, 3.0f),
+                glm::vec3(1.0f, 2.0f, 3.0f)) &&
+                core::editorGizmoRotationChanged(
+                    glm::vec3(1.0f, 2.0f, 3.0f),
+                    glm::vec3(1.0f, 17.0f, 3.0f)) &&
+                !core::editorGizmoRotationChanged(
+                    glm::vec3(0.0f),
+                    glm::vec3(
+                        std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f)),
+            "rotation transaction change detection accepted an invalid no-op");
+
+    const core::EditorRotationGizmo hidden =
+        core::calculateEditorRotationGizmo(
+            viewport,
+            glm::vec3(0.0f, 0.0f, 20.0f),
+            view,
+            projection);
+    require(!hidden.valid,
+            "object behind the camera produced interactive rotation rings");
 }
 
 void testWindowSettingsPersistence() {
@@ -2178,6 +2331,7 @@ int main() {
         {"asset path containment", testAssetPathContainment},
         {"editor layout and hit testing", testEditorLayoutAndHitTesting},
         {"editor translation gizmo", testEditorTranslationGizmo},
+        {"editor rotation gizmo", testEditorRotationGizmo},
         {"window settings persistence", testWindowSettingsPersistence},
         {"benchmark statistics", testBenchmarkStatistics},
         {"benchmark JSON/CSV round-trip", testBenchmarkRoundTripAndMultilineCsv},

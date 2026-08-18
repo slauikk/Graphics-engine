@@ -376,6 +376,18 @@ const char* editorMenuActionShortcut(core::EditorMenuAction action) {
     }
 }
 
+const char* postProcessToolbarName(PostProcessEffect effect) {
+    switch (effect) {
+        case PostProcessEffect::Grayscale: return "Gray";
+        case PostProcessEffect::Invert: return "Invert";
+        case PostProcessEffect::Edges: return "Edges";
+        case PostProcessEffect::Vignette: return "Vign.";
+        case PostProcessEffect::Crt: return "CRT";
+        case PostProcessEffect::Normal:
+        default: return "FX";
+    }
+}
+
 } // namespace
 
 Application::Application() {
@@ -1341,7 +1353,6 @@ core::SceneDocument Application::captureScene() const {
     scene.pointLight.enabled = m_pointLight.enabled;
     scene.pointLight.spinning = m_pointLightSpinning;
     scene.renderSettings.postProcessEffect = static_cast<int>(m_postProcessEffect);
-    scene.renderSettings.shaderViewMode = m_shaderViewMode;
     scene.renderSettings.coordinateGrid = m_showCoordinateGrid;
     scene.selectedObject = m_objects.empty() ? -1 : m_selectedObject;
 
@@ -1490,7 +1501,6 @@ bool Application::applyScene(const core::SceneDocument& scene, std::string& erro
     m_pointLightSpinAngle = std::atan2(m_pointLight.position.z, m_pointLight.position.x);
     m_postProcessEffect = static_cast<PostProcessEffect>(
         scene.renderSettings.postProcessEffect);
-    m_shaderViewMode = scene.renderSettings.shaderViewMode;
     m_showCoordinateGrid = scene.renderSettings.coordinateGrid;
     m_selectedObject = scene.selectedObject;
     m_firstMouse = true;
@@ -2066,6 +2076,60 @@ void Application::executeEditorMenuAction(
     }
 }
 
+void Application::executeEditorViewportAction(
+    core::EditorViewportAction action) {
+    switch (action) {
+        case core::EditorViewportAction::CycleViewMode:
+            m_shaderViewMode = (m_shaderViewMode + 1) % 5;
+            m_sceneOperationSucceeded = true;
+            m_sceneMessage = std::string("View mode: ") +
+                shaderViewModeName(m_shaderViewMode);
+            m_sceneMessageTime = 1.5f;
+            break;
+        case core::EditorViewportAction::CyclePostProcess: {
+            checkpointScene();
+            constexpr int effectCount =
+                static_cast<int>(PostProcessEffect::Crt) + 1;
+            const int nextEffect =
+                (static_cast<int>(m_postProcessEffect) + 1) % effectCount;
+            m_postProcessEffect = static_cast<PostProcessEffect>(nextEffect);
+            m_sceneOperationSucceeded = true;
+            m_sceneMessage = std::string("Post process: ") +
+                PostProcessor::effectName(m_postProcessEffect);
+            m_sceneMessageTime = 1.5f;
+            break;
+        }
+        case core::EditorViewportAction::SelectTranslate:
+            cancelGizmoDrag();
+            m_gizmoMode = core::EditorGizmoMode::Translate;
+            m_sceneOperationSucceeded = true;
+            m_sceneMessage = "Transform tool: Move";
+            m_sceneMessageTime = 1.5f;
+            break;
+        case core::EditorViewportAction::SelectRotate:
+            cancelGizmoDrag();
+            m_gizmoMode = core::EditorGizmoMode::Rotate;
+            m_sceneOperationSucceeded = true;
+            m_sceneMessage = "Transform tool: Rotate";
+            m_sceneMessageTime = 1.5f;
+            break;
+        case core::EditorViewportAction::ToggleGizmoSnap:
+            m_gizmoSnapEnabled = !m_gizmoSnapEnabled;
+            m_sceneOperationSucceeded = true;
+            if (!m_gizmoSnapEnabled) {
+                m_sceneMessage = "Gizmo snap disabled";
+            } else if (m_gizmoMode == core::EditorGizmoMode::Rotate) {
+                m_sceneMessage = "Gizmo snap enabled (15 degrees)";
+            } else {
+                m_sceneMessage = "Gizmo snap enabled (0.5 units)";
+            }
+            m_sceneMessageTime = 1.5f;
+            break;
+        case core::EditorViewportAction::None:
+            break;
+    }
+}
+
 void Application::setCameraInputActive(bool active) {
     if (m_window == nullptr) {
         return;
@@ -2625,9 +2689,11 @@ void Application::update(float dt) {
     }
 }
 
-core::EditorTranslationGizmo Application::selectedObjectGizmo(
+core::EditorTranslationGizmo Application::selectedObjectTranslationGizmo(
     const core::EditorLayout& layout) const {
-    if (m_camera == nullptr || !layout.viewport.valid() ||
+    if (m_gizmoMode != core::EditorGizmoMode::Translate ||
+        m_camera == nullptr ||
+        !layout.viewport.valid() ||
         m_selectedObject < 0 ||
         m_selectedObject >= static_cast<int>(m_objects.size())) {
         return {};
@@ -2645,14 +2711,38 @@ core::EditorTranslationGizmo Application::selectedObjectGizmo(
         projection);
 }
 
+core::EditorRotationGizmo Application::selectedObjectRotationGizmo(
+    const core::EditorLayout& layout) const {
+    if (m_gizmoMode != core::EditorGizmoMode::Rotate ||
+        m_camera == nullptr || !layout.viewport.valid() ||
+        m_selectedObject < 0 ||
+        m_selectedObject >= static_cast<int>(m_objects.size())) {
+        return {};
+    }
+
+    const float aspect = static_cast<float>(layout.viewport.width) /
+        static_cast<float>(layout.viewport.height);
+    const glm::mat4 projection = glm::perspective(
+        glm::radians(m_camera->fov), aspect,
+        kCameraNearPlane, kCameraFarPlane);
+    return core::calculateEditorRotationGizmo(
+        layout.viewport,
+        m_objects[static_cast<std::size_t>(m_selectedObject)].position,
+        m_camera->getViewMatrix(),
+        projection);
+}
+
 void Application::clearGizmoDrag() {
     m_activeGizmoAxis = core::EditorGizmoAxis::None;
-    m_activeGizmo = {};
+    m_activeTranslationGizmo = {};
+    m_activeRotationGizmo = {};
     m_gizmoDragStartCursor = {};
     m_gizmoDragStartPosition = glm::vec3(0.0f);
+    m_gizmoDragStartRotation = glm::vec3(0.0f);
+    m_gizmoDragStartSpinning = false;
     m_activeGizmoObjectId = 0;
     m_gizmoSceneBeforeDrag.reset();
-    m_gizmoLastMoveSnapped = false;
+    m_gizmoLastTransformSnapped = false;
 }
 
 void Application::cancelGizmoDrag() {
@@ -2663,10 +2753,27 @@ void Application::cancelGizmoDrag() {
             [this](const RenderObject& object) {
                 return object.runtimeId == m_activeGizmoObjectId;
             });
-        if (dragged != m_objects.end() &&
-            core::editorGizmoTranslationChanged(
-                m_gizmoDragStartPosition, dragged->position)) {
-            dragged->position = m_gizmoDragStartPosition;
+        if (dragged != m_objects.end()) {
+            const bool translated =
+                m_activeGizmoMode == core::EditorGizmoMode::Translate &&
+                core::editorGizmoTranslationChanged(
+                    m_gizmoDragStartPosition, dragged->position);
+            const bool rotated =
+                m_activeGizmoMode == core::EditorGizmoMode::Rotate &&
+                (core::editorGizmoRotationChanged(
+                     m_gizmoDragStartRotation, dragged->rotationDeg) ||
+                 dragged->spinning != m_gizmoDragStartSpinning);
+            if (translated) {
+                dragged->position = m_gizmoDragStartPosition;
+            }
+            if (rotated) {
+                dragged->rotationDeg = m_gizmoDragStartRotation;
+                dragged->spinning = m_gizmoDragStartSpinning;
+            }
+            if (!translated && !rotated) {
+                clearGizmoDrag();
+                return;
+            }
             if (m_selectedObject >= 0 &&
                 m_selectedObject < static_cast<int>(m_objects.size()) &&
                 m_objects[static_cast<std::size_t>(m_selectedObject)].runtimeId ==
@@ -2852,12 +2959,18 @@ void Application::render() {
             static_cast<float>(editorLayout.contentBrowserContent.height));
     }
     const core::EditorPoint editorCursor = cursorFramebufferPosition();
-    const core::EditorTranslationGizmo editorGizmo =
+    const bool canRenderGizmo =
         !m_benchmarkEnabled && !Menu::isOpen() &&
             m_openEditorMenu == core::EditorMenu::None &&
-            !m_closeConfirmationPending
-        ? selectedObjectGizmo(editorLayout)
+            !m_closeConfirmationPending;
+    const core::EditorTranslationGizmo editorTranslationGizmo =
+        canRenderGizmo
+        ? selectedObjectTranslationGizmo(editorLayout)
         : core::EditorTranslationGizmo{};
+    const core::EditorRotationGizmo editorRotationGizmo =
+        canRenderGizmo
+        ? selectedObjectRotationGizmo(editorLayout)
+        : core::EditorRotationGizmo{};
     const auto menuItemsEnabled = editorMenuItemsEnabled();
     m_renderer->beginUiPass();
     if (!m_benchmarkEnabled && m_editorChrome != nullptr) {
@@ -2873,11 +2986,16 @@ void Application::render() {
             m_selectedObject >= 0 &&
                 m_selectedObject < static_cast<int>(m_objects.size()),
             m_showCoordinateGrid,
+            m_shaderViewMode != 0,
+            m_postProcessEffect != PostProcessEffect::Normal,
+            m_gizmoMode,
+            m_gizmoSnapEnabled,
             Menu::isOpen(),
             m_closeConfirmationPending,
             m_openEditorMenu,
             editorCursor,
-            editorGizmo,
+            editorTranslationGizmo,
+            editorRotationGizmo,
             m_activeGizmoAxis,
             m_activePanelSplitter);
     }
@@ -3510,7 +3628,7 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
         m_openEditorMenu == core::EditorMenu::None &&
         !m_closeConfirmationPending) {
         const core::EditorTranslationGizmo gizmo =
-            selectedObjectGizmo(layout);
+            selectedObjectTranslationGizmo(layout);
         constexpr std::array<const char*, 3> axisLabels = {
             "X", "Y", "Z"};
         for (std::size_t index = 0; index < axisLabels.size(); ++index) {
@@ -3525,20 +3643,48 @@ void Application::renderEditorOverlay(const core::EditorLayout& layout) {
         }
     }
 
-    std::ostringstream viewportLabel;
-    viewportLabel << "Perspective  |  " << shaderViewModeName(m_shaderViewMode)
-                  << "  |  Post: "
-                  << PostProcessor::effectName(m_postProcessEffect);
-    const float viewportHeaderTextWidth = static_cast<float>(
-        (std::max)(0, layout.viewportHeader.width - 20));
+    renderButtonLabel(
+        layout.viewportViewModeButton,
+        std::string(shaderViewModeName(m_shaderViewMode)) + " >");
+    renderButtonLabel(
+        layout.viewportPostProcessButton,
+        std::string(postProcessToolbarName(m_postProcessEffect)) + " >");
+    renderButtonLabel(layout.viewportMoveButton, "Move");
+    renderButtonLabel(layout.viewportRotateButton, "Rotate");
+    renderButtonLabel(layout.viewportSnapButton, "Snap");
+
+    std::string viewportContext = "Perspective";
+    if (layout.viewportHeader.width >= 560) {
+        viewportContext += std::string("  |  Post: ") +
+            PostProcessor::effectName(m_postProcessEffect);
+    }
+    const float viewportContextWidth =
+        UIText::measureTextWidth(viewportContext, textScale);
+    const float viewportContextX = static_cast<float>(
+        layout.viewportHeader.x + layout.viewportHeader.width) -
+        viewportContextWidth - 10.0f;
+    const std::array viewportButtons = {
+        layout.viewportViewModeButton,
+        layout.viewportPostProcessButton,
+        layout.viewportMoveButton,
+        layout.viewportRotateButton,
+        layout.viewportSnapButton};
+    int viewportControlsRight = layout.viewportHeader.x;
+    for (const core::EditorRect& button : viewportButtons) {
+        if (button.valid()) {
+            viewportControlsRight = (std::max)(
+                viewportControlsRight, button.x + button.width);
+        }
+    }
+    if (viewportContextX >= viewportControlsRight + 10.0f) {
+        UIText::renderTextWithColor(
+            viewportContext,
+            viewportContextX,
+            static_cast<float>(layout.viewportHeader.y) + 8.0f,
+            textScale, 0.58f, 0.62f, 0.69f);
+    }
     const float viewportTextWidth = static_cast<float>(
         (std::max)(0, layout.viewport.width - 24));
-    UIText::renderTextWithColor(
-        ellipsizeUiText(
-            viewportLabel.str(), viewportHeaderTextWidth, textScale),
-        static_cast<float>(layout.viewportHeader.x) + 10.0f,
-        static_cast<float>(layout.viewportHeader.y) + 8.0f,
-        textScale, 0.78f, 0.81f, 0.86f);
 
     if (m_reloadMessageTime > 0.0f) {
         UIText::renderTextWithColor(
@@ -3801,6 +3947,7 @@ void Application::onKey(int key, int action, int mods) {
     }
     const bool cancelledGizmo =
         m_activeGizmoAxis != core::EditorGizmoAxis::None;
+    const core::EditorGizmoMode cancelledGizmoMode = m_activeGizmoMode;
     if (cancelledGizmo) {
         cancelGizmoDrag();
     } else {
@@ -3811,7 +3958,9 @@ void Application::onKey(int key, int action, int mods) {
 
     if (cancelledGizmo && key == GLFW_KEY_ESCAPE) {
         m_sceneOperationSucceeded = true;
-        m_sceneMessage = "Gizmo move cancelled";
+        m_sceneMessage = cancelledGizmoMode == core::EditorGizmoMode::Rotate
+            ? "Gizmo rotation cancelled"
+            : "Gizmo move cancelled";
         m_sceneMessageTime = 1.5f;
         return;
     }
@@ -3945,6 +4094,16 @@ void Application::onKey(int key, int action, int mods) {
             toggleVsync();
             return;
         }
+        if (!m_cameraInputActive && key == GLFW_KEY_W && noModifiers) {
+            executeEditorViewportAction(
+                core::EditorViewportAction::SelectTranslate);
+            return;
+        }
+        if (!m_cameraInputActive && key == GLFW_KEY_R && noModifiers) {
+            executeEditorViewportAction(
+                core::EditorViewportAction::SelectRotate);
+            return;
+        }
         if (noModifiers) {
             if (const auto command = objectTransformCommandForKey(key);
                 command.has_value()) {
@@ -4038,35 +4197,34 @@ void Application::onKey(int key, int action, int mods) {
         }
     }
 
-    if (key >= GLFW_KEY_1 && key <= GLFW_KEY_6) {
+    const bool viewportShortcutAllowed = !m_benchmarkEnabled &&
+        !Menu::isOpen() &&
+        m_openEditorMenu == core::EditorMenu::None;
+    if (viewportShortcutAllowed &&
+        key >= GLFW_KEY_1 && key <= GLFW_KEY_6) {
         const auto effect = static_cast<PostProcessEffect>(key - GLFW_KEY_1);
         if (effect != m_postProcessEffect) {
             checkpointScene();
             m_postProcessEffect = effect;
         }
-    } else if (key == GLFW_KEY_F1) {
+    } else if (viewportShortcutAllowed && key == GLFW_KEY_F1) {
         if (m_shaderViewMode != 0) {
-            checkpointScene();
             m_shaderViewMode = 0;
         }
-    } else if (key == GLFW_KEY_F2) {
+    } else if (viewportShortcutAllowed && key == GLFW_KEY_F2) {
         if (m_shaderViewMode != 1) {
-            checkpointScene();
             m_shaderViewMode = 1;
         }
-    } else if (key == GLFW_KEY_F3) {
+    } else if (viewportShortcutAllowed && key == GLFW_KEY_F3) {
         if (m_shaderViewMode != 2) {
-            checkpointScene();
             m_shaderViewMode = 2;
         }
-    } else if (key == GLFW_KEY_F4) {
+    } else if (viewportShortcutAllowed && key == GLFW_KEY_F4) {
         if (m_shaderViewMode != 3) {
-            checkpointScene();
             m_shaderViewMode = 3;
         }
-    } else if (key == GLFW_KEY_F6) {
+    } else if (viewportShortcutAllowed && key == GLFW_KEY_F6) {
         if (m_shaderViewMode != 4) {
-            checkpointScene();
             m_shaderViewMode = 4;
         }
     } else if (key == GLFW_KEY_F5) {
@@ -4262,28 +4420,52 @@ void Application::onMouseMove(double xpos, double ypos) {
 
         RenderObject& object =
             m_objects[static_cast<std::size_t>(m_selectedObject)];
-        const bool snapToGrid =
+        const bool snapTransform = m_gizmoSnapEnabled ||
             glfwGetKey(m_window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
             glfwGetKey(m_window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
-        const auto translated = core::calculateEditorGizmoTranslation(
-            m_activeGizmo,
-            m_activeGizmoAxis,
-            m_gizmoDragStartPosition,
-            m_gizmoDragStartCursor,
-            cursorFramebufferPosition(),
-            snapToGrid ? core::kObjectTranslationStep : 0.0f);
-        if (translated.has_value() &&
-            (translated->x != object.position.x ||
-             translated->y != object.position.y ||
-             translated->z != object.position.z)) {
-            object.position = *translated;
-            m_gizmoLastMoveSnapped = snapToGrid;
-            syncSelectedObjectToMenu();
-            m_sceneOperationSucceeded = true;
-            m_sceneMessage = std::string(snapToGrid ? "Snapping " : "Moving ") +
-                core::editorGizmoAxisName(m_activeGizmoAxis) + ": " +
-                object.name;
-            m_sceneMessageTime = 0.5f;
+        if (m_activeGizmoMode == core::EditorGizmoMode::Translate) {
+            const auto translated = core::calculateEditorGizmoTranslation(
+                m_activeTranslationGizmo,
+                m_activeGizmoAxis,
+                m_gizmoDragStartPosition,
+                m_gizmoDragStartCursor,
+                cursor,
+                snapTransform ? core::kObjectTranslationStep : 0.0f);
+            if (translated.has_value() &&
+                core::editorGizmoTranslationChanged(
+                    object.position, *translated)) {
+                object.position = *translated;
+                m_gizmoLastTransformSnapped = snapTransform;
+                syncSelectedObjectToMenu();
+                m_sceneOperationSucceeded = true;
+                m_sceneMessage = std::string(
+                    snapTransform ? "Snapping move " : "Moving ") +
+                    core::editorGizmoAxisName(m_activeGizmoAxis) + ": " +
+                    object.name;
+                m_sceneMessageTime = 0.5f;
+            }
+        } else {
+            const auto rotated = core::calculateEditorGizmoRotation(
+                m_activeRotationGizmo,
+                m_activeGizmoAxis,
+                m_gizmoDragStartRotation,
+                m_gizmoDragStartCursor,
+                cursor,
+                snapTransform ? core::kObjectRotationStepDegrees : 0.0f);
+            if (rotated.has_value() &&
+                core::editorGizmoRotationChanged(
+                    object.rotationDeg, *rotated)) {
+                object.rotationDeg = *rotated;
+                object.spinning = false;
+                m_gizmoLastTransformSnapped = snapTransform;
+                syncSelectedObjectToMenu();
+                m_sceneOperationSucceeded = true;
+                m_sceneMessage = std::string(
+                    snapTransform ? "Snapping rotation " : "Rotating ") +
+                    core::editorGizmoAxisName(m_activeGizmoAxis) + ": " +
+                    object.name;
+                m_sceneMessageTime = 0.5f;
+            }
         }
         m_lastX = static_cast<float>(xpos);
         m_lastY = static_cast<float>(ypos);
@@ -4409,23 +4591,32 @@ void Application::onMouseButton(int button, int action, int mods) {
             [this](const RenderObject& object) {
                 return object.runtimeId == m_activeGizmoObjectId;
             });
-        const bool moved = dragged != m_objects.end() &&
-            core::editorGizmoTranslationChanged(
-                m_gizmoDragStartPosition, dragged->position) &&
-            m_gizmoSceneBeforeDrag.has_value();
-        const bool snapped = m_gizmoLastMoveSnapped;
+        const core::EditorGizmoMode completedMode = m_activeGizmoMode;
+        const bool transformed = dragged != m_objects.end() &&
+            m_gizmoSceneBeforeDrag.has_value() &&
+            (completedMode == core::EditorGizmoMode::Translate
+                ? core::editorGizmoTranslationChanged(
+                      m_gizmoDragStartPosition, dragged->position)
+                : (core::editorGizmoRotationChanged(
+                       m_gizmoDragStartRotation, dragged->rotationDeg) ||
+                   dragged->spinning != m_gizmoDragStartSpinning));
+        const bool snapped = m_gizmoLastTransformSnapped;
         const std::string axisName =
             core::editorGizmoAxisName(m_activeGizmoAxis);
         std::optional<core::SceneDocument> sceneBeforeDrag =
             std::move(m_gizmoSceneBeforeDrag);
         clearGizmoDrag();
-        if (moved) {
+        if (transformed) {
             m_sceneHistory.record(std::move(*sceneBeforeDrag));
             markSceneEdited();
             m_sceneOperationSucceeded = true;
+            const std::string operation =
+                completedMode == core::EditorGizmoMode::Rotate
+                ? "rotation"
+                : "move";
             m_sceneMessage = snapped
-                ? "Gizmo snap committed on " + axisName
-                : "Gizmo move committed on " + axisName;
+                ? "Gizmo " + operation + " snapped on " + axisName
+                : "Gizmo " + operation + " committed on " + axisName;
             m_sceneMessageTime = 1.5f;
         }
         return;
@@ -4434,11 +4625,16 @@ void Application::onMouseButton(int button, int action, int mods) {
     if (button == GLFW_MOUSE_BUTTON_RIGHT) {
         const bool cancelledGizmo =
             m_activeGizmoAxis != core::EditorGizmoAxis::None;
+        const core::EditorGizmoMode cancelledMode = m_activeGizmoMode;
         cancelGizmoDrag();
         if (cancelledGizmo) {
+            setCameraInputActive(false);
             m_sceneOperationSucceeded = true;
-            m_sceneMessage = "Gizmo move cancelled";
+            m_sceneMessage = cancelledMode == core::EditorGizmoMode::Rotate
+                ? "Gizmo rotation cancelled"
+                : "Gizmo move cancelled";
             m_sceneMessageTime = 1.5f;
+            return;
         }
         if (action == GLFW_RELEASE) {
             setCameraInputActive(false);
@@ -4465,6 +4661,15 @@ void Application::onMouseButton(int button, int action, int mods) {
             Menu::processClick(
                 static_cast<float>(cursor.x),
                 static_cast<float>(cursor.y));
+            return;
+        }
+
+        const core::EditorViewportAction viewportAction =
+            core::editorViewportActionAt(layout, cursor);
+        if (!m_cameraInputActive &&
+            viewportAction != core::EditorViewportAction::None) {
+            setCameraInputActive(false);
+            executeEditorViewportAction(viewportAction);
             return;
         }
 
@@ -4559,27 +4764,42 @@ void Application::onMouseButton(int button, int action, int mods) {
             }
         }
 
-        const core::EditorTranslationGizmo gizmo =
-            selectedObjectGizmo(layout);
+        const core::EditorTranslationGizmo translationGizmo =
+            selectedObjectTranslationGizmo(layout);
+        const core::EditorRotationGizmo rotationGizmo =
+            selectedObjectRotationGizmo(layout);
         const core::EditorGizmoAxis gizmoAxis =
-            core::editorGizmoAxisAt(gizmo, cursor);
+            m_gizmoMode == core::EditorGizmoMode::Translate
+            ? core::editorGizmoAxisAt(translationGizmo, cursor)
+            : core::editorRotationGizmoAxisAt(rotationGizmo, cursor);
         if (gizmoAxis != core::EditorGizmoAxis::None &&
             m_selectedObject >= 0 &&
             m_selectedObject < static_cast<int>(m_objects.size())) {
             setCameraInputActive(false);
             m_activeGizmoAxis = gizmoAxis;
-            m_activeGizmo = gizmo;
+            m_activeGizmoMode = m_gizmoMode;
+            m_activeTranslationGizmo = translationGizmo;
+            m_activeRotationGizmo = rotationGizmo;
             m_gizmoDragStartCursor = cursor;
-            const RenderObject& object =
+            RenderObject& object =
                 m_objects[static_cast<std::size_t>(m_selectedObject)];
             m_gizmoDragStartPosition = object.position;
+            m_gizmoDragStartRotation = object.rotationDeg;
+            m_gizmoDragStartSpinning = object.spinning;
             m_activeGizmoObjectId = object.runtimeId;
             m_gizmoSceneBeforeDrag = captureScene();
-            m_gizmoLastMoveSnapped = false;
+            if (m_gizmoMode == core::EditorGizmoMode::Rotate) {
+                object.spinning = false;
+            }
+            m_gizmoLastTransformSnapped = false;
             m_sceneOperationSucceeded = true;
             m_sceneMessage = std::string("Drag ") +
                 core::editorGizmoAxisName(gizmoAxis) +
-                " axis | Hold Ctrl to snap";
+                (m_gizmoSnapEnabled
+                    ? (m_gizmoMode == core::EditorGizmoMode::Rotate
+                        ? " axis | Snap 15 deg enabled"
+                        : " axis | Snap 0.5 enabled")
+                    : " axis | Hold Ctrl to snap");
             m_sceneMessageTime = 1.0f;
             return;
         }

@@ -28,11 +28,16 @@ public:
         bool canDuplicateObject,
         bool canDeleteObject,
         bool gridEnabled,
+        bool debugViewEnabled,
+        bool postProcessEnabled,
+        core::EditorGizmoMode gizmoMode,
+        bool gizmoSnapEnabled,
         bool menuOpen,
         bool closeDialogOpen,
         core::EditorMenu openEditorMenu,
         core::EditorPoint cursor,
-        const core::EditorTranslationGizmo& gizmo,
+        const core::EditorTranslationGizmo& translationGizmo,
+        const core::EditorRotationGizmo& rotationGizmo,
         core::EditorGizmoAxis activeGizmoAxis,
         core::EditorPanelSplitter activePanelSplitter);
     void renderMenuPopup(
